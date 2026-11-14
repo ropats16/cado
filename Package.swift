@@ -201,7 +201,7 @@ let whisperImporterSettings: [SwiftSetting] = [
 ]
 
 let package = Package(
-    name: "VoiceType",
+    name: "Zesty",
     platforms: [.macOS(.v14)],
     dependencies: [
         // Parakeet (NVIDIA's TDT ASR) on Core ML, for the Parakeet engine. Pinned
@@ -241,13 +241,13 @@ let package = Package(
             linkerSettings: [.linkedFramework("AudioToolbox")]
         ),
         .executableTarget(
-            name: "VoiceType",
+            name: "Zesty",
             dependencies: [
                 "CWhisper", "CAudioRing",
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
             ],
-            path: "Sources/VoiceType",
+            path: "Sources/Zesty",
             swiftSettings: whisperImporterSettings,
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -256,10 +256,10 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "VoiceTypeTests",
-            dependencies: ["VoiceType"],
-            path: "Tests/VoiceTypeTests",
-            // `@testable import VoiceType` re-imports CWhisper, so the test
+            name: "ZestyTests",
+            dependencies: ["Zesty"],
+            path: "Tests/ZestyTests",
+            // `@testable import Zesty` re-imports CWhisper, so the test
             // target's Clang importer needs the same header dirs.
             swiftSettings: whisperImporterSettings
         ),

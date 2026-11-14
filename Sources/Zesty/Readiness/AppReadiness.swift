@@ -1,0 +1,201 @@
+import Foundation
+
+/// Everything readiness is computed from.
+struct ReadinessInputs: Equatable {
+    var accessibility: AccessibilityPermission
+    var microphone: MicrophonePermission
+    var engine: EngineReadiness
+    var hotkeyTap: HotkeyTapHealth
+}
+
+/// What the user can do about an issue; the menu, onboarding and overlay map
+/// it to a button.
+enum ReadinessAction: Equatable {
+    case openAccessibilitySettings
+    case openMicrophoneSettings
+    /// Show the system microphone prompt (only possible while undetermined).
+    case requestMicrophone
+    /// Where the model file goes, to drop in or re-download one.
+    case openModelsFolder
+    /// Settings' Model section, for a model it downloads (Download button,
+    /// or Apple Speech's OS-managed model).
+    case openSettings
+}
+
+/// One reason the app can't dictate (yet).
+enum ReadinessIssue: Equatable {
+    case accessibilityNeeded
+    case microphoneDenied
+    case microphoneRestricted
+    case microphoneNotDetermined
+    case modelMissing(path: String, download: ModelDownloadHint?)
+    /// The file exists but wouldn't load, including a checksum mismatch
+    /// (`reason` says which).
+    case modelFailed(reason: String, download: ModelDownloadHint?)
+    case hotkeyTapFailed
+    /// Transient: Accessibility is granted and the tap is about to be installed.
+    case hotkeysStarting
+    /// Transient: a not-yet-checked model file is being hashed.
+    case modelVerifying
+    /// Transient: the model is loading (or `load()` hasn't run yet).
+    case modelLoading
+    /// Transient: `modelLoading` for the model's first load on this Mac,
+    /// which compiles it (Core ML; `EngineReadiness.isFirstLoad`).
+    case modelPreparing
+
+    /// Settles by itself, no user action needed.
+    var isTransient: Bool {
+        switch self {
+        case .hotkeysStarting, .modelVerifying, .modelLoading, .modelPreparing: return true
+        default: return false
+        }
+    }
+
+    /// Short, for the menu header and notices (`AppStatus.headline`).
+    var title: String {
+        switch self {
+        case .accessibilityNeeded: return "Needs Accessibility"
+        case .microphoneDenied, .microphoneNotDetermined: return "Needs Microphone"
+        case .microphoneRestricted: return "Microphone restricted"
+        case .modelMissing: return "Model missing"
+        case .modelFailed: return "Model failed to load"
+        case .hotkeyTapFailed: return "Hotkeys unavailable"
+        case .hotkeysStarting: return "Starting hotkeys…"
+        case .modelVerifying: return "Verifying model…"
+        case .modelLoading: return "Loading model…"
+        case .modelPreparing: return "Preparing model…"
+        }
+    }
+
+    /// One line on how to fix it.
+    var detail: String {
+        switch self {
+        case .accessibilityNeeded:
+            return "Allow Zesty in System Settings › Privacy & Security › Accessibility for hotkeys and pasting."
+        case .microphoneDenied:
+            return "Turn Zesty on in System Settings › Privacy & Security › Microphone."
+        case .microphoneRestricted:
+            return "Microphone access is restricted on this Mac (e.g. by a profile)."
+        case .microphoneNotDetermined:
+            return "Allow Zesty to use the microphone."
+        case .modelMissing(_, let download):
+            return ModelHints.missing(download: download)
+        case .modelFailed(_, let download):
+            return ModelHints.failed(download: download)
+        case .hotkeyTapFailed:
+            return "Couldn't install the hotkey listener; retrying. Re-granting Accessibility usually fixes it."
+        case .hotkeysStarting:
+            return "Installing the hotkey listener."
+        case .modelVerifying:
+            return "Checking the model file (first use only)."
+        case .modelLoading:
+            return "Loading the transcription model."
+        case .modelPreparing:
+            return ModelHints.preparing
+        }
+    }
+
+    var action: ReadinessAction? {
+        switch self {
+        case .accessibilityNeeded, .hotkeyTapFailed: return .openAccessibilitySettings
+        case .microphoneDenied, .microphoneRestricted: return .openMicrophoneSettings
+        case .microphoneNotDetermined: return .requestMicrophone
+        case .modelMissing(_, .inApp?), .modelMissing(_, .instructions?): return .openSettings
+        case .modelMissing, .modelFailed: return .openModelsFolder
+        case .hotkeysStarting, .modelVerifying, .modelLoading, .modelPreparing: return nil
+        }
+    }
+}
+
+/// The one app-wide readiness value the menu (and later onboarding and the
+/// overlay) render.
+enum AppStatus: Equatable {
+    case ready
+    /// Will settle by itself; `issue.isTransient`.
+    case starting(ReadinessIssue)
+    /// Needs the user; `!issue.isTransient`.
+    case notReady(ReadinessIssue)
+
+    var issue: ReadinessIssue? {
+        switch self {
+        case .ready: return nil
+        case .starting(let issue), .notReady(let issue): return issue
+        }
+    }
+
+    var title: String { issue?.title ?? "Ready" }
+
+    /// "Zesty — <title>": the menu header, and the title of a blocked
+    /// press's notice.
+    var headline: String { "Zesty — \(title)" }
+
+    /// Whether a hotkey press should start a recording. A loading or
+    /// verifying (or preparing) model doesn't block it (the job queues behind the load);
+    /// anything else does — notably a denied mic, which would record silence.
+    var allowsDictation: Bool {
+        switch self {
+        case .ready, .starting(.modelLoading), .starting(.modelPreparing), .starting(.modelVerifying): return true
+        default: return false
+        }
+    }
+}
+
+/// Pure: inputs → issues → status.
+///
+/// Priority (first applicable wins; `issues(for:)` lists them in this order):
+///  1. Accessibility needed — nothing works without it (no tap, no paste).
+///  2. Microphone denied / restricted / not determined (mutually exclusive).
+///  3. Model missing.
+///  4. Model failed to load (incl. checksum mismatch).
+///  5. Hotkey tap failed (only with Accessibility granted).
+///  — transient, shown only when nothing above applies —
+///  6. Hotkeys starting (Accessibility granted, tap not installed yet).
+///  7. Model verifying.
+///  8. Model loading (preparing, on its first load).
+///
+/// Actionable before transient: the user can fix a permission while the model
+/// loads. Permissions before the model: they're the first-run steps, in
+/// onboarding order. A tap issue is never shown while Accessibility is
+/// denied: one cause, one reason.
+enum AppReadiness {
+    static func issues(for inputs: ReadinessInputs) -> [ReadinessIssue] {
+        var issues: [ReadinessIssue] = []
+        let engine = inputs.engine
+        let axGranted = inputs.accessibility == .granted
+
+        if !axGranted { issues.append(.accessibilityNeeded) }
+
+        switch inputs.microphone {
+        case .authorized: break
+        case .denied: issues.append(.microphoneDenied)
+        case .restricted: issues.append(.microphoneRestricted)
+        case .notDetermined: issues.append(.microphoneNotDetermined)
+        }
+
+        switch engine.status {
+        case .missing:
+            issues.append(.modelMissing(path: engine.modelPath, download: engine.download))
+        case .failed(let reason):
+            issues.append(.modelFailed(reason: reason, download: engine.download))
+        case .notLoaded, .verifying, .loading, .ready:
+            break
+        }
+
+        if axGranted && inputs.hotkeyTap == .failed { issues.append(.hotkeyTapFailed) }
+
+        if axGranted && inputs.hotkeyTap == .notInstalled { issues.append(.hotkeysStarting) }
+
+        switch engine.status {
+        case .verifying: issues.append(.modelVerifying)
+        case .notLoaded, .loading: issues.append(engine.isFirstLoad ? .modelPreparing : .modelLoading)
+        case .missing, .failed, .ready: break
+        }
+
+        return issues
+    }
+
+    static func status(for inputs: ReadinessInputs) -> AppStatus {
+        guard let top = issues(for: inputs).first else { return .ready }
+        return top.isTransient ? .starting(top) : .notReady(top)
+    }
+}

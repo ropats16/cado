@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>VoiceType</string>
+    <string>Zesty</string>
     <key>CFBundleDisplayName</key>
-    <string>VoiceType</string>
+    <string>Zesty</string>
     <key>CFBundleIdentifier</key>
-    <string>com.local.VoiceType</string>
+    <string>com.ropats16.Zesty</string>
     <key>CFBundleExecutable</key>
-    <string>VoiceType</string>
+    <string>Zesty</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -26,6 +26,6 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>VoiceType records your voice locally to transcribe it into text. Audio is processed on-device and never leaves your Mac.</string>
+    <string>Zesty records your voice locally to transcribe it into text. Audio is processed on-device and never leaves your Mac.</string>
 </dict>
 </plist>

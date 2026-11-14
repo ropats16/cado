@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetch the benchmark fixtures for `VoiceType --bench` into a git-ignored dir.
+# Fetch the benchmark fixtures for `Zesty --bench` into a git-ignored dir.
 #
 # Usage: scripts/fetch_bench_fixtures.sh [--dir DIR] [--tarball PATH] [--keep-download]
 #   --dir DIR        where to write fixtures (default: .bench/fixtures in the repo)
@@ -121,7 +121,7 @@ if [[ "$actual" != "$TARBALL_SHA256" ]]; then
 fi
 
 # --- Extract only what we use --------------------------------------------------
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/voicetype-bench.XXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/zesty-bench.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 members=(LibriSpeech/LICENSE.TXT)
 for id in "${SHORT_IDS[@]}"; do
@@ -159,7 +159,7 @@ PY
 }
 
 {
-  echo "# VoiceType bench fixtures — written by scripts/fetch_bench_fixtures.sh"
+  echo "# Zesty bench fixtures — written by scripts/fetch_bench_fixtures.sh"
   echo "# kind<TAB>path<TAB>reference"
 } > manifest.tsv
 

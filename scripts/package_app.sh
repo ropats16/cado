@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build (release) and assemble a self-contained dist/VoiceType.app, ad-hoc signed.
+# Build (release) and assemble a self-contained dist/Zesty.app, ad-hoc signed.
 #
 # Usage: scripts/package_app.sh [--install]
 #   --install   also copy the .app to /Applications
@@ -14,8 +14,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 
-APP_NAME="VoiceType"
-BUNDLE_ID="com.local.VoiceType"
+APP_NAME="Zesty"
+BUNDLE_ID="com.ropats16.Zesty"
 APP="$ROOT/dist/$APP_NAME.app"
 INSTALL=0
 if [[ "${1:-}" == "--install" ]]; then
@@ -48,9 +48,9 @@ bash "$ROOT/scripts/create_signing_cert.sh" || true
 # Prefer the stable self-signed identity (TCC grants survive rebuilds); fall
 # back to ad-hoc if it isn't available.
 SIGN_ID="-"
-if security find-identity -p codesigning 2>/dev/null | grep -q "VoiceType Self-Signed"; then
-  SIGN_ID="VoiceType Self-Signed"
-  security unlock-keychain -p "voicetype-local" "$HOME/Library/Keychains/voicetype-signing.keychain-db" 2>/dev/null || true
+if security find-identity -p codesigning 2>/dev/null | grep -q "Zesty Self-Signed"; then
+  SIGN_ID="Zesty Self-Signed"
+  security unlock-keychain -p "zesty-local" "$HOME/Library/Keychains/zesty-signing.keychain-db" 2>/dev/null || true
   echo "==> Codesigning with '$SIGN_ID' (identifier $BUNDLE_ID) — grants persist across rebuilds"
 else
   echo "==> Ad-hoc codesigning (identifier $BUNDLE_ID) — grants will NOT survive rebuilds"

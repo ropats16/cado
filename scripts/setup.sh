@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-shot setup: detect hardware, fetch whisper.cpp, embed the Metal shader
 # (auto-skipped on Intel), download the model, then build and package
-# dist/VoiceType.app.
+# dist/Zesty.app.
 #
 # Usage: scripts/setup.sh [model]
 #   model: any id in scripts/model_catalog.sh (e.g. small.en-q5_1, medium.en)
@@ -43,18 +43,18 @@ echo "==> [4/5] Configuring the model"
 # user already has. With no explicit model the app needs no config entry: it
 # auto-picks by itself (the same table this script used). The app tolerates a
 # partial config: every other key falls back to its default via
-# Config.init(from:). VOICETYPE_APP_SUPPORT overrides the base dir (the same
+# Config.init(from:). ZESTY_APP_SUPPORT overrides the base dir (the same
 # rule the app uses), so this step is testable without touching the real config.
 # shellcheck source=model_catalog.sh
 source "$ROOT/scripts/model_catalog.sh"
-CONFIG="$VOICETYPE_SUPPORT_DIR/config.json"
+CONFIG="$ZESTY_SUPPORT_DIR/config.json"
 if [[ -f "$CONFIG" ]]; then
   echo "✓ existing config preserved: $CONFIG"
   echo "  note: if it sets \"modelPath\" or \"model\", the app keeps using that model."
   echo "        To use $MODEL, pick it in Settings, or set \"model\": \"auto\" (or"
   echo "        \"$MODEL\") and remove \"modelPath\"."
 elif [[ "$EXPLICIT_MODEL" == 1 ]]; then
-  mkdir -p "$VOICETYPE_SUPPORT_DIR"
+  mkdir -p "$ZESTY_SUPPORT_DIR"
   printf '{\n  "model": "%s"\n}\n' "$MODEL" > "$CONFIG"
   echo "✓ wrote starter config: $CONFIG (model -> $MODEL)"
 else
@@ -73,5 +73,5 @@ echo "  1. Install to /Applications:   make install"
 echo "  2. Grant permissions on first run (you only do this once — the app is"
 echo "     signed with a stable certificate, so grants survive rebuilds):"
 echo "       • Microphone    — prompted on first launch"
-echo "       • Accessibility — System Settings → Privacy & Security → Accessibility → enable VoiceType"
+echo "       • Accessibility — System Settings → Privacy & Security → Accessibility → enable Zesty"
 echo "  3. Hold Control + Shift to dictate; release to insert at your cursor."

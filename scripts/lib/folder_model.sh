@@ -4,7 +4,7 @@
 # A folder model is pinned file by file in a table, scripts/<engine>_files.tsv:
 #   id <TAB> source (repo/resolve/<commit>/path) <TAB> local path <TAB> bytes <TAB> sha256
 # The folder is assembled in <model>.part/, each file resumed (curl -C -) and
-# checked against its pin. Then the manifest (voicetype-manifest.sha256: one
+# checked against its pin. Then the manifest (zesty-manifest.sha256: one
 # `<sha256>  <path>` line per file, sorted by path, `shasum -a 256` format) is
 # written last and the folder renamed into place. The app treats a catalog
 # folder as installed once its manifest is there, and verifies the folder
@@ -18,7 +18,7 @@
 # shellcheck source=../model_catalog.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../model_catalog.sh"
 
-FOLDER_MODEL_MANIFEST="voicetype-manifest.sha256"
+FOLDER_MODEL_MANIFEST="zesty-manifest.sha256"
 
 fm_say() { echo "$@" >&2; }
 fm_file_size() { stat -f%z "$1" 2>/dev/null || echo 0; }
@@ -37,7 +37,7 @@ fm_folder_ok() {
 }
 
 # download_folder_model <table> <subdir> <model> <base url>
-# Fetches <model> into $VOICETYPE_MODELS_DIR/<subdir>/<model>/ (a no-op when
+# Fetches <model> into $ZESTY_MODELS_DIR/<subdir>/<model>/ (a no-op when
 # it's already complete). Progress goes to stderr; the folder's path is
 # printed on stdout.
 download_folder_model() {
@@ -48,7 +48,7 @@ download_folder_model() {
     fm_say "error: unknown $subdir model '$model'. Known models: $(fm_known_ids "$table")"
     return 1
   fi
-  dest="$VOICETYPE_MODELS_DIR/$subdir/$model"
+  dest="$ZESTY_MODELS_DIR/$subdir/$model"
   part="$dest.part"
   mkdir -p "$(dirname "$dest")"
 

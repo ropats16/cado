@@ -1,18 +1,18 @@
 # Shared model table for the shell scripts (sourced, not run). It mirrors the
-# app's engine catalog (Sources/VoiceType/Transcription/ModelCatalog.swift) —
+# app's engine catalog (Sources/Zesty/Transcription/ModelCatalog.swift) —
 # ids, pinned SHA-256s, sizes, and the chip + RAM auto-pick — and
 # ModelCatalogScriptParityTests fails if the two drift.
 #
 # Also the one rule for where models live, shared with the app's Paths.swift:
-# a non-empty VOICETYPE_APP_SUPPORT replaces
-# ~/Library/Application Support/VoiceType, and models go in its models/ folder.
+# a non-empty ZESTY_APP_SUPPORT replaces
+# ~/Library/Application Support/Zesty, and models go in its models/ folder.
 
-VOICETYPE_SUPPORT_DIR="${VOICETYPE_APP_SUPPORT:-$HOME/Library/Application Support/VoiceType}"
-VOICETYPE_MODELS_DIR="$VOICETYPE_SUPPORT_DIR/models"
+ZESTY_SUPPORT_DIR="${ZESTY_APP_SUPPORT:-$HOME/Library/Application Support/Zesty}"
+ZESTY_MODELS_DIR="$ZESTY_SUPPORT_DIR/models"
 
 # id  sha256  bytes   (file: ggml-<id>.bin on huggingface.co/ggerganov/whisper.cpp)
 # BEGIN MODELS
-VOICETYPE_MODELS="
+ZESTY_MODELS="
 tiny.en-q5_1         c77c5766f1cef09b6b7d47f21b546cbddd4157886b3b5d6d4f709e91e66c7c2b 32166155
 tiny.en-q8_0         5bc2b3860aa151a4c6e7bb095e1fcce7cf12c7b020ca08dcec0c6d018bb7dd94 43550795
 tiny.en              921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f 77704715
@@ -47,14 +47,14 @@ large-v3-q5_0        d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd
 # model_field <id> <2=sha256|3=bytes> — prints the field, or fails for an unknown id.
 model_field() {
   local row
-  row="$(awk -v id="$1" '$1 == id { print $'"$2"' }' <<<"$VOICETYPE_MODELS")"
+  row="$(awk -v id="$1" '$1 == id { print $'"$2"' }' <<<"$ZESTY_MODELS")"
   [[ -n "$row" ]] || return 1
   printf '%s' "$row"
 }
 
 # The known ids, space-separated (for usage/error messages).
 model_ids() {
-  awk 'NF { printf "%s%s", sep, $1; sep = " " }' <<<"$VOICETYPE_MODELS"
+  awk 'NF { printf "%s%s", sep, $1; sep = " " }' <<<"$ZESTY_MODELS"
 }
 
 # recommended_model <arch> <whole-GiB RAM> — the app's auto-pick (English).

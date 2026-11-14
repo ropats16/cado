@@ -10,7 +10,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUT="$HERE/../Sources/VoiceType/Transcription/FolderModelPins+Tables.swift"
+OUT="$HERE/../Sources/Zesty/Transcription/FolderModelPins+Tables.swift"
 
 table() {   # <swift name> <tsv>
   printf '    static let %s = #"""\n' "$1"
