@@ -1,4 +1,4 @@
-# VoiceType
+# Zesty
 
 Local, private, system-wide voice dictation for macOS. Hold a hotkey, speak,
 and your words are transcribed **entirely on your Mac** with
@@ -102,11 +102,11 @@ If it says the tools are already installed, you're good.
 ### 2. Get the code
 
 ```sh
-git clone https://github.com/ropats16/voicetype.git voicetype
-cd voicetype
+git clone https://github.com/ropats16/zesty.git zesty
+cd zesty
 ```
 
-(Every command after this is run from inside the `voicetype` folder.)
+(Every command after this is run from inside the `zesty` folder.)
 
 ### 3. Build it and download the speech model
 
@@ -128,19 +128,19 @@ builds and packages the app. Let it finish.
 make install
 ```
 
-This copies **VoiceType.app** to your Applications folder and opens it. Look for
+This copies **Zesty.app** to your Applications folder and opens it. Look for
 a small **🎙️ microphone icon in your menu bar** (top-right of the screen). Click
 it to see the app's status and controls.
 
 ### 5. Grant the two permissions
 
-VoiceType needs two macOS permissions. Click the 🎙️ menu-bar icon to see their
+Zesty needs two macOS permissions. Click the 🎙️ menu-bar icon to see their
 status; both must say **Granted** before dictation works.
 
 1. **Microphone** — so it can hear you. The first time you dictate, macOS asks
    for permission; click **Allow**.
 2. **Accessibility** — so the hotkey works and it can type into other apps. Open
-   **System Settings → Privacy & Security → Accessibility**, find **VoiceType**
+   **System Settings → Privacy & Security → Accessibility**, find **Zesty**
    in the list, and turn its switch **on**. (The menu's "Accessibility: Not
    granted" line opens this screen for you.)
 
@@ -157,7 +157,40 @@ capitalization. Try it in Notes, Chrome, Slack, or the Terminal.
 
 ---
 
-## Using VoiceType day to day
+## Upgrading from VoiceType
+
+Zesty was called VoiceType. If you had VoiceType installed:
+
+- **Your settings and models move over by themselves.** On first launch Zesty
+  moves `~/Library/Application Support/VoiceType/` to `…/Zesty/` (config and
+  models, no re-download), unless the Zesty folder already has data or
+  `ZESTY_APP_SUPPORT` is set. If you used `VOICETYPE_APP_SUPPORT`, set
+  `ZESTY_APP_SUPPORT` instead.
+- **Grant the permissions again, once.** The bundle ID changed, so macOS treats
+  Zesty as a new app: grant Microphone and Accessibility as in
+  [step 5](#5-grant-the-two-permissions). Remove the stale **VoiceType** entry
+  from **System Settings → Privacy & Security → Accessibility** (the **–**
+  button), or reset both old grants:
+
+  ```sh
+  tccutil reset Accessibility com.local.VoiceType
+  tccutil reset Microphone com.local.VoiceType
+  ```
+
+- **Launch at login** doesn't carry over: if you used it, turn on **Launch Zesty
+  at login** in Settings again.
+- **Clean up the old app** — quit VoiceType and delete it; optionally remove its
+  old signing keychain:
+
+  ```sh
+  pkill -x VoiceType
+  rm -rf /Applications/VoiceType.app
+  security delete-keychain ~/Library/Keychains/voicetype-signing.keychain-db
+  ```
+
+---
+
+## Using Zesty day to day
 
 - **Hold Control + Shift** to record; **release** to transcribe and insert.
 - Or **toggle**: press **⌃⌥Space** once to start, press again to stop — handy for
@@ -170,7 +203,7 @@ capitalization. Try it in Notes, Chrome, Slack, or the Terminal.
 - Your existing clipboard is restored after each dictation, so dictating never
   overwrites something you copied. (A password-manager copy isn't put back, so
   its auto-clear still holds — the dictation stays on the clipboard instead.)
-- Quit anytime from the 🎙️ menu (**Quit VoiceType**).
+- Quit anytime from the 🎙️ menu (**Quit Zesty**).
 
 ---
 
@@ -180,11 +213,11 @@ Settings live in a plain text file you can open from the menu
 (**Open Config File…**) or at:
 
 ```
-~/Library/Application Support/VoiceType/config.json
+~/Library/Application Support/Zesty/config.json
 ```
 
 **Speech engine.** By default (**Automatic** in Settings, `"engine": "auto"`)
-VoiceType picks the engine from what's already downloaded — it never downloads
+Zesty picks the engine from what's already downloaded — it never downloads
 anything by itself:
 
 | Mac / language | Engine |
@@ -211,7 +244,7 @@ downloaded show under **Not downloaded** in Settings with the command to fetch
 them. Downloads land in a `.part` file and only get their real name once
 complete and checksum-verified. A file that doesn't match its published SHA-256
 is refused; the first use of a new file shows **Verifying…** while it's hashed
-(once — the result is cached). If a switch fails, VoiceType keeps (or goes back
+(once — the result is cached). If a switch fails, Zesty keeps (or goes back
 to) the model it was using and Settings says why.
 
 **Language.** English-only (`.en`) models always transcribe English. With a
@@ -228,10 +261,10 @@ Unload when idle.
 > `scripts/detect_hardware.sh` — it reports the detected arch, RAM, and the
 > model (diagnostic only; it changes nothing). The app logs its pick at launch.
 
-**Where models live.** `~/Library/Application Support/VoiceType/models/`. To
-relocate everything (config, models), set `VOICETYPE_APP_SUPPORT` to another
+**Where models live.** `~/Library/Application Support/Zesty/models/`. To
+relocate everything (config, models), set `ZESTY_APP_SUPPORT` to another
 folder — the app (when launched from that shell, e.g. `swift run`) and every
-script honour it the same way, using `$VOICETYPE_APP_SUPPORT/models`.
+script honour it the same way, using `$ZESTY_APP_SUPPORT/models`.
 
 **Change the hotkey.** The `hold` setting is the trigger. The default is a
 pure-modifier combo (it types no character anywhere):
@@ -265,13 +298,13 @@ keypress isn't inserted into your text.
 **Cancel key.** `cancelKeyCode` is the key that aborts an in-progress recording
 (default `53` = Esc).
 
-After editing, relaunch VoiceType (quit from the menu, reopen from Applications).
-If a binding is empty, unmatchable, or `hold` and `toggle` collide, VoiceType
+After editing, relaunch Zesty (quit from the menu, reopen from Applications).
+If a binding is empty, unmatchable, or `hold` and `toggle` collide, Zesty
 logs the problem at startup and the menu shows a **Config issue** warning.
 
 | Setting               | What it does                                        |
 |-----------------------|-----------------------------------------------------|
-| `engine`              | Speech engine: `auto` (default, also when the key is missing — unless an older config hand-set a whisper `model`/`modelPath`, which stays on `whisper`: Turbo, else Apple Speech, else whisper, among engines already downloaded — see **Speech engine** above); `whisper` (whisper.cpp, any Mac, the fallback); `whisperkit` (Core ML, Apple Silicon; models via Settings › Model › Download, or `make whisperkit-model WHISPERKIT=<id>`); `parakeet` ("Turbo": Apple Silicon, English + 24 EU languages, picked explicitly, not under auto-detect; model via Settings › Model › Download, or `make parakeet-model`). A Core ML model's first load on a Mac (and after a macOS update) compiles it: "Preparing model for this Mac" meanwhile; `apple-speech` (macOS 26; models managed by macOS, downloaded from Settings). If it can't run on this Mac or in the chosen language, VoiceType uses whisper and says why (the setting is kept). |
+| `engine`              | Speech engine: `auto` (default, also when the key is missing — unless an older config hand-set a whisper `model`/`modelPath`, which stays on `whisper`: Turbo, else Apple Speech, else whisper, among engines already downloaded — see **Speech engine** above); `whisper` (whisper.cpp, any Mac, the fallback); `whisperkit` (Core ML, Apple Silicon; models via Settings › Model › Download, or `make whisperkit-model WHISPERKIT=<id>`); `parakeet` ("Turbo": Apple Silicon, English + 24 EU languages, picked explicitly, not under auto-detect; model via Settings › Model › Download, or `make parakeet-model`). A Core ML model's first load on a Mac (and after a macOS update) compiles it: "Preparing model for this Mac" meanwhile; `apple-speech` (macOS 26; models managed by macOS, downloaded from Settings). If it can't run on this Mac or in the chosen language, Zesty uses whisper and says why (the setting is kept). |
 | `model`               | whisper's model: `auto` (default: pick for this Mac) or a model id, e.g. `small.en-q5_1`. |
 | `modelPath`           | A specific whisper model `.bin` file; overrides `model` when set (default empty). |
 | `engineModels`        | Other engines' model picks by engine id, e.g. `{"whisperkit": "auto"}` (unset = `auto`). |
@@ -297,13 +330,13 @@ Accessibility it should keep working across rebuilds. If it ever gets stuck
 again:
 
 ```sh
-pkill -x VoiceType                                  # quit the app
-tccutil reset Accessibility com.local.VoiceType     # clear the stale grant
-open /Applications/VoiceType.app                    # relaunch
+pkill -x Zesty                                  # quit the app
+tccutil reset Accessibility com.ropats16.Zesty  # clear the stale grant
+open /Applications/Zesty.app                    # relaunch
 ```
 
 Then re-grant Accessibility in **System Settings → Privacy & Security →
-Accessibility** (remove any old "VoiceType" entry with the **–** button first,
+Accessibility** (remove any old "Zesty" entry with the **–** button first,
 then toggle the new one on).
 
 **The hotkey does nothing.**
@@ -322,7 +355,7 @@ Usually a corrupt or incomplete download (it failed its checksum). Delete the
 file from the models folder and run `make model MODEL=<name>` again.
 
 **Text doesn't appear after I speak.**
-If no text field is focused, VoiceType copies the transcript to your clipboard
+If no text field is focused, Zesty copies the transcript to your clipboard
 and shows a notification — click into a field first, or just paste with ⌘V.
 Very short recordings (a fraction of a second) are ignored on purpose.
 
@@ -333,8 +366,8 @@ macOS 14+ with an Apple-Silicon Mac.
 **Check the engine without any of the UI/permissions** (handy sanity test):
 
 ```sh
-.build/release/VoiceType --selftest \
-  --model "$HOME/Library/Application Support/VoiceType/models/ggml-medium.en.bin" \
+.build/release/Zesty --selftest \
+  --model "$HOME/Library/Application Support/Zesty/models/ggml-medium.en.bin" \
   --wav Sources/CWhisper/whisper.cpp/samples/jfk.wav
 ```
 
@@ -360,7 +393,7 @@ your machine.
 ```sh
 make run          # build (release) and run from the source tree
 make build        # compile only
-make package      # assemble dist/VoiceType.app
+make package      # assemble dist/Zesty.app
 make install      # build + package + copy to /Applications
 make clean        # remove build artifacts
 ```
@@ -405,7 +438,7 @@ See `plans/IMPLEMENTATION-NOTES.md` for the durable build/integration details.
 
 ### Benchmarking an engine
 
-`VoiceType --bench` runs a speech engine over fixed audio fixtures, through the
+`Zesty --bench` runs a speech engine over fixed audio fixtures, through the
 same engine interface the app uses, and reports dictation latency (p50/p90),
 real-time factor on ~10 min of audio, peak memory, model load time and word
 error rate — as a table and a JSON file you can compare across Macs:
@@ -413,8 +446,8 @@ error rate — as a table and a JSON file you can compare across Macs:
 ```sh
 bash scripts/fetch_bench_fixtures.sh       # one time: ~331 MiB download → .bench/fixtures
 make build
-.build/release/VoiceType --bench --git-sha "$(git describe --always --dirty)" \
-  --model "$HOME/Library/Application Support/VoiceType/models/ggml-medium.en.bin"
+.build/release/Zesty --bench --git-sha "$(git describe --always --dirty)" \
+  --model "$HOME/Library/Application Support/Zesty/models/ggml-medium.en.bin"
 ```
 
 See [`plans/benchmark.md`](plans/benchmark.md) for options, what each number
