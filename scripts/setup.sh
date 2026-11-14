@@ -34,6 +34,15 @@ echo "==> [2/5] Embedding Metal shader (skipped automatically on Intel/CPU build
 bash "$ROOT/scripts/embed_metal_shader.sh"
 
 echo ""
+# shellcheck source=model_catalog.sh
+source "$ROOT/scripts/model_catalog.sh"
+# Upgrading from VoiceType: the old folder's config and models move across on
+# Zesty's first launch, so there's nothing to download or configure — and
+# writing into the new folder now would block that move.
+if legacy_migration_pending; then
+  echo "==> [3/5] Skipping model download: your VoiceType models move to Zesty on first launch"
+  echo "==> [4/5] Skipping config: your VoiceType config moves with them"
+else
 echo "==> [3/5] Downloading model ($MODEL)"
 bash "$ROOT/scripts/download_model.sh" "$MODEL"
 
@@ -45,8 +54,6 @@ echo "==> [4/5] Configuring the model"
 # partial config: every other key falls back to its default via
 # Config.init(from:). ZESTY_APP_SUPPORT overrides the base dir (the same
 # rule the app uses), so this step is testable without touching the real config.
-# shellcheck source=model_catalog.sh
-source "$ROOT/scripts/model_catalog.sh"
 CONFIG="$ZESTY_SUPPORT_DIR/config.json"
 if [[ -f "$CONFIG" ]]; then
   echo "✓ existing config preserved: $CONFIG"
@@ -59,6 +66,7 @@ elif [[ "$EXPLICIT_MODEL" == 1 ]]; then
   echo "✓ wrote starter config: $CONFIG (model -> $MODEL)"
 else
   echo "✓ no config needed: the app auto-picks $MODEL for this Mac"
+fi
 fi
 
 echo ""

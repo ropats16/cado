@@ -159,13 +159,16 @@ capitalization. Try it in Notes, Chrome, Slack, or the Terminal.
 
 ## Upgrading from VoiceType
 
-Zesty was called VoiceType. If you had VoiceType installed:
+Zesty was called VoiceType. If you had VoiceType installed, quit it first
+(`pkill -x VoiceType`), then:
 
 - **Your settings and models move over by themselves.** On first launch Zesty
   moves `~/Library/Application Support/VoiceType/` to `…/Zesty/` (config and
   models, no re-download), unless the Zesty folder already has data or
-  `ZESTY_APP_SUPPORT` is set. If you used `VOICETYPE_APP_SUPPORT`, set
-  `ZESTY_APP_SUPPORT` instead.
+  `ZESTY_APP_SUPPORT` is set. Until that first launch, `make setup` skips the
+  model download and the `make model` family refuses to run, so nothing lands
+  in the Zesty folder and blocks the move. If you used `VOICETYPE_APP_SUPPORT`,
+  set `ZESTY_APP_SUPPORT` instead.
 - **Grant the permissions again, once.** The bundle ID changed, so macOS treats
   Zesty as a new app: grant Microphone and Accessibility as in
   [step 5](#5-grant-the-two-permissions). Remove the stale **VoiceType** entry
@@ -179,11 +182,10 @@ Zesty was called VoiceType. If you had VoiceType installed:
 
 - **Launch at login** doesn't carry over: if you used it, turn on **Launch Zesty
   at login** in Settings again.
-- **Clean up the old app** — quit VoiceType and delete it; optionally remove its
-  old signing keychain:
+- **Clean up the old app** — delete it; optionally remove its old signing
+  keychain:
 
   ```sh
-  pkill -x VoiceType
   rm -rf /Applications/VoiceType.app
   security delete-keychain ~/Library/Keychains/voicetype-signing.keychain-db
   ```

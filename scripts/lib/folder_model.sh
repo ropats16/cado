@@ -48,6 +48,7 @@ download_folder_model() {
     fm_say "error: unknown $subdir model '$model'. Known models: $(fm_known_ids "$table")"
     return 1
   fi
+  refuse_if_legacy_migration_pending || return 1
   dest="$ZESTY_MODELS_DIR/$subdir/$model"
   part="$dest.part"
   mkdir -p "$(dirname "$dest")"

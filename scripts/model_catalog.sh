@@ -10,6 +10,34 @@
 ZESTY_SUPPORT_DIR="${ZESTY_APP_SUPPORT:-$HOME/Library/Application Support/Zesty}"
 ZESTY_MODELS_DIR="$ZESTY_SUPPORT_DIR/models"
 
+# The app was called VoiceType before #17. On first launch Zesty moves that
+# folder across (Sources/Zesty/Support/LegacyMigration.swift), but only while
+# the Zesty folder holds no data, so the scripts must not write there first.
+# Goes when LegacyMigration.swift does.
+ZESTY_LEGACY_SUPPORT_DIR="$HOME/Library/Application Support/VoiceType"
+
+# legacy_migration_pending — true while the old folder still waits for that
+# move: no override, old folder present, and the new one empty by the app's
+# rule (nothing but .DS_Store files and an empty top-level models/).
+legacy_migration_pending() {
+  [[ -z "${ZESTY_APP_SUPPORT:-}" && -d "$ZESTY_LEGACY_SUPPORT_DIR" ]] || return 1
+  [[ -z "$(find "$ZESTY_SUPPORT_DIR" -mindepth 1 ! -name .DS_Store \
+    ! -path "$ZESTY_SUPPORT_DIR/models" -print -quit 2>/dev/null)" ]]
+}
+
+# refuse_if_legacy_migration_pending — fails, saying why, rather than let a
+# download block the move and strand the old config and models.
+refuse_if_legacy_migration_pending() {
+  legacy_migration_pending || return 0
+  {
+    echo "error: found your VoiceType data in $ZESTY_LEGACY_SUPPORT_DIR."
+    echo "  Zesty moves it to $ZESTY_SUPPORT_DIR on first launch (models included,"
+    echo "  no re-download), but only while that folder is empty. Launch Zesty once"
+    echo "  (make install, then open it), then run this again."
+  } >&2
+  return 1
+}
+
 # id  sha256  bytes   (file: ggml-<id>.bin on huggingface.co/ggerganov/whisper.cpp)
 # BEGIN MODELS
 ZESTY_MODELS="

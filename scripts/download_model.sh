@@ -40,6 +40,7 @@ sha_ok() {
   [[ "$(shasum -a 256 "$1" | awk '{print $1}')" == "$SHA" ]]
 }
 
+refuse_if_legacy_migration_pending || exit 1
 mkdir -p "$ZESTY_MODELS_DIR"
 
 # The download lands in <file>.part and is renamed only once complete and
