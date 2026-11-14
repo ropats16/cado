@@ -21,9 +21,13 @@ enum Paths {
         if let override = environment[overrideVariable], !override.isEmpty {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath, isDirectory: true)
         }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        return applicationSupport.appendingPathComponent(AppInfo.name, isDirectory: true)
+    }
+
+    /// `~/Library/Application Support/`, which holds the app's folder.
+    static var applicationSupport: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        return base.appendingPathComponent(AppInfo.name, isDirectory: true)
     }
 
     /// `.../Zesty/models/`

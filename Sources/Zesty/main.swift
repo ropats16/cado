@@ -1,5 +1,9 @@
 import AppKit
 
+// Before anything reads or creates the support folder (ConfigStore, the CLI
+// paths): move a pre-rename one across, once.
+LegacyMigration.runAtLaunch()
+
 // Diagnostic path: transcribe a WAV and exit (no UI, no permissions needed).
 if CommandLine.arguments.contains("--selftest") {
     exit(SelfTest.run(arguments: CommandLine.arguments))
