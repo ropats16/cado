@@ -1,5 +1,19 @@
 import AppKit
 
+/// The status item's avocado: plain when Cado can dictate, slashed while it
+/// needs something (`Brand.Art.menuBarGlyph` / `menuBarGlyphSlashed`).
+enum StatusGlyph: Equatable {
+    case ready, notReady
+
+    /// VoiceOver's name for the status item.
+    var accessibilityDescription: String {
+        switch self {
+        case .ready: return "Cado"
+        case .notReady: return "Cado (not ready)"
+        }
+    }
+}
+
 /// What the menu-bar menu shows: the status header, why the app isn't ready
 /// (with a fix), a model problem the reason line doesn't already cover, the
 /// permission rows, the hotkeys and any config problem.
@@ -12,8 +26,8 @@ struct StatusMenuContent: Equatable {
     }
 
     var header: String
-    /// SF Symbol for the status item.
-    var symbol: String
+    /// The status item's image.
+    var glyph: StatusGlyph
     /// For a status that needs the user, and for a first load (it takes a
     /// while, so it says why); another transient one is just the header.
     var reason: Row?
@@ -30,10 +44,10 @@ struct StatusMenuContent: Equatable {
          configIssues: [ConfigIssue]) {
         header = status.headline
         if case .notReady(let issue) = status {
-            symbol = "mic.slash"
+            glyph = .notReady
             reason = Row(title: issue.detail, action: issue.action)
         } else {
-            symbol = "mic"
+            glyph = .ready
             reason = status == .starting(.modelPreparing)
                 ? Row(title: ReadinessIssue.modelPreparing.detail, action: nil) : nil
         }
@@ -80,7 +94,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private let hold = StatusMenu.label()
     private let toggle = StatusMenu.label()
     private let configIssues = StatusMenu.label()
-    private var symbol: String?
+    private var glyph: StatusGlyph?
 
     override init() {
         super.init()
@@ -114,10 +128,11 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         configIssues.title = content.configIssues ?? ""
         configIssues.isHidden = content.configIssues == nil
 
-        if content.symbol != symbol, let button = statusItem.button {
-            symbol = content.symbol
-            button.image = NSImage(systemSymbolName: content.symbol, accessibilityDescription: "Cado")
-            button.image?.isTemplate = true
+        if content.glyph != glyph, let button = statusItem.button {
+            glyph = content.glyph
+            let image = content.glyph == .ready ? Brand.Art.menuBarGlyph : Brand.Art.menuBarGlyphSlashed
+            image.accessibilityDescription = content.glyph.accessibilityDescription
+            button.image = image
         }
     }
 
