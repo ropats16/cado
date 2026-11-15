@@ -24,19 +24,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// front. Subsequent calls just activate and order-front without re-centering.
     func show() {
         if window == nil {
-            // Pass viewModel.recorder explicitly so the SwiftUI view observes its
-            // @Published properties; the recorder is stable (let on the VM).
-            let hosting = NSHostingView(rootView: SettingsView(viewModel: viewModel,
-                                                               recorder: viewModel.recorder))
-            let w = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 440, height: 500),
-                styleMask: [.titled, .closable],
-                backing: .buffered,
-                defer: false
-            )
-            w.title = "Cado Settings"
-            w.isReleasedWhenClosed = false
-            w.contentView = hosting
+            let w = Self.makeWindow(viewModel: viewModel)
             w.delegate = self          // enables windowWillClose(_:) teardown
             w.center()
             window = w
@@ -45,6 +33,25 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         // the settings window comes to front even if another app is focused.
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// The settings window hosting `SettingsView`, not yet shown (also used by
+    /// the offscreen render harness, SettingsRenderHarness).
+    static func makeWindow(viewModel: SettingsViewModel) -> NSWindow {
+        // Pass viewModel.recorder explicitly so the SwiftUI view observes its
+        // @Published properties; the recorder is stable (let on the VM).
+        let hosting = NSHostingView(rootView: SettingsView(viewModel: viewModel,
+                                                           recorder: viewModel.recorder))
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 500),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        w.title = "Cado Settings"
+        w.isReleasedWhenClosed = false
+        w.contentView = hosting
+        return w
     }
 
     // MARK: - NSWindowDelegate
