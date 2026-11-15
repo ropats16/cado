@@ -35,6 +35,15 @@ struct Config: Codable {
     var keepMicWarm: Bool           // no Settings UI: mic stays on from launch (pre-roll on every dictation)
     var keepModelWarm: Bool?        // nil = auto: unload when idle only on Macs with <= 8 GB
     var modelIdleMinutes: Double    // idle time before unloading, when not kept warm
+    /// Keep a small resting mascot on screen between dictations; click it to
+    /// start/stop one (#20). Off: the mascot shows only while active.
+    var mascotAlwaysVisible: Bool
+    /// Let screen shares and recordings capture the mascot. Off (the default):
+    /// its window is excluded from capture.
+    var mascotInScreenShares: Bool
+    /// Where the user dragged the mascot, per display (key: the display's
+    /// stable id; see `OverlayPlacement`). No entry = the default corner.
+    var mascotPositions: [String: MascotPosition]
 
     static var defaults: Config {
         Config(
@@ -51,7 +60,10 @@ struct Config: Codable {
             threads: 0,
             keepMicWarm: false,
             keepModelWarm: nil,
-            modelIdleMinutes: 5
+            modelIdleMinutes: 5,
+            mascotAlwaysVisible: false,
+            mascotInScreenShares: false,
+            mascotPositions: [:]
         )
     }
 
@@ -59,7 +71,9 @@ struct Config: Codable {
          engineModels: [String: ModelChoice] = [:], hold: KeyBinding, toggle: KeyBinding, cancelKeyCode: Int,
          maxRecordingSeconds: Double, trailingSpace: Bool, microphoneUID: String?,
          soundCues: Bool, language: String, threads: Int, keepMicWarm: Bool,
-         keepModelWarm: Bool? = nil, modelIdleMinutes: Double = 5) {
+         keepModelWarm: Bool? = nil, modelIdleMinutes: Double = 5,
+         mascotAlwaysVisible: Bool = false, mascotInScreenShares: Bool = false,
+         mascotPositions: [String: MascotPosition] = [:]) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -76,6 +90,9 @@ struct Config: Codable {
         self.keepMicWarm = keepMicWarm
         self.keepModelWarm = keepModelWarm
         self.modelIdleMinutes = modelIdleMinutes
+        self.mascotAlwaysVisible = mascotAlwaysVisible
+        self.mascotInScreenShares = mascotInScreenShares
+        self.mascotPositions = mascotPositions
     }
 
     init(from decoder: Decoder) throws {
@@ -102,6 +119,9 @@ struct Config: Codable {
         keepMicWarm = try c.decodeIfPresent(Bool.self, forKey: .keepMicWarm) ?? d.keepMicWarm
         keepModelWarm = try c.decodeIfPresent(Bool.self, forKey: .keepModelWarm)
         modelIdleMinutes = try c.decodeIfPresent(Double.self, forKey: .modelIdleMinutes) ?? d.modelIdleMinutes
+        mascotAlwaysVisible = try c.decodeIfPresent(Bool.self, forKey: .mascotAlwaysVisible) ?? d.mascotAlwaysVisible
+        mascotInScreenShares = try c.decodeIfPresent(Bool.self, forKey: .mascotInScreenShares) ?? d.mascotInScreenShares
+        mascotPositions = try c.decodeIfPresent([String: MascotPosition].self, forKey: .mascotPositions) ?? d.mascotPositions
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this
@@ -130,6 +150,14 @@ struct Config: Codable {
             engineModels[engine.rawValue] = choice
         }
     }
+}
+
+/// A saved mascot spot on one display: the overlay window's origin as an
+/// offset (points, y up) from that display's visible-frame origin, so it
+/// survives the display moving in the arrangement. Clamped on restore.
+struct MascotPosition: Codable, Equatable {
+    var x: Double
+    var y: Double
 }
 
 /// `config.json`'s `engine`: Automatic (`EnginePolicy`) or one engine.
