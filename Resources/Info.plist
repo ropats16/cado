@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Zesty</string>
+    <string>Cado</string>
     <key>CFBundleDisplayName</key>
-    <string>Zesty</string>
+    <string>Cado</string>
     <key>CFBundleIdentifier</key>
-    <string>com.ropats16.Zesty</string>
+    <string>com.ropats16.Cado</string>
     <key>CFBundleExecutable</key>
-    <string>Zesty</string>
+    <string>Cado</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -26,6 +26,6 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Zesty records your voice locally to transcribe it into text. Audio is processed on-device and never leaves your Mac.</string>
+    <string>Cado records your voice locally to transcribe it into text. Audio is processed on-device and never leaves your Mac.</string>
 </dict>
 </plist>

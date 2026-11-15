@@ -14,9 +14,9 @@
 # Idempotent: does nothing if the identity already exists.
 set -euo pipefail
 
-CERT_CN="Zesty Self-Signed"
-KEYCHAIN="$HOME/Library/Keychains/zesty-signing.keychain-db"
-KEYCHAIN_PASS="zesty-local"   # local signing keychain only; not a secret
+CERT_CN="Cado Self-Signed"
+KEYCHAIN="$HOME/Library/Keychains/cado-signing.keychain-db"
+KEYCHAIN_PASS="cado-local"   # local signing keychain only; not a secret
 # Use macOS's system LibreSSL: Homebrew's OpenSSL 3 writes PKCS12 with a MAC the
 # macOS `security` importer can't verify ("MAC verification failed").
 OPENSSL="/usr/bin/openssl"
@@ -35,7 +35,7 @@ distinguished_name = dn
 x509_extensions = ext
 prompt = no
 [dn]
-CN = Zesty Self-Signed
+CN = Cado Self-Signed
 [ext]
 basicConstraints = critical,CA:false
 keyUsage = critical,digitalSignature
@@ -67,7 +67,7 @@ security import "$TMP/id.p12" -k "$KEYCHAIN" -P p12pass -A -T /usr/bin/codesign
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN" >/dev/null 2>&1 || true
 
 if security find-identity -p codesigning | grep -q "$CERT_CN"; then
-  echo "✓ Created signing identity '$CERT_CN' (in zesty-signing.keychain)"
+  echo "✓ Created signing identity '$CERT_CN' (in cado-signing.keychain)"
 else
   echo "warning: identity not found after import; packaging will fall back to ad-hoc." >&2
   exit 1

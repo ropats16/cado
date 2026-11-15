@@ -1,10 +1,10 @@
-# Zesty — local Whisper speech-to-text for macOS
+# Cado — local Whisper speech-to-text for macOS
 #
 # Single entry point for building and installing the app.
 #   make setup     one-shot: fetch whisper.cpp, embed shader, download model, build, package
 #   make run       build and run from the source tree (dev)
 #   make build     just compile (release)
-#   make package   assemble dist/Zesty.app
+#   make package   assemble dist/Cado.app
 #   make install   build, package, and copy to /Applications
 #   make model     download the model the app auto-picks for this Mac
 #                  (or a specific one: make model MODEL=small.en-q5_1)
@@ -15,7 +15,7 @@
 #                  (or a specific one: make whisperkit-model WHISPERKIT=tiny.en)
 #   make clean     remove build artifacts
 
-APP   := Zesty
+APP   := Cado
 # Empty = the model the app auto-picks for this Mac (scripts/model_catalog.sh).
 MODEL ?=
 # Empty = scripts/download_parakeet_model.sh's default (the app's Parakeet model).

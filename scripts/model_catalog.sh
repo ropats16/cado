@@ -1,28 +1,28 @@
 # Shared model table for the shell scripts (sourced, not run). It mirrors the
-# app's engine catalog (Sources/Zesty/Transcription/ModelCatalog.swift) —
+# app's engine catalog (Sources/Cado/Transcription/ModelCatalog.swift) —
 # ids, pinned SHA-256s, sizes, and the chip + RAM auto-pick — and
 # ModelCatalogScriptParityTests fails if the two drift.
 #
 # Also the one rule for where models live, shared with the app's Paths.swift:
-# a non-empty ZESTY_APP_SUPPORT replaces
-# ~/Library/Application Support/Zesty, and models go in its models/ folder.
+# a non-empty CADO_APP_SUPPORT replaces
+# ~/Library/Application Support/Cado, and models go in its models/ folder.
 
-ZESTY_SUPPORT_DIR="${ZESTY_APP_SUPPORT:-$HOME/Library/Application Support/Zesty}"
-ZESTY_MODELS_DIR="$ZESTY_SUPPORT_DIR/models"
+CADO_SUPPORT_DIR="${CADO_APP_SUPPORT:-$HOME/Library/Application Support/Cado}"
+CADO_MODELS_DIR="$CADO_SUPPORT_DIR/models"
 
-# The app was called VoiceType before #17. On first launch Zesty moves that
-# folder across (Sources/Zesty/Support/LegacyMigration.swift), but only while
-# the Zesty folder holds no data, so the scripts must not write there first.
+# The app was called VoiceType before #17. On first launch Cado moves that
+# folder across (Sources/Cado/Support/LegacyMigration.swift), but only while
+# the Cado folder holds no data, so the scripts must not write there first.
 # Goes when LegacyMigration.swift does.
-ZESTY_LEGACY_SUPPORT_DIR="$HOME/Library/Application Support/VoiceType"
+CADO_LEGACY_SUPPORT_DIR="$HOME/Library/Application Support/VoiceType"
 
 # legacy_migration_pending — true while the old folder still waits for that
 # move: no override, old folder present, and the new one empty by the app's
 # rule (nothing but .DS_Store files and an empty top-level models/).
 legacy_migration_pending() {
-  [[ -z "${ZESTY_APP_SUPPORT:-}" && -d "$ZESTY_LEGACY_SUPPORT_DIR" ]] || return 1
-  [[ -z "$(find "$ZESTY_SUPPORT_DIR" -mindepth 1 ! -name .DS_Store \
-    ! -path "$ZESTY_SUPPORT_DIR/models" -print -quit 2>/dev/null)" ]]
+  [[ -z "${CADO_APP_SUPPORT:-}" && -d "$CADO_LEGACY_SUPPORT_DIR" ]] || return 1
+  [[ -z "$(find "$CADO_SUPPORT_DIR" -mindepth 1 ! -name .DS_Store \
+    ! -path "$CADO_SUPPORT_DIR/models" -print -quit 2>/dev/null)" ]]
 }
 
 # refuse_if_legacy_migration_pending — fails, saying why, rather than let a
@@ -30,9 +30,9 @@ legacy_migration_pending() {
 refuse_if_legacy_migration_pending() {
   legacy_migration_pending || return 0
   {
-    echo "error: found your VoiceType data in $ZESTY_LEGACY_SUPPORT_DIR."
-    echo "  Zesty moves it to $ZESTY_SUPPORT_DIR on first launch (models included,"
-    echo "  no re-download), but only while that folder is empty. Launch Zesty once"
+    echo "error: found your VoiceType data in $CADO_LEGACY_SUPPORT_DIR."
+    echo "  Cado moves it to $CADO_SUPPORT_DIR on first launch (models included,"
+    echo "  no re-download), but only while that folder is empty. Launch Cado once"
     echo "  (make install, then open it), then run this again."
   } >&2
   return 1
@@ -40,7 +40,7 @@ refuse_if_legacy_migration_pending() {
 
 # id  sha256  bytes   (file: ggml-<id>.bin on huggingface.co/ggerganov/whisper.cpp)
 # BEGIN MODELS
-ZESTY_MODELS="
+CADO_MODELS="
 tiny.en-q5_1         c77c5766f1cef09b6b7d47f21b546cbddd4157886b3b5d6d4f709e91e66c7c2b 32166155
 tiny.en-q8_0         5bc2b3860aa151a4c6e7bb095e1fcce7cf12c7b020ca08dcec0c6d018bb7dd94 43550795
 tiny.en              921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f 77704715
@@ -75,14 +75,14 @@ large-v3-q5_0        d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd
 # model_field <id> <2=sha256|3=bytes> — prints the field, or fails for an unknown id.
 model_field() {
   local row
-  row="$(awk -v id="$1" '$1 == id { print $'"$2"' }' <<<"$ZESTY_MODELS")"
+  row="$(awk -v id="$1" '$1 == id { print $'"$2"' }' <<<"$CADO_MODELS")"
   [[ -n "$row" ]] || return 1
   printf '%s' "$row"
 }
 
 # The known ids, space-separated (for usage/error messages).
 model_ids() {
-  awk 'NF { printf "%s%s", sep, $1; sep = " " }' <<<"$ZESTY_MODELS"
+  awk 'NF { printf "%s%s", sep, $1; sep = " " }' <<<"$CADO_MODELS"
 }
 
 # recommended_model <arch> <whole-GiB RAM> — the app's auto-pick (English).

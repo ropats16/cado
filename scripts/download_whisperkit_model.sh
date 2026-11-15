@@ -10,12 +10,12 @@
 #
 # Files come from huggingface.co/argmaxinc/whisperkit-coreml (Core ML models)
 # and the matching openai/whisper-* repo (tokenizer), each at a pinned commit,
-# into ~/Library/Application Support/Zesty/models/whisperkit/<model>/ (or
-# under $ZESTY_APP_SUPPORT — the same rule the app uses). Staging, resume,
+# into ~/Library/Application Support/Cado/models/whisperkit/<model>/ (or
+# under $CADO_APP_SUPPORT — the same rule the app uses). Staging, resume,
 # repair and the manifest the app verifies: scripts/lib/folder_model.sh.
 #
 # Progress goes to stderr; the model folder's path is printed on stdout, e.g.
-#   .build/release/Zesty --bench --engine whisperkit --model "$(bash scripts/download_whisperkit_model.sh tiny.en)"
+#   .build/release/Cado --bench --engine whisperkit --model "$(bash scripts/download_whisperkit_model.sh tiny.en)"
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

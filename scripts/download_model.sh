@@ -8,8 +8,8 @@
 #          app auto-picks for this Mac.
 #
 # Models are fetched from the official ggml model repo on Hugging Face and
-# stored in ~/Library/Application Support/Zesty/models (or
-# $ZESTY_APP_SUPPORT/models — the same rule the app uses) so both the .app
+# stored in ~/Library/Application Support/Cado/models (or
+# $CADO_APP_SUPPORT/models — the same rule the app uses) so both the .app
 # and `swift run` find them.
 set -euo pipefail
 
@@ -24,7 +24,7 @@ if [[ -z "$MODEL" ]]; then
 fi
 BASE_URL="${WHISPER_MODEL_BASE_URL:-https://huggingface.co/ggerganov/whisper.cpp/resolve/main}"
 FILE="ggml-${MODEL}.bin"
-DEST="$ZESTY_MODELS_DIR/$FILE"
+DEST="$CADO_MODELS_DIR/$FILE"
 
 if ! SHA="$(model_field "$MODEL" 2)"; then
   echo "error: unsupported model '$MODEL'. Known models: $(model_ids)" >&2
@@ -41,7 +41,7 @@ sha_ok() {
 }
 
 refuse_if_legacy_migration_pending || exit 1
-mkdir -p "$ZESTY_MODELS_DIR"
+mkdir -p "$CADO_MODELS_DIR"
 
 # The download lands in <file>.part and is renamed only once complete and
 # verified, so the app never sees (or tries to load) a partial model.

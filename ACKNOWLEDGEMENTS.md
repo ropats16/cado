@@ -1,6 +1,6 @@
 # Acknowledgements
 
-Zesty is MIT-licensed and builds on the work below. This file is the
+Cado is MIT-licensed and builds on the work below. This file is the
 source for the in-app Acknowledgements screen (#21).
 
 Each speech engine has one section, headed by its name exactly as Settings
@@ -12,7 +12,7 @@ engine) get a section of their own. Use this format:
 ## <Name>
 
 - **<Component>** — <author>. <License> (<SPDX id>). <URL>
-  <Optional note: what Zesty uses it for, attribution the license asks for.>
+  <Optional note: what Cado uses it for, attribution the license asks for.>
 ```
 
 Full license texts live with each component (e.g. the submodule's `LICENSE`)
@@ -22,7 +22,7 @@ or at the linked URL.
 
 - **whisper.cpp** — Georgi Gerganov and contributors. MIT License (MIT).
   https://github.com/ggml-org/whisper.cpp
-  Vendored as a submodule at `Sources/CWhisper/whisper.cpp`; Zesty's
+  Vendored as a submodule at `Sources/CWhisper/whisper.cpp`; Cado's
   default speech engine.
 - **ggml** — Georgi Gerganov and contributors. MIT License (MIT).
   https://github.com/ggml-org/ggml
@@ -71,4 +71,4 @@ or at the linked URL.
 - **Speech framework and on-device speech models** — Apple Inc. Part of macOS,
   under the macOS Software License Agreement. https://developer.apple.com/documentation/speech
   SpeechAnalyzer / SpeechTranscriber (macOS 26); macOS downloads and manages
-  the models. Nothing is bundled with Zesty.
+  the models. Nothing is bundled with Cado.

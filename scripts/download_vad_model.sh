@@ -7,24 +7,24 @@
 #
 # Source: huggingface.co/ggml-org/whisper-vad (what whisper.cpp's own
 # models/download-vad-model.sh fetches). Stored in
-# ~/Library/Application Support/Zesty/models (or $ZESTY_APP_SUPPORT/models).
+# ~/Library/Application Support/Cado/models (or $CADO_APP_SUPPORT/models).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=model_catalog.sh
-source "$HERE/model_catalog.sh"   # ZESTY_MODELS_DIR
+source "$HERE/model_catalog.sh"   # CADO_MODELS_DIR
 
 FILE="ggml-silero-v6.2.0.bin"
 SHA="2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987"
 BYTES=885098
 URL="${WHISPER_VAD_BASE_URL:-https://huggingface.co/ggml-org/whisper-vad/resolve/main}/$FILE"
-DEST="$ZESTY_MODELS_DIR/$FILE"
+DEST="$CADO_MODELS_DIR/$FILE"
 PART="$DEST.part"
 
 sha_ok() { [[ "$(shasum -a 256 "$1" | awk '{print $1}')" == "$SHA" ]]; }
 
 refuse_if_legacy_migration_pending || exit 1
-mkdir -p "$ZESTY_MODELS_DIR"
+mkdir -p "$CADO_MODELS_DIR"
 if [[ -f "$DEST" ]] && sha_ok "$DEST"; then
   echo "✓ $FILE already present" >&2
   echo "$DEST"
