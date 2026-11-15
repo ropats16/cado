@@ -43,12 +43,16 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let hosting = NSHostingView(rootView: SettingsView(viewModel: viewModel,
                                                            recorder: viewModel.recorder))
         let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 600),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         w.title = "Cado Settings"
+        // The titlebar shows the brand background (content stays below it,
+        // so nothing scrolls under the traffic lights).
+        w.titlebarAppearsTransparent = true
+        w.backgroundColor = Brand.Palette.NS.background
         w.isReleasedWhenClosed = false
         w.contentView = hosting
         return w

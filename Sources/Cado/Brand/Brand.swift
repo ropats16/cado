@@ -21,9 +21,13 @@ enum Brand {
         static let surface = Color(nsColor: NS.surface)
         /// Warm brown ink, the art's outline (cream in dark): primary text.
         static let ink = Color(nsColor: NS.ink)
+        /// Softer ink for hints and values; still WCAG AA (≥4.5:1) on
+        /// `background` and `surface`.
+        static let inkSecondary = Color(nsColor: NS.inkSecondary)
         /// Cheek pink: a soft, friendly highlight (badges, a selected row's fill).
         static let cheek = Color(nsColor: NS.cheek)
-        /// Pulse coral: live/recording state and warnings.
+        /// Pulse coral: live/recording state, warnings and errors. Deeper in
+        /// light mode so it passes as text (≥4.5:1) on the cream surfaces.
         static let pulse = Color(nsColor: NS.pulse)
 
         /// `Palette` as `NSColor`s, for AppKit.
@@ -32,8 +36,9 @@ enum Brand {
             static let background = themed("background", light: 0xf6f9e6, dark: 0x1d2118)
             static let surface = themed("surface", light: 0xfcfdf5, dark: 0x282e21)
             static let ink = themed("ink", light: 0x3b2a22, dark: 0xf2efdc)
+            static let inkSecondary = themed("inkSecondary", light: 0x71655d, dark: 0xabab9b)
             static let cheek = rgb(0xff8fa3)
-            static let pulse = rgb(0xff6f61)
+            static let pulse = themed("pulse", light: 0xc4392d, dark: 0xff6f61)
         }
 
         private static func themed(_ name: String, light: UInt32, dark: UInt32) -> NSColor {

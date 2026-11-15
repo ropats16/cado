@@ -45,7 +45,8 @@ final class BrandTests: XCTestCase {
 
     func testThemeColoursAdaptToDarkMode() {
         let themed = [Brand.Palette.NS.accent, Brand.Palette.NS.background,
-                      Brand.Palette.NS.surface, Brand.Palette.NS.ink]
+                      Brand.Palette.NS.surface, Brand.Palette.NS.ink,
+                      Brand.Palette.NS.inkSecondary, Brand.Palette.NS.pulse]
         for colour in themed {
             XCTAssertNotEqual(resolved(colour, .aqua), resolved(colour, .darkAqua), "\(colour)")
         }

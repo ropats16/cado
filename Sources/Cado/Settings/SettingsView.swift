@@ -1,7 +1,8 @@
 import SwiftUI
 import AppKit
 
-/// Native settings form for Cado. Bound to a `SettingsViewModel` via
+/// Cado's settings window, in the brand's palette and type (SettingsStyles).
+/// Bound to a `SettingsViewModel` via
 /// intent methods (no two-way Binding with didSet) so the view stays simple
 /// and initial load never re-persists config values.
 struct SettingsView: View {
@@ -13,68 +14,142 @@ struct SettingsView: View {
     /// The Download list starts open: a missing model's hint points at it.
     @State private var showsDownloads = true
 
+    /// Room for the longest model and engine names before they truncate.
+    private static let pickerWidth: CGFloat = 240
+
     var body: some View {
-        Form {
-            // MARK: Dictation Sounds
-            Section {
-                Toggle("Play start/stop sounds",
-                       isOn: Binding(
-                           get: { viewModel.soundCues },
-                           set: { viewModel.setSoundCues($0) }
-                       ))
-            } header: {
-                Text("Dictation Sounds")
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                header
 
-            // MARK: Startup
-            Section {
-                Toggle("Launch Cado at login",
-                       isOn: Binding(
-                           get: { viewModel.launchAtLogin },
-                           set: { viewModel.setLaunchAtLogin($0) }
-                       ))
-                if let err = viewModel.loginError {
-                    Text(err)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-            } header: {
-                Text("Startup")
-            }
-
-            // MARK: Dictation
-            Section {
-                Picker("Max dictation length",
-                       selection: Binding(
-                           get: { viewModel.maxDictationSeconds },
-                           set: { viewModel.setMaxDictationSeconds($0) }
-                       )) {
-                    ForEach(viewModel.maxDictationChoices, id: \.seconds) { choice in
-                        Text(choice.label).tag(choice.seconds)
+                // MARK: Dictation Sounds
+                SettingsSection(title: "Dictation Sounds", systemImage: "speaker.wave.2.fill") {
+                    SettingsRow("Play start/stop sounds") {
+                        Toggle("Play start/stop sounds",
+                               isOn: Binding(
+                                   get: { viewModel.soundCues },
+                                   set: { viewModel.setSoundCues($0) }
+                               ))
                     }
                 }
-            } header: {
-                Text("Dictation")
-            }
 
-            // MARK: Microphone
-            Section {
-                Picker("Microphone",
-                       selection: Binding(
-                           get: { viewModel.selectedMicUID },
-                           set: { viewModel.selectMic($0) }
-                       )) {
-                    Text("System Default").tag(String?.none)
-                    ForEach(viewModel.micOptions, id: \.uid) { device in
-                        Text(device.name).tag(Optional(device.uid))
+                // MARK: Startup
+                SettingsSection(title: "Startup", systemImage: "power") {
+                    SettingsRow("Launch Cado at login") {
+                        Toggle("Launch Cado at login",
+                               isOn: Binding(
+                                   get: { viewModel.launchAtLogin },
+                                   set: { viewModel.setLaunchAtLogin($0) }
+                               ))
+                    }
+                    if let err = viewModel.loginError {
+                        StatusLine(text: err, tone: .problem).padding(.bottom, 8)
                     }
                 }
-            } header: {
-                Text("Microphone")
-            }
 
-            // MARK: Model
-            Section {
+                // MARK: Dictation
+                SettingsSection(title: "Dictation", systemImage: "timer") {
+                    SettingsRow("Max dictation length") {
+                        Picker("Max dictation length",
+                               selection: Binding(
+                                   get: { viewModel.maxDictationSeconds },
+                                   set: { viewModel.setMaxDictationSeconds($0) }
+                               )) {
+                            ForEach(viewModel.maxDictationChoices, id: \.seconds) { choice in
+                                Text(choice.label).tag(choice.seconds)
+                            }
+                        }
+                        .frame(maxWidth: Self.pickerWidth, alignment: .trailing)
+                    }
+                }
+
+                // MARK: Microphone
+                SettingsSection(title: "Microphone", systemImage: "mic.fill") {
+                    SettingsRow("Microphone") {
+                        Picker("Microphone",
+                               selection: Binding(
+                                   get: { viewModel.selectedMicUID },
+                                   set: { viewModel.selectMic($0) }
+                               )) {
+                            Text("System Default").tag(String?.none)
+                            ForEach(viewModel.micOptions, id: \.uid) { device in
+                                Text(device.name).tag(Optional(device.uid))
+                            }
+                        }
+                        .frame(maxWidth: Self.pickerWidth, alignment: .trailing)
+                    }
+                }
+
+                modelSection
+
+                // MARK: Hotkeys
+                SettingsSection(title: "Hotkeys", systemImage: "keyboard") {
+                    HotkeyRow(
+                        label: "Hold to talk",
+                        description: viewModel.holdDescription,
+                        isCapturing: recorder.captureTarget == .hold,
+                        onRecord: { recorder.startCapture(for: .hold, vm: viewModel) },
+                        onReset:  { viewModel.resetHotkey(.hold) }
+                    )
+                    CardDivider()
+                    HotkeyRow(
+                        label: "Toggle to talk",
+                        description: viewModel.toggleDescription,
+                        isCapturing: recorder.captureTarget == .toggle,
+                        onRecord: { recorder.startCapture(for: .toggle, vm: viewModel) },
+                        onReset:  { viewModel.resetHotkey(.toggle) }
+                    )
+                    if let warning = viewModel.hotkeyWarning {
+                        StatusLine(text: warning, tone: .problem).padding(.bottom, 8)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 20)
+        }
+        .font(Brand.Typography.body)
+        .toggleStyle(.switch)
+        .tint(Brand.Palette.accent)
+        .background(Brand.Palette.background)
+        .frame(minWidth: 400, idealWidth: 460, minHeight: 380)
+        .onDisappear {
+            // Window closed mid-capture: remove the monitor and resume the tap.
+            recorder.cancelCapture(vm: viewModel)
+        }
+    }
+
+    // MARK: Header
+
+    /// The mascot, the name, and how to dictate with the configured hotkey.
+    private var header: some View {
+        HStack(spacing: 14) {
+            Image(nsImage: Brand.Art.mascot(.idle))
+                .resizable()
+                .frame(width: 60, height: 60)
+                .frame(width: 72, height: 72)
+                .background(Brand.Palette.surface, in: Circle())
+                .overlay(Circle().strokeBorder(Brand.Palette.ink.opacity(0.1)))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Cado")
+                    .font(Brand.Typography.font(.title, weight: .bold))
+                    .foregroundStyle(Brand.Palette.ink)
+                Text("Hold \(viewModel.holdDescription) and talk. Let go, and Cado types it for you.")
+                    .font(Brand.Typography.font(.callout))
+                    .foregroundStyle(Brand.Palette.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 4)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: Model
+
+    private var modelSection: some View {
+        SettingsSection(title: "Model", systemImage: "waveform") {
+            SettingsRow("Engine") {
                 Picker("Engine",
                        selection: Binding(
                            get: { viewModel.engineRow },
@@ -87,13 +162,15 @@ struct SettingsView: View {
                         }
                     }
                 }
-                if let note = viewModel.engineNote {
-                    Text(note)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                .frame(maxWidth: Self.pickerWidth, alignment: .trailing)
+            }
+            if let note = viewModel.engineNote {
+                StatusLine(text: note).padding(.bottom, 8)
+            }
+            CardDivider()
 
-                let lists = viewModel.modelLists
+            let lists = viewModel.modelLists
+            SettingsRow("Model") {
                 Picker("Model",
                        selection: Binding(
                            get: { viewModel.modelRow },
@@ -112,17 +189,28 @@ struct SettingsView: View {
                         }
                     }
                 }
+                .frame(maxWidth: Self.pickerWidth, alignment: .trailing)
+            }
 
-                // WhisperKit, Parakeet: a Download button per model not yet installed.
-                let downloadable = viewModel.inAppDownloadableModels
-                if !downloadable.isEmpty {
-                    DisclosureGroup("Download a model", isExpanded: $showsDownloads) {
+            // WhisperKit, Parakeet: a Download button per model not yet installed.
+            let downloadable = viewModel.inAppDownloadableModels
+            if !downloadable.isEmpty {
+                DisclosureGroup(isExpanded: $showsDownloads) {
+                    VStack(alignment: .leading, spacing: 2) {
                         ForEach(downloadable) { model in
                             ModelDownloadRow(model: model, viewModel: viewModel)
                         }
                     }
+                    .padding(.top, 4)
+                    .padding(.leading, 18)   // under the label, past the chevron
+                } label: {
+                    Text("Download a model").foregroundStyle(Brand.Palette.ink)
                 }
+                .settingsRowPadding()
+            }
+            CardDivider()
 
+            SettingsRow("Language") {
                 Picker("Language",
                        selection: Binding(
                            get: { viewModel.isLanguageSelectable ? viewModel.language : "en" },
@@ -132,25 +220,29 @@ struct SettingsView: View {
                         Text(option.name).tag(option.code)
                     }
                 }
+                .frame(maxWidth: Self.pickerWidth, alignment: .trailing)
                 .disabled(!viewModel.isLanguageSelectable)
+            }
 
-                // Apple Speech: the OS-managed model for the language.
-                if let state = viewModel.speechAssetLabel {
-                    HStack {
-                        Text("Speech model")
-                        Spacer()
-                        Text(state).foregroundColor(.secondary)
-                        if viewModel.canDownloadSpeechModel {
-                            Button("Download") { Task { await viewModel.downloadSpeechModel() } }
-                        }
-                    }
-                    if let error = viewModel.speechAssetError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
+            // Apple Speech: the OS-managed model for the language.
+            if let state = viewModel.speechAssetLabel {
+                CardDivider()
+                HStack(spacing: 12) {
+                    Text("Speech model").foregroundStyle(Brand.Palette.ink)
+                    Spacer()
+                    Text(state).foregroundStyle(Brand.Palette.inkSecondary)
+                    if viewModel.canDownloadSpeechModel {
+                        Button("Download") { Task { await viewModel.downloadSpeechModel() } }
                     }
                 }
+                .settingsRowPadding()
+                if let error = viewModel.speechAssetError {
+                    StatusLine(text: error, tone: .problem).padding(.bottom, 8)
+                }
+            }
+            CardDivider()
 
+            SettingsRow("Keep model loaded") {
                 Picker("Keep model loaded",
                        selection: Binding(
                            get: { viewModel.keepWarm },
@@ -160,50 +252,16 @@ struct SettingsView: View {
                         Text(viewModel.label(for: choice)).tag(choice)
                     }
                 }
-
-                if let hint = viewModel.modelStatusHint {
-                    Text(hint)
-                        .font(.caption)
-                        .foregroundColor([.loading, .verifying].contains(viewModel.modelStatus) ? .secondary : .red)
-                }
-            } header: {
-                Text("Model")
-            }
-            .task(id: "\(viewModel.engine.rawValue)|\(viewModel.language)") {
-                await viewModel.refreshSpeechAssets()
+                .frame(maxWidth: Self.pickerWidth, alignment: .trailing)
             }
 
-            // MARK: Hotkeys
-            Section {
-                HotkeyRow(
-                    label: "Hold to talk",
-                    description: viewModel.holdDescription,
-                    isCapturing: recorder.captureTarget == .hold,
-                    onRecord: { recorder.startCapture(for: .hold, vm: viewModel) },
-                    onReset:  { viewModel.resetHotkey(.hold) }
-                )
-                HotkeyRow(
-                    label: "Toggle to talk",
-                    description: viewModel.toggleDescription,
-                    isCapturing: recorder.captureTarget == .toggle,
-                    onRecord: { recorder.startCapture(for: .toggle, vm: viewModel) },
-                    onReset:  { viewModel.resetHotkey(.toggle) }
-                )
-                if let warning = viewModel.hotkeyWarning {
-                    Text(warning)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-            } header: {
-                Text("Hotkeys")
+            if let hint = viewModel.modelStatusHint {
+                let pending = [.loading, .verifying].contains(viewModel.modelStatus)
+                StatusLine(text: hint, tone: pending ? .note : .problem).padding(.bottom, 8)
             }
         }
-        .formStyle(.grouped)
-        .frame(minWidth: 380, idealWidth: 420, minHeight: 380)
-        .padding()
-        .onDisappear {
-            // Window closed mid-capture: remove the monitor and resume the tap.
-            recorder.cancelCapture(vm: viewModel)
+        .task(id: "\(viewModel.engine.rawValue)|\(viewModel.language)") {
+            await viewModel.refreshSpeechAssets()
         }
     }
 }
@@ -219,11 +277,16 @@ private struct ModelDownloadRow: View {
 
     var body: some View {
         let key = model.key
-        HStack {
-            Text(model.label)
-            Spacer()
+        HStack(spacing: 8) {
+            Text(model.label).foregroundStyle(Brand.Palette.ink)
+            Spacer(minLength: 8)
             if let progress = viewModel.modelDownloadLabel(key) {
-                Text(progress).foregroundColor(.secondary).monospacedDigit()
+                if case .downloading(let fraction)? = viewModel.modelDownloads[key] {
+                    ProgressView(value: fraction)
+                        .frame(width: 60)
+                        .accessibilityHidden(true)   // the label says it
+                }
+                Text(progress).foregroundStyle(Brand.Palette.inkSecondary).monospacedDigit()
                 Button("Cancel") { viewModel.cancelModelDownload(key) }
             } else {
                 if viewModel.hasPartialDownload(key) {
@@ -233,10 +296,9 @@ private struct ModelDownloadRow: View {
                     .disabled(!viewModel.canDownloadModel(key))
             }
         }
+        .padding(.vertical, 3)
         if let error = viewModel.modelDownloadError(key) {
-            Text(error)
-                .font(.caption)
-                .foregroundColor(.red)
+            StatusLine(text: error, tone: .problem).padding(.bottom, 4)
         }
     }
 }
@@ -253,16 +315,14 @@ private struct HotkeyRow: View {
     let onReset: () -> Void
 
     var body: some View {
-        HStack {
-            Text(label)
-            Spacer()
+        HStack(spacing: 8) {
+            Text(label).foregroundStyle(Brand.Palette.ink)
+            Spacer(minLength: 8)
             if isCapturing {
-                Text("Recording… press keys (Esc to cancel)")
-                    .foregroundColor(.secondary)
-                    .font(.callout)
+                StatusLine(text: "Recording… press keys (Esc to cancel)", tone: .live)
             } else {
                 Text(description)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(Brand.Palette.inkSecondary)
                 Button("Record") { onRecord() }
             }
             // Hide Reset while this row is in "Recording…" mode so there is no
@@ -274,5 +334,6 @@ private struct HotkeyRow: View {
                 Button("Reset to default") { onReset() }
             }
         }
+        .settingsRowPadding()
     }
 }
