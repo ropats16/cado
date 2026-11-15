@@ -3,7 +3,8 @@
 Run on the packaged app (`make install`), mic + Accessibility granted. Dictate
 into a text field (TextEdit, a browser, Terminal) unless the step says
 otherwise. The avocado sits in the bottom-left corner of the screen under the
-mouse.
+mouse. (Since #20 it's draggable and only its body takes clicks; placement and
+click checks: [overlay-20.md](overlay-20.md).)
 
 ## Animations
 

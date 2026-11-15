@@ -19,10 +19,16 @@ only network use is downloading models (see [Privacy](#privacy)).
   at the cursor.
 - **Toggle mode:** press **⌃⌥Space** to start, press again to stop — for longer
   dictation without holding a key. Press **Esc** while recording to cancel.
-- **Cado on screen** in the bottom-left corner while it works: the avocado
-  pulses with your voice while it listens, wobbles while it transcribes and
-  hops when your text lands, then gets out of the way. It never takes focus
-  and clicks pass straight through.
+- **Cado on screen** while it works (bottom-left corner until you drag it
+  elsewhere): the avocado pulses with your voice while it listens, wobbles
+  while it transcribes and hops when your text lands, then gets out of the
+  way. Drag it anywhere, even mid-dictation; each display remembers its own
+  spot. It never takes focus, clicks next to it pass straight through, and
+  it's hidden from screen shares and recordings (Settings › Mascot can show
+  it).
+- **Always-visible option** (Settings › Mascot › Always show Cado, off by
+  default): a small resting Cado stays on screen; click it to start
+  dictating, click again to stop.
 - **Works everywhere** by pasting (and restoring your clipboard afterward), so it
   works in browsers, native apps, terminals, and CLIs alike.
 - **Notifies you** on errors (mic unavailable, model missing, transcription
@@ -203,7 +209,9 @@ Cado was called VoiceType. If you had VoiceType installed, quit it first
 - Recording **auto-stops** after the max dictation length (Settings; default
   10 min, or "No limit", which still stops at 30 min) so a forgotten recording
   can't run forever. A notification tells you when that happens.
-- The avocado in the bottom-left corner shows **listening → transcribing → done**.
+- The avocado shows **listening → transcribing → done**. Drag it where you
+  like (it remembers the spot per display). With **Always show Cado** on,
+  click the small resting one to start, click again to stop.
 - Your existing clipboard is restored after each dictation, so dictating never
   overwrites something you copied. (A password-manager copy isn't put back, so
   its auto-clear still holds — the dictation stays on the clipboard instead.)
@@ -322,6 +330,9 @@ logs the problem at startup and the menu shows a **Config issue** warning.
 | `language`            | `en` (default), another code like `de`, or `auto`. English-only models always use `en`. |
 | `threads`             | CPU threads; `0` = auto (performance cores, max 8). |
 | `keepMicWarm`         | Keep the mic on from launch (default off: it stays on 30 s after each dictation). |
+| `mascotAlwaysVisible` | Keep a small resting Cado on screen; click it to start/stop dictating (default off). |
+| `mascotInScreenShares`| Let screen shares, recordings and screenshots capture Cado (default off: hidden). |
+| `mascotPositions`     | Where you dragged Cado, per display (written when you drag it). |
 
 ---
 
