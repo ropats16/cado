@@ -50,7 +50,7 @@ final class MascotModel: ObservableObject {
 
 /// Cado, the animated avocado overlay: pulses with the voice while listening,
 /// wobbles while thinking, hops and flips when done, breathes when idle. A
-/// fixed-size, transparent view (no pill), sized so no transform, ring or
+/// fixed-size, transparent view (no backdrop), sized so no transform, ring or
 /// shadow ever clips; host it at `side` × `side`.
 ///
 /// Animations are SwiftUI loops that run only while the view is on screen, so

@@ -57,7 +57,7 @@ protocol OverlayPanel: AnyObject {
 ///   outranks it: landing then is ignored, and going live ends a celebration.
 /// - Hiding fades out, then orders out on a clock timer after the fade. Any
 ///   show before that timer fires cancels it and fades back in where the panel
-///   is, so a quick re-show never vanishes (the old indicator's bug: a stale
+///   is, so a quick re-show never vanishes (the bug this replaced: a stale
 ///   fade completion ordered the re-shown panel out). This is also why idle and
 ///   `textLanded` may arrive in either order without a hide in between: the
 ///   celebration cancels the hide that idle just started.

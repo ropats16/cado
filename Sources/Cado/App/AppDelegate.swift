@@ -54,6 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dictation: DictationSession?
     /// What the app is doing, for the overlay (#19); the session reports into it.
     private let activity = AppActivityFeed()
+    /// The mascot, watching `activity`. Attached at launch; builds its panel
+    /// on first show.
+    private var overlay: MascotOverlay?
     private var menu: StatusMenu!
     private var hotkeys: HotkeyManager?
     private var settingsWindowController: SettingsWindowController?
@@ -73,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenu()
         wireMonitor()
         startEngine()
+        overlay = MascotOverlay(feed: activity)
         dictation = makeDictationSession()
         requestPermissionsIfNeeded()
         monitor.start()
@@ -261,7 +265,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Dictation & hotkeys
 
-    /// The dictation flow over the live mic, engine, paste and indicator.
+    /// The dictation flow over the live mic, engine and paste; it reports to
+    /// `activity`, which the overlay watches.
     /// Settings are read live, so a change applies to the next recording; a
     /// press only starts one when readiness allows (re-checked per press,
     /// without installing a tap from inside the press). The session holds the
