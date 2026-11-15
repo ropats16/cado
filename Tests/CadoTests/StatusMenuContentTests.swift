@@ -20,7 +20,7 @@ final class StatusMenuContentTests: XCTestCase {
     func testReady() {
         let menu = content(.ready)
         XCTAssertEqual(menu.header, "Cado — Ready")
-        XCTAssertEqual(menu.symbol, "mic")
+        XCTAssertEqual(menu.glyph, .ready)
         XCTAssertNil(menu.reason)
         XCTAssertEqual(menu.microphone, .init(title: "Microphone: Granted", action: nil))
         XCTAssertEqual(menu.accessibility, .init(title: "Accessibility: Granted", action: nil))
@@ -33,10 +33,16 @@ final class StatusMenuContentTests: XCTestCase {
     func testMicDeniedShowsReasonAndFix() {
         let menu = content(.notReady(.microphoneDenied), microphone: .denied)
         XCTAssertEqual(menu.header, "Cado — Needs Microphone")
-        XCTAssertEqual(menu.symbol, "mic.slash")
+        XCTAssertEqual(menu.glyph, .notReady)
         XCTAssertEqual(menu.reason, .init(title: ReadinessIssue.microphoneDenied.detail,
                                           action: .openMicrophoneSettings))
         XCTAssertEqual(menu.microphone, .init(title: "Microphone: Not granted", action: .openMicrophoneSettings))
+    }
+
+    /// The avocado's VoiceOver label says when the app can't dictate yet.
+    func testGlyphAccessibilityDescription() {
+        XCTAssertEqual(StatusGlyph.ready.accessibilityDescription, "Cado")
+        XCTAssertEqual(StatusGlyph.notReady.accessibilityDescription, "Cado (not ready)")
     }
 
     func testUndeterminedMicRowAsksForAccess() {
@@ -82,7 +88,7 @@ final class StatusMenuContentTests: XCTestCase {
     func testTransientStatusHasNoReasonLine() {
         let menu = content(.starting(.modelLoading))
         XCTAssertEqual(menu.header, "Cado — Loading model…")
-        XCTAssertEqual(menu.symbol, "mic")
+        XCTAssertEqual(menu.glyph, .ready)
         XCTAssertNil(menu.reason)
     }
 
@@ -90,7 +96,7 @@ final class StatusMenuContentTests: XCTestCase {
     func testAFirstLoadShowsItsDetail() {
         let menu = content(.starting(.modelPreparing), engine: .loading)
         XCTAssertEqual(menu.header, "Cado — Preparing model…")
-        XCTAssertEqual(menu.symbol, "mic")
+        XCTAssertEqual(menu.glyph, .ready)
         XCTAssertEqual(menu.reason, .init(title: "Preparing model for this Mac (first load, ~20 s)…", action: nil))
     }
 

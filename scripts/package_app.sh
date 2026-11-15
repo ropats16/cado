@@ -5,7 +5,10 @@
 #   --install   also copy the .app to /Applications
 #
 # The Metal shader is EMBEDDED in the binary (see scripts/embed_metal_shader.sh),
-# so there is nothing extra to bundle — the .app is just the binary + Info.plist.
+# so there is no app data to bundle — the .app is just the binary + Info.plist +
+# the OS-level icon (Contents/Resources/AppIcon.icns, which Finder, System
+# Settings and notifications read from the bundle; the app itself never does).
+# The mascot art the app draws is compiled in (Brand/MascotArt+SVG.swift).
 # SwiftPM's FluidAudio_FluidAudio.bundle is deliberately left out: it holds only
 # LuxTts G2P data for FluidAudio's TTS, which the app never calls (Parakeet ASR
 # never reads it). The folder-model pins are compiled in (FolderModelPins+Tables).
@@ -37,9 +40,10 @@ fi
 
 echo "==> Assembling $APP"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
+cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 echo "==> Ensuring a stable signing identity"

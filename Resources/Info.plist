@@ -10,6 +10,9 @@
     <string>com.ropats16.Cado</string>
     <key>CFBundleExecutable</key>
     <string>Cado</string>
+    <!-- Resources/AppIcon.icns (scripts/make_app_icon.py); package_app.sh copies it in. -->
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key>

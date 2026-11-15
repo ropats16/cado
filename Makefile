@@ -13,6 +13,9 @@
 #                  (or a specific one: make parakeet-model PARAKEET=<id>)
 #   make whisperkit-model  download a WhisperKit (Core ML) model folder (#12)
 #                  (or a specific one: make whisperkit-model WHISPERKIT=tiny.en)
+#   make brand     regenerate the checked-in brand assets from plans/mascot/*.svg:
+#                  the embedded mascot art (Sources/Cado/Brand/MascotArt+SVG.swift)
+#                  and Resources/AppIcon.icns (needs rsvg-convert: brew install librsvg)
 #   make clean     remove build artifacts
 
 APP   := Cado
@@ -23,7 +26,7 @@ PARAKEET ?=
 # Empty = scripts/download_whisperkit_model.sh's default (the app's English Automatic pick).
 WHISPERKIT ?=
 
-.PHONY: setup embed model vad-model parakeet-model whisperkit-model build run package install clean
+.PHONY: setup embed brand model vad-model parakeet-model whisperkit-model build run package install clean
 
 # `make setup` auto-detects the model from this Mac's arch + RAM. Pass MODEL= to
 # override, e.g. `make setup MODEL=small.en-q5_1` — only a command-line MODEL is
@@ -39,6 +42,13 @@ endif
 # swift build, so build/run depend on it. No-op on Intel (CPU-only build).
 embed:
 	bash scripts/embed_metal_shader.sh
+
+# Brand assets are generated from the mascot SVGs and CHECKED IN (not a build
+# step), so a plain build needs no rsvg-convert. Re-run after editing the art;
+# BrandTests fails while the embedded art is stale.
+brand:
+	bash scripts/embed_mascot_art.sh
+	python3 scripts/make_app_icon.py
 
 model:
 	bash scripts/download_model.sh $(MODEL)
