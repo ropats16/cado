@@ -3,6 +3,9 @@ import Foundation
 /// What the mascot overlay shows (#19).
 enum OverlayVisual: Equatable {
     case hidden
+    /// Idle with "always visible" on (#20): the small, still mascot between
+    /// dictations; a click on it starts one.
+    case resting
     /// Mic live; the mascot follows the input level.
     case listening
     /// Audio being turned into text.
@@ -12,10 +15,11 @@ enum OverlayVisual: Equatable {
     /// A meeting is recording: a persistent small recording mascot.
     case meeting
 
-    /// The visual an activity calls for, celebration aside.
-    init(_ activity: AppActivity) {
+    /// The visual an activity calls for, celebration aside. `alwaysVisible`
+    /// only changes idle: hidden or resting.
+    init(_ activity: AppActivity, alwaysVisible: Bool = false) {
         switch activity {
-        case .idle: self = .hidden
+        case .idle: self = alwaysVisible ? .resting : .hidden
         case .dictating: self = .listening
         case .transcribing: self = .thinking
         case .meetingLive: self = .meeting
@@ -49,10 +53,14 @@ protocol OverlayPanel: AnyObject {
 /// show/hide sequencing.
 ///
 /// Rules worth knowing:
-/// - The visual follows `OverlayVisual(activity)`; a repeated activity is a
-///   no-op (no re-render, no re-fade).
+/// - The visual follows `OverlayVisual(activity, alwaysVisible:)`; a repeated
+///   activity or setting is a no-op (no re-render, no re-fade).
+/// - `alwaysVisible` (off by default) swaps idle's hidden for `resting`, so
+///   the mascot changes in place between dictations instead of fading in and
+///   out. A change only shows while idle and not celebrating: on fades the
+///   resting mascot in, off fades it out like any hide.
 /// - `textLanded` shows `done` for `doneDuration`, then whatever the activity
-///   then calls for (normally hidden) — even from hidden, since delivery lands
+///   then calls for (hidden or resting) — even from hidden, since delivery lands
 ///   right as the activity goes idle. A live mic (`listening`, `meeting`)
 ///   outranks it: landing then is ignored, and going live ends a celebration.
 /// - Hiding fades out, then orders out on a clock timer after the fade. Any
@@ -66,6 +74,12 @@ protocol OverlayPanel: AnyObject {
 /// - `systemStateChanged` (sleep/wake, screen or Space change): visible →
 ///   re-assert in place; fading out → finish the hide now; then, once
 ///   hidden, discard the panel so the next show rebuilds it.
+/// - `clicked` (a click on the mascot, not a drag) toggles dictation only
+///   where that's what the mascot means: resting (start) and listening
+///   (stop). Elsewhere it's dropped here, not left to the session: during
+///   `done` the session is already idle and would start a dictation off a
+///   celebration; a fading-out mascot is gone as far as the user is
+///   concerned; a meeting isn't a dictation.
 ///
 /// Main-thread only.
 final class OverlayDirector {
@@ -93,6 +107,15 @@ final class OverlayDirector {
     /// What the overlay shows (or is heading to) now.
     private(set) var visual: OverlayVisual = .hidden
 
+    /// Keep a resting mascot on screen while idle (#20). Settable live.
+    var alwaysVisible = false {
+        didSet { if alwaysVisible != oldValue { update() } }
+    }
+
+    /// Called by `clicked` when a click means start/stop dictation; the owner
+    /// sends the session a toggle.
+    var onToggleDictation: (() -> Void)?
+
     init(panel: OverlayPanel, clock: Clock = SystemClock()) {
         self.panel = panel
         self.clock = clock
@@ -118,6 +141,12 @@ final class OverlayDirector {
             self?.update()
         }
         update()
+    }
+
+    /// A click (mouse-up without a drag) on the mascot's body.
+    func clicked() {
+        guard visual == .resting || visual == .listening else { return }
+        onToggleDictation?()
     }
 
     func systemStateChanged() {
@@ -147,7 +176,7 @@ final class OverlayDirector {
     }
 
     private func update() {
-        let target: OverlayVisual = celebration != nil ? .done : OverlayVisual(activity)
+        let target: OverlayVisual = celebration != nil ? .done : OverlayVisual(activity, alwaysVisible: alwaysVisible)
         guard target != visual else { return }
         visual = target
         target == .hidden ? hide() : show(target)

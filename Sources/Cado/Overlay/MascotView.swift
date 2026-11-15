@@ -8,6 +8,9 @@ final class MascotModel: ObservableObject {
         didSet { if pose != oldValue { resetLevel() } }
     }
 
+    /// The small, still resting look (#20), in the same fixed frame.
+    @Published var isMini: Bool
+
     /// Raw live mic level, 0...1, at audio-callback rate. Not published: it
     /// feeds `displayLevel`, which only republishes on a visible change, so a
     /// stream of near-identical levels doesn't redraw the view each time.
@@ -25,8 +28,10 @@ final class MascotModel: ObservableObject {
     private var smoothed: Float = 0
     private var lastSample: TimeInterval?
 
-    init(pose: Brand.Pose = .idle, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+    init(pose: Brand.Pose = .idle, isMini: Bool = false,
+         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.pose = pose
+        self.isMini = isMini
         self.now = now
     }
 
@@ -49,15 +54,23 @@ final class MascotModel: ObservableObject {
 }
 
 /// Cado, the animated avocado overlay: pulses with the voice while listening,
-/// wobbles while thinking, hops and flips when done, breathes when idle. A
-/// fixed-size, transparent view (no backdrop), sized so no transform, ring or
-/// shadow ever clips; host it at `side` × `side`.
+/// wobbles while thinking, hops and flips when done, breathes when idle; mini
+/// (resting) is small and still. A fixed-size, transparent view (no
+/// backdrop), sized so no transform, ring or shadow ever clips; host it at
+/// `side` × `side`.
 ///
 /// Animations are SwiftUI loops that run only while the view is on screen, so
-/// drop the hosting view when the overlay hides.
+/// drop the hosting view when the overlay hides. Mini runs none (bar the
+/// one-off resize into or out of it), so it can stay hosted indefinitely.
 struct MascotView: View {
     @ObservedObject var model: MascotModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// What a pose subtree is built for; a change rebuilds it.
+    private struct Look: Hashable {
+        var pose: Brand.Pose
+        var mini: Bool
+    }
 
     /// The mascot art's square (the full 148-unit viewBox), in points.
     static let artSide: CGFloat = 64
@@ -67,7 +80,7 @@ struct MascotView: View {
     static let side = artSide + 2 * padding
 
     var body: some View {
-        PoseMotion(pose: model.pose, reduceMotion: reduceMotion) {
+        PoseMotion(motion: reduceMotion ? nil : MascotMotion.motion(model.pose, mini: model.isMini)) {
             ZStack {
                 Image(decorative: MascotArt.image(model.pose), scale: MascotArt.scale)
                     .resizable()
@@ -83,7 +96,13 @@ struct MascotView: View {
             // Glides between level updates, which arrive in uneven bursts.
             .animation(.linear(duration: 0.08), value: model.displayLevel)
         }
-        .id(model.pose)   // a fresh subtree per pose: no loop's transform outlives its pose
+        // A fresh subtree per look: no loop's transform outlives its pose.
+        .id(Look(pose: model.pose, mini: model.isMini))
+        // Outside the id so it animates across the rebuild; scoped so only
+        // the resize animates, not the subtree swap.
+        .animation(reduceMotion ? nil : .smooth(duration: MascotMotion.miniTransitionDuration)) {
+            $0.scaleEffect(model.isMini ? MascotMotion.miniScale : 1, anchor: MascotMotion.miniAnchor)
+        }
         .frame(width: Self.side, height: Self.side)
         .accessibilityElement()
         .accessibilityLabel(Text(accessibilityLabel))
@@ -104,10 +123,10 @@ struct MascotView: View {
     }
 }
 
-/// Each pose's own motion around the art, pivoting on the feet.
+/// A pose's own motion around the art, pivoting on the feet; `nil` draws the
+/// content as is, with no animation at all.
 private struct PoseMotion<Content: View>: View {
-    let pose: Brand.Pose
-    let reduceMotion: Bool
+    let motion: MascotMotion.Motion?
     @ViewBuilder let content: Content
 
     @State private var looping = false
@@ -117,46 +136,45 @@ private struct PoseMotion<Content: View>: View {
 
     var body: some View {
         Group {
-            if reduceMotion {
+            switch motion {
+            case nil:
                 content
-            } else {
-                switch pose {
-                case .idle, .listening:
-                    content
-                        .scaleEffect(x: 1, y: looping ? MascotMotion.breathScale : 1, anchor: feet)
-                case .thinking:
-                    content
-                        .rotationEffect(.degrees(looping ? MascotMotion.wobbleDegrees : -MascotMotion.wobbleDegrees),
-                                        anchor: feet)
-                        .offset(y: looping ? -MascotMotion.wobbleBob : 0)
-                case .done:
-                    content
-                        .keyframeAnimator(initialValue: MascotMotion.Pop(), trigger: celebrations) { view, pop in
-                            view
-                                .scaleEffect(pop.stretch, anchor: feet)
-                                .rotation3DEffect(.degrees(pop.spin), axis: (x: 0, y: 1, z: 0))
-                                .offset(y: pop.hop)
-                        } keyframes: { _ in
-                            MascotMotion.celebration()
-                        }
-                }
+            case .breathe:
+                content
+                    .scaleEffect(x: 1, y: looping ? MascotMotion.breathScale : 1, anchor: feet)
+            case .wobble:
+                content
+                    .rotationEffect(.degrees(looping ? MascotMotion.wobbleDegrees : -MascotMotion.wobbleDegrees),
+                                    anchor: feet)
+                    .offset(y: looping ? -MascotMotion.wobbleBob : 0)
+            case .celebrate:
+                content
+                    .keyframeAnimator(initialValue: MascotMotion.Pop(), trigger: celebrations) { view, pop in
+                        view
+                            .scaleEffect(pop.stretch, anchor: feet)
+                            .rotation3DEffect(.degrees(pop.spin), axis: (x: 0, y: 1, z: 0))
+                            .offset(y: pop.hop)
+                    } keyframes: { _ in
+                        MascotMotion.celebration()
+                    }
             }
         }
         .onAppear(perform: start)
     }
 
     private func start() {
-        guard !reduceMotion else { return }
-        switch pose {
-        case .idle, .listening:
+        switch motion {
+        case nil:
+            break
+        case .breathe:
             withAnimation(.easeInOut(duration: MascotMotion.breathPeriod / 2).repeatForever(autoreverses: true)) {
                 looping = true
             }
-        case .thinking:
+        case .wobble:
             withAnimation(.easeInOut(duration: MascotMotion.wobblePeriod / 2).repeatForever(autoreverses: true)) {
                 looping = true
             }
-        case .done:
+        case .celebrate:
             celebrations += 1
         }
     }

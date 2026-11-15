@@ -12,6 +12,19 @@ final class MascotOverlayPanelTests: XCTestCase {
         XCTAssertEqual(Brand.Pose(.thinking), .thinking)
         XCTAssertEqual(Brand.Pose(.done), .done)
         XCTAssertEqual(Brand.Pose(.meeting), .idle)
+        XCTAssertEqual(Brand.Pose(.resting), .idle)
+    }
+
+    func testRenderMakesOnlyRestingMini() {
+        let adapter = MascotOverlayPanel()
+        adapter.render(.resting)
+        XCTAssertTrue(adapter.model.isMini)
+        XCTAssertEqual(adapter.model.pose, .idle)
+        for visual: OverlayVisual in [.listening, .thinking, .done, .meeting] {
+            adapter.render(.resting)
+            adapter.render(visual)
+            XCTAssertFalse(adapter.model.isMini, "\(visual)")
+        }
     }
 
     // MARK: - Real panel

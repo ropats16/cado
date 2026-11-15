@@ -98,6 +98,50 @@ enum MascotMotion {
     static let wobbleBob: CGFloat = 1.5
     static let wobblePeriod: TimeInterval = 0.9
 
+    /// A pose's own motion. `nil` is a still image.
+    enum Motion: Equatable { case breathe, wobble, celebrate }
+
+    /// The motion `pose` plays at `mini` size. Mini (resting) is still: it can
+    /// sit on screen for hours, so nothing may tick there.
+    static func motion(_ pose: Brand.Pose, mini: Bool) -> Motion? {
+        guard !mini else { return nil }
+        switch pose {
+        case .idle, .listening: return .breathe
+        case .thinking: return .wobble
+        case .done: return .celebrate
+        }
+    }
+
+    // MARK: - Mini (resting)
+
+    /// The avocado itself at rest, any pose: skin outline, hands, feet; not
+    /// the fx (sparkles, dots) floating above. Art units.
+    static let bodyBounds = CGRect(x: 2.5, y: 12.5, width: 118, height: 114.5)
+
+    /// The resting mascot's size relative to the full one.
+    static let miniScale: CGFloat = 0.6
+    /// Mini scales about the body's bottom-left, so it stays in the corner the
+    /// panel is pinned to, feet on the same ground. The frame never resizes.
+    static let miniAnchor = unitPoint(CGPoint(x: bodyBounds.minX, y: bodyBounds.maxY))
+    /// The one-off grow/shrink between resting and active.
+    static let miniTransitionDuration: TimeInterval = 0.2
+
+    /// Where a click or drag counts as on the mascot: the body's rect in
+    /// `MascotView`'s coordinates (side × side, origin top-left, y down). The
+    /// margin round it should pass clicks through. At rest; motion strays a
+    /// few points, which doesn't matter for a target this size.
+    static func hitRect(mini: Bool) -> CGRect {
+        let unit = MascotView.artSide / viewBox.width
+        var rect = CGRect(x: MascotView.padding + (bodyBounds.minX - viewBox.minX) * unit,
+                          y: MascotView.padding + (bodyBounds.minY - viewBox.minY) * unit,
+                          width: bodyBounds.width * unit, height: bodyBounds.height * unit)
+        guard mini else { return rect }
+        let bottomLeft = CGPoint(x: rect.minX, y: rect.maxY)
+        rect.size = CGSize(width: rect.width * miniScale, height: rect.height * miniScale)
+        rect.origin = CGPoint(x: bottomLeft.x, y: bottomLeft.y - rect.height)
+        return rect
+    }
+
     // MARK: - Done
 
     /// One frame of the done celebration. `hop` is in points (negative is up),
