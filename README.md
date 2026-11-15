@@ -25,7 +25,7 @@ only network use is downloading models (see [Privacy](#privacy)).
   works in browsers, native apps, terminals, and CLIs alike.
 - **Notifies you** on errors (mic unavailable, model missing, transcription
   failure) and when no text field is focused, instead of failing silently.
-- **Menu-bar only** — a small 🎙️ icon, no Dock icon, stays out of your way.
+- **Menu-bar only** — a small avocado icon, no Dock icon, stays out of your way.
 - **100% private.** It only uses the internet to download models: the
   one-time setup download, and Settings › Model's **Download** button, which
   fetches pinned files from `huggingface.co` only when you click it.
@@ -129,12 +129,12 @@ make install
 ```
 
 This copies **Cado.app** to your Applications folder and opens it. Look for
-a small **🎙️ microphone icon in your menu bar** (top-right of the screen). Click
+a small **avocado icon in your menu bar** (top-right of the screen). Click
 it to see the app's status and controls.
 
 ### 5. Grant the two permissions
 
-Cado needs two macOS permissions. Click the 🎙️ menu-bar icon to see their
+Cado needs two macOS permissions. Click the avocado menu-bar icon to see their
 status; both must say **Granted** before dictation works.
 
 1. **Microphone** — so it can hear you. The first time you dictate, macOS asks
@@ -205,7 +205,7 @@ Cado was called VoiceType. If you had VoiceType installed, quit it first
 - Your existing clipboard is restored after each dictation, so dictating never
   overwrites something you copied. (A password-manager copy isn't put back, so
   its auto-clear still holds — the dictation stays on the clipboard instead.)
-- Quit anytime from the 🎙️ menu (**Quit Cado**).
+- Quit anytime from the avocado menu (**Quit Cado**).
 
 ---
 
@@ -398,6 +398,7 @@ make build        # compile only
 make package      # assemble dist/Cado.app
 make install      # build + package + copy to /Applications
 make clean        # remove build artifacts
+make brand        # regenerate the app icon + embedded mascot art from plans/mascot (needs rsvg-convert)
 ```
 
 whisper.cpp is vendored as a git submodule under `Sources/CWhisper/whisper.cpp`

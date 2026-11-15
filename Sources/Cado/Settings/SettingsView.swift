@@ -121,10 +121,13 @@ struct SettingsView: View {
 
     // MARK: Header
 
+    /// Parsed once: `Brand.Art.mascot` builds a new image from the SVG per call.
+    private static let mascot = Brand.Art.mascot(.idle)
+
     /// The mascot, the name, and how to dictate with the configured hotkey.
     private var header: some View {
         HStack(spacing: 14) {
-            Image(nsImage: Brand.Art.mascot(.idle))
+            Image(nsImage: Self.mascot)
                 .resizable()
                 .frame(width: 60, height: 60)
                 .frame(width: 72, height: 72)

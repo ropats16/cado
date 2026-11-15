@@ -33,6 +33,7 @@ final class SettingsRenderHarness: XCTestCase {
     }
 
     private var tempDir: URL!
+    private var previousOverride: String?
 
     override func setUpWithError() throws {
         guard let dir = ProcessInfo.processInfo.environment["CADO_RENDER_SETTINGS"], !dir.isEmpty else {
@@ -40,11 +41,17 @@ final class SettingsRenderHarness: XCTestCase {
         }
         tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("cado-render-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        previousOverride = ProcessInfo.processInfo.environment[Paths.overrideVariable]
         setenv(Paths.overrideVariable, tempDir.path, 1)   // belt and braces: nothing reaches the real folder
     }
 
     override func tearDown() {
-        if let tempDir { try? FileManager.default.removeItem(at: tempDir) }
+        if let tempDir {
+            // Put the override back, so later tests don't inherit a deleted folder.
+            if let previousOverride { setenv(Paths.overrideVariable, previousOverride, 1) }
+            else { unsetenv(Paths.overrideVariable) }
+            try? FileManager.default.removeItem(at: tempDir)
+        }
         super.tearDown()
     }
 
@@ -57,8 +64,8 @@ final class SettingsRenderHarness: XCTestCase {
             for dark in [false, true] {
                 let vm = await make()
                 let file = out.appendingPathComponent("\(prefix)\(name)-\(dark ? "dark" : "light").png")
+                defer { vm.recorder.cancelCapture(vm: vm) }
                 try await render(vm, dark: dark, to: file)
-                vm.recorder.cancelCapture(vm: vm)
             }
         }
     }
