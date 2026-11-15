@@ -16,7 +16,7 @@ ARCHIVE = ["lemon-v3", "peach", "blob"]  # round 1, dropped
 
 BLURB = {
     "avocado-v3": ("v3 (round 6): the roundness v2 was after, done properly. A chubby, round-bellied half with a soft narrower dome and one smooth outline (no neck pinch), an even skin band, and a big pale belly patch (sized like a real avocado's pale pit hollow) around a big flat pit. A slightly bigger face sits higher in the upper flesh, with a small gap of regular flesh above the patch. The pit is still the voice element: when listening it swells and gets a level ring.",
-                   "Glyph: the same outline, with a touch more taper up top, as a ring with a solid pit and a knocked-out face. At 22 and 18 px on light and dark bars it reads as an avocado, not an egg, a pear or the Apple logo."),
+                   "Glyph: v3's own chubby silhouette (no extra taper) as an even ring filling the canvas, with a big low solid pit, eyes and a smile. At 22 and 18 px on light and dark bars it reads as an avocado, not an egg, a pear or the Apple logo."),
     "egg": ("Baseline from round 1. A fried egg: squishy white body, yolk face. The white jiggles, the yolk can swell with mic level.",
             "Unique silhouette. The shape is wide, so the face is smallish at 120 px."),
     "avocado": ("v2: the belly is now a full round bottom and the pit is bigger and rounder (it has an inner shade and a highlight). The pit is the voice element: when listening it grows and gets a level ring that can pulse with mic level.",
