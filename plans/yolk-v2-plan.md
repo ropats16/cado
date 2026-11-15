@@ -1,16 +1,16 @@
-# Zesty v2 — plan (grilling outcome, 2026-10-29; name + mascot picked 2026-11-04)
+# Cado v2 — plan (grilling outcome, 2026-10-29; name + mascot picked 2026-11-04, re-picked 2026-11-15)
 
-Turn VoiceType into **Zesty**: cute, lemon-mascot, fully local dictation + silent meeting transcription for macOS, handed out to friends as a case study. Free, MIT, open source.
+Turn VoiceType into **Cado**: cute, avocado-mascot, fully local dictation + silent meeting transcription for macOS, handed out to friends as a case study. Free, MIT, open source.
 
 Research backing: [research-distribution.md](research-distribution.md).
 
 ## Decisions
 
 ### Product
-- **Mascot / name (picked in #16, 2026-11-04):** **Zesty**, a vertical lemon with rounded tips, one stem + leaf, eyes, smile, rosy cheeks, little hands + legs. Concept art: `plans/mascot/lemon-v4-*.svg` (idle / listening / thinking / done + menu-bar glyph); options + name checks in `plans/mascot/`. Name caveat: DoorDash owns zesty.com + an iOS AI app "Zesty"; check its trademark before any public launch. Candidate domains: usezesty.app / tryzesty.app (no DNS), zesty.app (for sale).
-- **Rename:** repo, app, bundle ID `voicetype` → Zesty in brand phase, before any friend installs (resets own TCC once).
-- **Overlay:** draggable floating lemon, remembers position, hidden until active by default. Opt-in "always visible" mini lemon; click → start dictation / meeting. Persistent small recording lemon during meetings (never record silently).
-- **Meetings:** transcript split Me (mic) / Them (system audio). Start = auto-detect Zoom/Meet/Teams mic use → prompt "Record?"; manual fallback (menu, hotkey, lemon click). Never auto-record.
+- **Mascot / name (re-picked 2026-11-15; was Zesty the lemon, #16):** **Cado**, a chubby avocado half: round belly, pit low in the belly (the voice element: swells + level ring while listening), eyes, smile, rosy cheeks, little hands + legs. Concept art: `plans/mascot/avocado-v3-*.svg` (idle / listening / thinking / done + menu-bar glyph), v3 awaiting owner sign-off; options + name checks in `plans/mascot/`. Name is crowded (a Mac store-ops app "Cado", Cado Security) but no voice apps; fine for a free friends-and-family tool, recheck before any public launch.
+- **Rename:** repo, app, bundle ID `voicetype` → Cado (done in #17) in brand phase, before any friend installs (resets own TCC once).
+- **Overlay:** draggable floating avocado, remembers position, hidden until active by default. Opt-in "always visible" mini avocado; click → start dictation / meeting. Persistent small recording avocado during meetings (never record silently).
+- **Meetings:** transcript split Me (mic) / Them (system audio). Start = auto-detect Zoom/Meet/Teams mic use → prompt "Record?"; manual fallback (menu, hotkey, avocado click). Never auto-record.
 - **Meeting pipeline:** audio streamed to disk continuously (crash-safe), chunked background transcription during call, final pass at end. Live captions = later polish.
 - **Raw audio:** deleted after transcription by default; "keep audio" setting.
 - **Summaries (later phase, optional):** on by default on macOS 26 via Apple Foundation Models (on-device, chunk + merge for ~4k ctx). Other Macs: opt-in OpenRouter, user picks model — explicit warning that text leaves the Mac.
@@ -46,9 +46,9 @@ Research backing: [research-distribution.md](research-distribution.md).
 - GitHub release download counts + opt-in anonymous launch ping (e.g. TelemetryDeck), disclosed.
 
 ## Phases
-0. **Research** — competitors (Granola, Superwhisper, Wispr Flow, MacWhisper, VoiceInk, Hex, Spokenly) features/UX/overlays; Reddit/HN complaints + gaps; name collision check (done: Zesty) (MAS, GitHub, domains).
+0. **Research** — competitors (Granola, Superwhisper, Wispr Flow, MacWhisper, VoiceInk, Hex, Spokenly) features/UX/overlays; Reddit/HN complaints + gaps; name collision check (done: Cado) (MAS, GitHub, domains).
 1. **Architecture + perf** — `/improve-codebase-architecture` review; engine seam; benchmark spike; baseline tuning.
-2. **Brand + overlay** — rename to Zesty, lemon mascot assets/animations, draggable overlay, UI refresh.
+2. **Brand + overlay** — rename to Cado, avocado mascot assets/animations, draggable overlay, UI refresh.
 3. **Distribution** — Developer ID, notarization, DMG, Sparkle, Homebrew tap, onboarding (permissions + model picker/download w/ checksum), Acknowledgements, README Network activity.
 4. **Notes library + dictation history** — Markdown store, library window, Dock-icon toggle.
 5. **Meetings** — Core Audio taps + mic, meeting detection prompt, chunked transcription, Me/Them transcript, recording indicator, audio retention setting.

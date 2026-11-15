@@ -60,6 +60,42 @@ def body_avo(pose=None):
             f'<path d="M{60 - r * .62:.1f},{85 - r * .1:.1f} Q{60 - r * .5:.1f},{85 - r * .62:.1f} {60:.1f},{85 - r * .66:.1f}" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".65"/></g>')
 
 
+# v3 ("Cado"): one closed cubic outline F = the flesh edge. Skin band + outline are strokes on F, so
+# both stay an even width all the way round (v1/v2 hand-drew two paths and the band wandered).
+# halo = pale belly patch (rx, ry, dy from pit centre): big, like a real avocado's pale pit hollow,
+# with an even ~4-unit margin of regular flesh to the skin band.
+AVO3 = dict(F=[(60, 22), ((72, 22), (79.5, 34), (83.5, 46)), ((87.8, 58.9), (95, 68), (95, 83.5)),
+               ((95, 101), (80, 108), (60, 108)), ((40, 108), (25, 101), (25, 83.5)),
+               ((25, 68), (32.2, 58.9), (36.5, 46)), ((40.5, 34), (48, 22), (60, 22))],
+            band=6.5, pit=(60, 86, 15), halo=(31, 21, -2), swell=1.5, ring=3)
+# glyph-only curve: same belly, a touch more taper up top so it can't read as an egg/onigiri at 18 px
+AVO3_GLYPH_F = [(60, 22), ((69, 22), (75, 34), (79, 46)), ((83.6, 59.8), (95, 68), (95, 82)),
+                ((95, 98), (80, 105), (60, 105)), ((40, 105), (25, 98), (25, 82)),
+                ((25, 68), (36.4, 59.8), (41, 46)), ((45, 34), (51, 22), (60, 22))]
+
+
+def bez_d(segs, s=1.0, dx=0.0, dy=0.0):
+    t = lambda p: f"{f(p[0] * s + dx)},{f(p[1] * s + dy)}"
+    return f"M{t(segs[0])} " + " ".join(f"C{t(a)} {t(b)} {t(c)}" for a, b, c in segs[1:]) + " Z"
+
+
+def body_avo_v3(pose=None):
+    """v3: chubby egg-round half with a soft narrower dome (no neck), even skin band, flat pit low in the belly."""
+    d = bez_d(AVO3["F"])
+    b = AVO3["band"]
+    px, py, pr = AVO3["pit"]
+    r = pr + AVO3["swell"] if pose == "listening" else pr
+    halo = (f'<ellipse id="belly" cx="{px}" cy="{f(py + AVO3["halo"][2])}" rx="{AVO3["halo"][0]}" ry="{AVO3["halo"][1]}" fill="#e8f3ae"/>'
+            if AVO3["halo"] else "")
+    level = (f'<circle id="pit-level" cx="{px}" cy="{py}" r="{f(r + AVO3["ring"])}" fill="none" stroke="{PULSE}" stroke-width="3" opacity=".9"/>'
+             if pose == "listening" else "")
+    return (f'<g id="skin"><path d="{d}" fill="#4f8a3c" stroke="{OUT}" stroke-width="{f(2 * b + 2 * SW)}" stroke-linejoin="round"/>'
+            f'<path d="{d}" fill="none" stroke="#4f8a3c" stroke-width="{f(2 * b)}" stroke-linejoin="round"/></g>'
+            f'<path id="flesh" d="{d}" fill="#d8eb9b"/>{halo}'
+            f'<g id="pit">{level}<circle cx="{px}" cy="{py}" r="{f(r)}" fill="#a8673a" stroke="{OUT}" stroke-width="{SW}"/>'
+            f'<path d="M{f(px - r * .58)},{f(py - r * .12)} Q{f(px - r * .5)},{f(py - r * .55)} {f(px - r * .05)},{f(py - r * .66)}" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".6"/></g>')
+
+
 def body_lemon_v4(pose=None):
     """v4: v2's vertical body, but both tips are soft, rounded, slightly bulbous bumps; stem + leaf on the top bump."""
     p = ("M54.5,21.5 C52.5,15 67.5,15 65.5,21.5 C82,23.5 94,40 94,61 C94,83 82,99 65.5,102.5 "
@@ -155,6 +191,10 @@ CHARS = {
                     face=(60, 53), ex=8.5, md=8.5, arms=((22, 76), (98, 76)), hand="#4f8a3c",
                     legs=(49, 71), lt=106, tl=(40, 26), tr=(80, 26), pc=(60, 66), pr=(55, 64),
                     colors=["#4f8a3c", "#d8eb9b", "#a8673a", "#ff8fa3"]),
+    "avocado-v3": dict(title="Cado", species="Avocado (v3, Cado)", body=body_avo_v3,
+                       face=(60, 43.5), ex=9, md=8.5, fscale=1.12, arms=((17, 81), (103, 81)), hand="#4f8a3c",
+                       legs=(49, 71), lt=113, tl=(31, 30), tr=(83, 25), pc=(60, 67), pr=(57, 66),
+                       colors=["#4f8a3c", "#d8eb9b", "#a8673a", "#ff8fa3"]),
     "avocado-v1": dict(title="Avocado v1", species="Avocado (v1)", body=body_avo_v1,
                        face=(60, 50), ex=8.5, md=9.5, arms=((27, 72), (93, 72)), hand="#4f8a3c",
                        legs=(50, 70), lt=104, tl=(38, 22), tr=(82, 22), pc=(60, 62), pr=(52, 61),
@@ -321,13 +361,22 @@ def fx(c, pose):
     return ""
 
 
+def face_tf(c):
+    """optional whole-face scale about the face centre (v3 only; others unchanged)."""
+    k = c.get("fscale")
+    if not k:
+        return ""
+    cx, cy = c["face"][0], c["face"][1] + 4
+    return f' transform="translate({f(cx * (1 - k))} {f(cy * (1 - k))}) scale({k})"'
+
+
 def pose_svg(key, pose):
     c = CHARS[key]
     parts = [
         pulse(c, pose),
         f'<g id="legs">{legs(c, pose)}</g>',
         f'<g id="body">{c["body"](pose)}</g>',
-        f'<g id="face"><g id="cheeks">{cheeks(c)}</g><g id="eyes">{eyes(c, pose)}</g>{brows(c, pose)}<g id="mouth">{mouth(c, pose)}</g></g>',
+        f'<g id="face"{face_tf(c)}><g id="cheeks">{cheeks(c)}</g><g id="eyes">{eyes(c, pose)}</g>{brows(c, pose)}<g id="mouth">{mouth(c, pose)}</g></g>',
         f'<g id="hands">{hands(c, pose)}</g>',
         f'<g id="fx">{fx(c, pose)}</g>',
     ]
@@ -424,6 +473,27 @@ MENUBAR = {
         'C6,19.2 3.4,17.4 3.4,13.4 C3.4,8.8 6,4.6 11,4.6 Z"/>',
         face_cut(11, 11.8, 2.2)),
 }
+
+
+def _avo3_glyph(s=.222, ring=1.7, top=1.6, pit_dy=0.0, pit_r=None, eye_dy=6.2, ex=1.6, eye_r=.95, legs=None, F=None):
+    """v3 glyph: the art's own F curve scaled into 22 px and stroked as a ring, solid pit, cut-out face."""
+    F = F or AVO3["F"]
+    y0 = F[0][1]
+    dx, dy = 11 - 60 * s, top + ring / 2 - y0 * s
+    px, py, pr = AVO3["pit"]
+    pcx, pcy = px * s + dx, py * s + dy + pit_dy
+    ey = pcy - eye_dy
+    leg = ""
+    if legs:  # (half spacing, top y, length)
+        lx, lt, ll = legs
+        leg = f'<path d="M{f(11 - lx)},{f(lt)} v{f(ll)} M{f(11 + lx)},{f(lt)} v{f(ll)}" stroke="#000" stroke-width="1.6" stroke-linecap="round"/>'
+    return (f'<path d="{bez_d(F, s, dx, dy)}" fill="none" stroke="#000" stroke-width="{f(ring)}"/>{leg}'
+            f'<path d="{circ(pcx, pcy, pit_r or pr * s)} {circ(11 - ex, ey, eye_r)} {circ(11 + ex, ey, eye_r)}"/>'
+            f'<path d="M{f(11 - 1.05)},{f(ey + 1.75)} Q11,{f(ey + 2.65)} {f(11 + 1.05)},{f(ey + 1.75)}" fill="none" stroke="#000" stroke-width="1" stroke-linecap="round"/>',
+            "")
+
+
+MENUBAR["avocado-v3"] = _avo3_glyph(pit_dy=-.4, pit_r=2.9, eye_dy=7.6, F=AVO3_GLYPH_F)
 
 
 def menubar_svg(key):

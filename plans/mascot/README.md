@@ -1,10 +1,39 @@
-# Mascot + name exploration (#16), round 5
+# Mascot + name exploration (#16), round 6
 
 Visual page: [index.html](index.html). It's self-contained. Round 2 covers the avocado (rounder), the tangerine (new menu-bar glyph) and the lemon (new), with the egg/Yolk kept as the baseline. The page shows all four side by side, the old and new avocado together, and menu bars in light and dark at 22 and 18 px.
 
 These are concept sketches, not final art. The user makes the final pick.
 
-## Round 5: lemon v4, rounded tips (current)
+## Round 6: avocado v3 (Cado)
+
+Owner verdict on round 2: wanted rounder, but v2 looked worse than v1. v3 (`avocado-v3-*.svg`, built by `body_avo_v3` + `AVO3` in build.py) is the redo. index.html now opens with Cado v3 next to v1 and v2.
+
+**Why v2 missed** (rendered side by side):
+- Silhouette went bottle/bell: a narrow cone head on a wide base with a concave waist between them. It read as a pear or gourd, not a plump avocado.
+- The face got squeezed into that narrow neck. Cheeks almost touch the skin band, and the head looks small on a big body (less cute than v1).
+- The pit got bigger, and its offset inner shade made it a 3D ball/button, pulling focus from the face.
+- Skin and flesh were two hand-drawn paths, so the green band changed width around the body (thin at the neck, thick at the hips).
+
+**What v3 changes:**
+- One closed curve `F` (the flesh edge). A soft narrower dome flows into a wide, low, round belly with no neck pinch. It's about 0.85:1 wide to tall, vs v1's 0.82. The belly is bigger and lower, but the taper still says avocado.
+- The skin band and outline are strokes on `F`, so the band is an even 6.5 units all the way round, with the same 3-unit outline as the others.
+- A big pale belly patch (`#belly`) is proportioned like a real halved avocado's pale pit hollow. It fills most of the wide lower half, with an even ~4-unit margin of regular flesh to the skin band. The pit is big and flat (single highlight, no inner shade) and sits a little below the patch centre.
+- The face is scaled 1.12× (new optional `fscale`, v3 only) so it holds its own on the bigger body. Eyes are a touch closer set.
+- Listening: the pit swells by 1.5 and gets a `#pit-level` ring that stays inside the flesh and off the face. The rig is unchanged.
+
+**Owner revision (same round, same files):** "belly patch bigger, face a bit higher, small gap between them."
+- Patch: 52×34 → 62×42 (rx 26→31, ry 17→21). Its centre moved from y 86 to 84, and its top edge from y 69 to 63.
+- Pit: r 12.5 → 15, centre y 85 → 86. Listening r 16.5, ring r 19.5, with a gap of 3 (was 3.5).
+- Face: centre y 47.5 → 43.5, 4 units higher. There's a clear gap of regular flesh between the lowest face feature and the patch top in every pose: about 7 in idle, 3 in done, 2–3 in listening (the open "o" mouth) and about 4 for the thinking hand.
+- To make room, the body grew slightly: the top went from y 23 to 22, the bottom from 105 to 108, and the dome got a hair wider at the shoulders so the higher cheeks and brows stay off the skin band. Legs moved down 2 and the arms down 1.
+
+**Face/pit decision:** the face sits in the upper flesh, with the pit and belly patch in the lower half and a small gap of plain flesh between them. A belly-face on the pit was also rendered and rejected: dark features on the brown pit have low contrast, the top half goes empty, and the swelling/level-ring voice element would distort the face.
+
+**Glyph** (`avocado-v3-menubar.svg`): the art's own belly curve, scaled to 22 px and stroked as a 1.7 px ring, with a solid pit and a cut-out face. Two glyph-only tweaks: a bit more taper up top (`AVO3_GLYPH_F`), because the art's dome read as an egg or onigiri at 18 px, and no legs, because they cramped it at 18 px. In the revision, the pit grew (r 2.6 → 2.9 px) and the face went up 0.6 px to match the art, and it still reads at 22 and 18 px. On light and dark bars it reads as an avocado, not an egg or pear (pit + taper), and not the Apple logo (no leaf, no bite). At 18 px the face blurs, as it did in v1 and v2; the outline + pit carry it.
+
+The existing v1/v2 SVGs are byte-identical.
+
+## Round 5: lemon v4, rounded tips
 
 - **Lemon v4** (`lemon-v4-*.svg`). It's v2's vertical body exactly. The only change is the two ends: the pointy tips are now soft, rounded, slightly bulbous bumps. The stem and leaf sit on the top bump. It has all 4 poses and a menu-bar glyph.
 - **Glyph** (`lemon-v4-menubar.svg`). It's v2's tall oval with a rounded bump at each end, plus the stem, one leaf, legs and a knocked-out face. At 22/18 px on light and dark bars it still reads as a lemon. It isn't the tangerine: it's taller than wide, has bumps at both ends, a single leaf, and is yellow. It isn't the Apple logo: no bite, an attached stem, legs and a face.

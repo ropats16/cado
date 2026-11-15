@@ -9,11 +9,14 @@ from pathlib import Path
 from build import CHARS, POSES
 
 HERE = Path(__file__).parent
-ORDER = ["lemon-v4", "avocado", "egg", "tangerine"]  # round 3: new lemon first; egg = baseline
-OVERVIEW = ["lemon-v4", "lemon-v2", "lemon-v1", "avocado", "egg"]
+ORDER = ["avocado-v3", "lemon-v4", "egg", "tangerine"]  # round 6: Cado (avocado v3) first; egg = baseline
+OVERVIEW = ["avocado-v3", "lemon-v4", "lemon-v2", "lemon-v1", "egg"]
+DISPLAY = {"avocado-v3": "Cado (avocado)"}  # heading name override (SVG titles untouched)
 ARCHIVE = ["lemon-v3", "peach", "blob"]  # round 1, dropped
 
 BLURB = {
+    "avocado-v3": ("v3 (round 6): the roundness v2 was after, done properly. A chubby, round-bellied half with a soft narrower dome and one smooth outline (no neck pinch), an even skin band, and a big pale belly patch (sized like a real avocado's pale pit hollow) around a big flat pit. A slightly bigger face sits higher in the upper flesh, with a small gap of regular flesh above the patch. The pit is still the voice element: when listening it swells and gets a level ring.",
+                   "Glyph: the same outline, with a touch more taper up top, as a ring with a solid pit and a knocked-out face. At 22 and 18 px on light and dark bars it reads as an avocado, not an egg, a pear or the Apple logo."),
     "egg": ("Baseline from round 1. A fried egg: squishy white body, yolk face. The white jiggles, the yolk can swell with mic level.",
             "Unique silhouette. The shape is wide, so the face is smallish at 120 px."),
     "avocado": ("v2: the belly is now a full round bottom and the pit is bigger and rounder (it has an inner shade and a highlight). The pit is the voice element: when listening it grows and gets a level ring that can pulse with mic level.",
@@ -201,8 +204,10 @@ NAMES += [
      "ok", "OK. Least crowded; .app maybe buyable"),
 ]
 R2_SHOW |= {"Cado", "Avie", "Hass", "Pitpat", "Ripe", "Zest", "Lemi"}
+NAMES = [(n[0], "avocado-v3" if n[1] == "avocado" else n[1], *n[2:]) for n in NAMES]  # avocado names now point at Cado v3
 
 RECOMMENDATION = """
+<p><strong>Round 6 (avocado v3, “Cado”):</strong> v2 aimed for rounder but lost the avocado: a narrow cone head on a wide base with a pinched waist, so the face got squeezed into the neck and the pit looked like a ball. v3 keeps v2's chubby round belly, gives the top a soft dome that flows straight into the belly, and gives the face and the pit each their own zone. It's shown first, next to v1 and v2.</p>
 <p><strong>Round 5 (lemon v4):</strong> v2's vertical body is kept exactly. Only the two tips changed, from pointed to soft, rounded, slightly bulbous bumps, with the stem and leaf on the top bump. At 18 to 22 px the glyph still reads as a lemon, not a tangerine or an Apple logo. (v3, the plump one, misread the request and was dropped.)</p>
 <p><strong>Round 3 (lemon + Zesty):</strong> the stem, leaf and nubs make the lemon glyph read as a lemon, and the upright attached stem, legs and face keep it away from the Apple logo. <strong>Zesty</strong> is usable for a free, open-source app you give to friends: no voice, notes or Mac AI app uses it. But DoorDash owns zesty.com and ships an AI app called Zesty, and ZestyAI and Zesty.io are funded companies. Expect noisy search, and check TSDR before any public launch. Domain: usezesty.app or tryzesty.app (no DNS). <strong>Zesty vs Zest:</strong> Zesty avoids the direct "Zest AI" (fintech) collision, so it's better than Zest. It still has its own AI-brand crowd (DoorDash Zesty, ZestyAI). The verdict moves from "avoid" (Zest) to "crowded but usable" (Zesty).</p>
 <p><strong>Round 2 recommendation (unchanged):</strong></p>
@@ -250,8 +255,8 @@ def overview():
             gl = "".join(f'<span class="mini s{z} glyph">{inline(g, f"{k}-ov{z}{theme}", True)}</span>' for z in (22, 18))
             col = f'<span class="mini s22">{inline(read(k, "idle"), f"{k}-ovc22{theme}")}</span>'
             return f'<div class="menubar mb-{theme}">{gl}{col}</div>'
-        base = {"egg": " (baseline)", "lemon-v4": " v4 (new)", "lemon-v2": " v2 (round 3)", "lemon-v1": " v1 (round 2)"}.get(k, "")
-        cols += (f'<div class="ov"><h3>{escape(c["species"].split(" (")[0])}{base}</h3>'
+        base = {"avocado-v3": " v3 (new)", "egg": " (baseline)", "lemon-v4": " v4 (new)", "lemon-v2": " v2 (round 3)", "lemon-v1": " v1 (round 2)"}.get(k, "")
+        cols += (f'<div class="ov"><h3>{escape(DISPLAY.get(k, c["species"]).split(" (")[0])}{base}</h3>'
                  f'<div class="ovpair"><div class="pose light">{inline(read(k, "idle"), f"{k}-ov-l")}</div>'
                  f'<div class="pose dark">{inline(read(k, "listening"), f"{k}-ov-d")}</div></div>'
                  f'{mb("light")}{mb("dark")}</div>')
@@ -264,7 +269,46 @@ def archive():
     return f'<details class="panel"><summary><h2 style="display:inline">Dropped (round 1 + lemon v3)</h2></summary><div class="row light" style="grid-template-columns:repeat(2,1fr)">{cells}</div></details>'
 
 
+def featured():
+    """Cado (avocado v3) up top, with v1 and v2 beside it: 4 poses each, then v3 on dark and the menu bars."""
+    key = "avocado-v3"
+    c = CHARS[key]
+    chips = " ".join(f'<span class="chip {n[6]}">{escape(n[0])}</span>' for n in NAMES if n[1] == key)
+    cols = [(key, "v3 (new)"), ("avocado-v1", "v1"), ("avocado", "v2")]
+
+    def quad(k, tag):
+        return "".join(f'<figure><div class="pose">{inline(read(k, p), f"{k}-{p}-{tag}")}</div><figcaption>{p}</figcaption></figure>' for p in POSES)
+    grid = "".join(f'<div class="vcol{" new" if k == key else ""}"><h3>{lab}</h3><div class="row light quad">{quad(k, "fl")}</div></div>'
+                   for k, lab in cols)
+    dark = "".join(f'<figure><div class="pose">{inline(read(key, p), f"{key}-{p}-fd")}</div><figcaption>{p}</figcaption></figure>' for p in POSES)
+
+    def glyphs(k, theme):
+        gg = read(k, "menubar")
+        return (f'<span class="mini s22 glyph">{inline(gg, f"{k}-fg22{theme}", True)}</span>'
+                f'<span class="mini s18 glyph">{inline(gg, f"{k}-fg18{theme}", True)}</span>')
+
+    def bar(theme):
+        old = "".join(f'<span class="tag">{lab}</span>{glyphs(k, theme)}' for k, lab in (("avocado-v1", "v1"), ("avocado", "v2")))
+        tiny = "".join(f'<span class="mini s{z}" title="{p} {z}px">{inline(read(key, p), f"{key}-{p}-fm{z}{theme}")}</span>'
+                       for z in (22, 18) for p in POSES)
+        return (f'<div class="menubar {theme}"><span class="clock">Sat 15 Nov</span>{old}<span class="tag">v3</span>{glyphs(key, theme)}'
+                f'<span class="sep"></span>{tiny}</div>')
+    swatches = "".join(f'<span class="sw" style="background:{col}"></span>' for col in c["colors"])
+    what, note = BLURB[key]
+    return f"""
+<section class="cand" id="{key}">
+  <header><h2>Cado (avocado v3)</h2><div class="chips">{chips}</div><div class="swatches">{swatches}</div></header>
+  <p class="what">{escape(what)}</p><p class="note">{escape(note)}</p>
+  <div class="vgrid">{grid}</div>
+  <h3>v3 on dark</h3><div class="row dark">{dark}</div>
+  <div class="bars"><div><h3>Menu bar, light (v1, v2, then v3 at 22 / 18 px)</h3>{bar('mb-light')}</div><div><h3>Menu bar, dark</h3>{bar('mb-dark')}</div></div>
+  <p class="files">Files: {", ".join(f"<code>{key}-{p}.svg</code>" for p in POSES + ["menubar"])}. v1: <code>avocado-v1-*.svg</code>, v2: <code>avocado-*.svg</code>.</p>
+</section>"""
+
+
 def candidate(key):
+    if key == "avocado-v3":
+        return featured()
     c = CHARS[key]
     names = [n for n in NAMES if n[1] == key]
     chips = " ".join(f'<span class="chip {n[6]}">{escape(n[0])}</span>' for n in names)
@@ -347,6 +391,9 @@ figure{margin:0;text-align:center}figcaption{font-size:12px;color:#7a6a60;text-t
 .ovpair svg{width:100%;height:auto}
 .tag{font-size:10px;text-transform:uppercase;letter-spacing:.06em;opacity:.6}
 .row.old{opacity:.85}
+.vgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:8px}.vgrid .row{margin-bottom:0}
+.row.quad{grid-template-columns:repeat(2,1fr)}.vcol.new .row{box-shadow:inset 0 0 0 2px #4f8a3c}
+@media (max-width:900px){.vgrid{grid-template-columns:1fr}}
 summary{cursor:pointer}
 @media (max-width:900px){.ovgrid{grid-template-columns:repeat(2,1fr)}}
 .pose svg{width:120px;height:120px;max-width:100%;display:block;margin:0 auto}
@@ -383,17 +430,18 @@ tbody th{font-size:15px}
 
 
 def main():
-    nav = "".join(f'<a href="#{k}">{escape(CHARS[k]["species"].split(" (")[0])}</a>' for k in ORDER)
+    nav = "".join(f'<a href="#{k}">{escape(DISPLAY.get(k, CHARS[k]["species"]).split(" (")[0])}</a>' for k in ORDER)
     r2 = sorted((n for n in NAMES if n[0] in R2_SHOW), key=lambda n: (ORDER.index(n[1]), n[6] != "ok"))
     r1 = [n for n in NAMES if n[0] not in R2_SHOW]
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mascot Exploration</title><style>{CSS}</style></head><body><main>
-<h1>Mascot + name exploration <small style="font-size:16px;color:var(--muted)">round 5</small></h1>
-<p class="lede">Issue #16, round 5. Lemon v4 ("Zesty") comes first, right next to v2: same body, with only the ends changed to rounded bumps. Then come v1, the avocado and the egg (Yolk, the baseline). The plump v3 is under "dropped". The avocado and tangerine are from round 2. Every character uses one shared rig: <code>pulse › legs › body › face(cheeks, eyes, brows, mouth) › hands › fx</code>. Each has four states: idle, listening (recording), thinking (transcribing) and done (pasted), shown at 120 px on light and dark. Menu bars show the monochrome template glyph at 22 and 18 px, then the colour poses at 22 and 18 px. These are concept sketches, not final art.</p>
-<nav><a href="#overview">Side by side</a>{nav}<a href="#names">Names</a><a href="#rec">Recommendation</a></nav>
+<h1>Mascot + name exploration <small style="font-size:16px;color:var(--muted)">round 6</small></h1>
+<p class="lede">Issue #16, round 6. Cado (avocado v3) comes first, right next to avocado v1 and v2: rounder and chubbier than v1, without v2's pinched neck. Below it, unchanged from round 5: lemon v4 ("Zesty") next to its v2 and v1, then the egg (Yolk, the baseline) and the tangerine. The plump lemon v3 is under "dropped". Every character uses one shared rig: <code>pulse › legs › body › face(cheeks, eyes, brows, mouth) › hands › fx</code>. Each has four states: idle, listening (recording), thinking (transcribing) and done (pasted), shown at 120 px on light and dark. Menu bars show the monochrome template glyph at 22 and 18 px, then the colour poses at 22 and 18 px. These are concept sketches, not final art.</p>
+<nav>{nav}<a href="#overview">Side by side</a><a href="#names">Names</a><a href="#rec">Recommendation</a></nav>
+{featured()}
 <section class="panel" id="rec"><h2>Recommendation</h2>{RECOMMENDATION}</section>
 {overview()}
-{''.join(candidate(k) for k in ORDER)}
+{''.join(candidate(k) for k in ORDER if k != "avocado-v3")}
 <section class="panel" id="names"><h2>Name collision check</h2>
 <p class="legend">Checked 2026-11-04 with web search, <code>gh search repos</code>, whois/DNS (.app checked through DNS NS records), and trademark aggregators. App Store results come from web search, not a native MAS query. Trademarks weren't checked directly on USPTO, so treat them as unverified.</p>
 {table(r2)}
