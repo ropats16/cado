@@ -34,6 +34,9 @@ final class SettingsViewModel: ObservableObject {
     let currentModel: () -> ModelSpec
     /// Re-resolves the model settings and hands them to the engine (live switch).
     let onModelSettingsChange: () -> Void
+    /// A mascot toggle changed (saved first): the overlay re-reads
+    /// `mascotAlwaysVisible` / `mascotInScreenShares` and applies them live.
+    let onMascotSettingsChange: () -> Void
     /// The engines this build has, and the Mac they're gated on.
     let engines: EngineRegistry
     let environment: EngineEnvironment
@@ -54,6 +57,8 @@ final class SettingsViewModel: ObservableObject {
     // MARK: - Published display state
 
     @Published private(set) var soundCues: Bool
+    @Published private(set) var mascotAlwaysVisible: Bool
+    @Published private(set) var mascotInScreenShares: Bool
     @Published private(set) var launchAtLogin: Bool
     @Published private(set) var selectedMicUID: String?     // nil = System Default
     /// The picker selection: the configured max dictation length (0 = no limit).
@@ -118,6 +123,7 @@ final class SettingsViewModel: ObservableObject {
          currentModel: @escaping () -> ModelSpec,
          modelStatus: TranscriptionStatus,
          onModelSettingsChange: @escaping () -> Void,
+         onMascotSettingsChange: @escaping () -> Void = {},
          engines: EngineRegistry = .shared,
          environment: EngineEnvironment? = nil,
          speechAssets: SpeechModelAssets = LiveSpeechModelAssets(),
@@ -135,6 +141,7 @@ final class SettingsViewModel: ObservableObject {
         self.hardware = hardware
         self.currentModel = currentModel
         self.onModelSettingsChange = onModelSettingsChange
+        self.onMascotSettingsChange = onMascotSettingsChange
         self.engines = engines
         self.speechAssets = speechAssets
         self.modelDownloader = modelDownloader
@@ -148,6 +155,8 @@ final class SettingsViewModel: ObservableObject {
         // Initialise display state from persisted config + current login-item status.
         let cfg = configStore.config
         self.soundCues = cfg.soundCues
+        self.mascotAlwaysVisible = cfg.mascotAlwaysVisible
+        self.mascotInScreenShares = cfg.mascotInScreenShares
         self.launchAtLogin = loginItem.isEnabled
         self.selectedMicUID = cfg.microphoneUID
         self.maxDictationSeconds = max(0, cfg.maxRecordingSeconds)
@@ -170,6 +179,21 @@ final class SettingsViewModel: ObservableObject {
     func setSoundCues(_ on: Bool) {
         configStore.update { $0.soundCues = on }
         soundCues = on
+    }
+
+    /// Persists whether the resting mascot stays on screen, and tells the overlay.
+    func setMascotAlwaysVisible(_ on: Bool) {
+        configStore.update { $0.mascotAlwaysVisible = on }
+        mascotAlwaysVisible = on
+        onMascotSettingsChange()
+    }
+
+    /// Persists whether screen shares and recordings capture the mascot, and
+    /// tells the overlay.
+    func setMascotInScreenShares(_ on: Bool) {
+        configStore.update { $0.mascotInScreenShares = on }
+        mascotInScreenShares = on
+        onMascotSettingsChange()
     }
 
     /// Registers or unregisters the login item. On failure the toggle is reverted
