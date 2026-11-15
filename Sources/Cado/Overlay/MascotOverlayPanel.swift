@@ -68,6 +68,8 @@ final class MascotOverlayPanel: MascotSurface {
     private var press: (gesture: MascotGesture, origin: CGPoint)?
     /// Pointer moves over other apps, while on screen.
     private var mouseMonitor: Any?
+    /// The same over Cado's own windows.
+    private var localMouseMonitor: Any?
 
     private static let size = CGSize(width: MascotView.side, height: MascotView.side)
     private static let snapDuration: TimeInterval = 0.15
@@ -77,6 +79,8 @@ final class MascotOverlayPanel: MascotSurface {
         self.placement = placement
         self.mouseLocation = mouseLocation
     }
+
+    deinit { stopTrackingPointer() }
 
     func show() {
         let panel = window ?? makePanel()
@@ -125,6 +129,8 @@ final class MascotOverlayPanel: MascotSurface {
     func render(_ visual: OverlayVisual) {
         model.pose = Brand.Pose(visual)
         model.isMini = visual == .resting
+        // The body just changed size under a pointer that may not move again.
+        pointerMoved(to: mouseLocation())
     }
 
     func setLevel(_ level: Float) {
@@ -139,6 +145,14 @@ final class MascotOverlayPanel: MascotSurface {
         guard press == nil, let window else { return }
         let ignores = !isOnBody(point)
         if window.ignoresMouseEvents != ignores { window.ignoresMouseEvents = ignores }
+    }
+
+    /// A mouse-moved event: no button is down, so a press whose mouse-up never
+    /// came (a Space or Mission Control transition mid-drag) is over. Without
+    /// this the window would keep the mouse until the next press on the body.
+    func pointerMovedFreely(to point: CGPoint) {
+        press = nil
+        pointerMoved(to: point)
     }
 
     func pointerDown(at point: CGPoint) {
@@ -179,7 +193,14 @@ final class MascotOverlayPanel: MascotSurface {
     private func trackPointer() {
         if mouseMonitor == nil {
             mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
-                self?.pointerMoved(to: NSEvent.mouseLocation)
+                self?.pointerMovedFreely(to: NSEvent.mouseLocation)
+            }
+        }
+        // The global monitor is deaf over Cado's own windows (Settings).
+        if localMouseMonitor == nil {
+            localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+                self?.pointerMovedFreely(to: NSEvent.mouseLocation)
+                return event
             }
         }
         pointerMoved(to: mouseLocation())
@@ -187,7 +208,9 @@ final class MascotOverlayPanel: MascotSurface {
 
     private func stopTrackingPointer() {
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
         mouseMonitor = nil
+        localMouseMonitor = nil
     }
 
     // MARK: - Window
@@ -243,8 +266,16 @@ final class MascotHostingView: NSHostingView<MascotView> {
         super.init(rootView: rootView)
         // Moves over the panel reach `pointerMoved` here, so leaving the body
         // turns click-through back on.
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways,
-                                                              .inVisibleRect], owner: self))
+        addTrackingArea(pointerArea)
+    }
+
+    private lazy var pointerArea = NSTrackingArea(
+        rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+
+    /// SwiftUI rebuilds its own tracking areas here; make sure ours survives.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if !trackingAreas.contains(pointerArea) { addTrackingArea(pointerArea) }
     }
 
     @available(*, unavailable)
@@ -267,7 +298,7 @@ final class MascotHostingView: NSHostingView<MascotView> {
     override func mouseDown(with event: NSEvent) { owner?.pointerDown(at: NSEvent.mouseLocation) }
     override func mouseDragged(with event: NSEvent) { owner?.pointerDragged(to: NSEvent.mouseLocation) }
     override func mouseUp(with event: NSEvent) { owner?.pointerUp(at: NSEvent.mouseLocation) }
-    override func mouseMoved(with event: NSEvent) { owner?.pointerMoved(to: NSEvent.mouseLocation) }
+    override func mouseMoved(with event: NSEvent) { owner?.pointerMovedFreely(to: NSEvent.mouseLocation) }
     override func mouseEntered(with event: NSEvent) { owner?.pointerMoved(to: NSEvent.mouseLocation) }
     override func mouseExited(with event: NSEvent) { owner?.pointerMoved(to: NSEvent.mouseLocation) }
 }

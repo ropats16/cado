@@ -246,6 +246,38 @@ final class MascotOverlayPanelTests: XCTestCase {
         XCTAssertFalse(window.ignoresMouseEvents, "mini body")
     }
 
+    /// The pointer rests on the full body's top, which is margin once mini:
+    /// shrinking under a still pointer must restore click-through.
+    func testResizingUnderAStillPointerUpdatesClickThrough() throws {
+        let adapter = try makeAdapter()
+        mouse = CGPoint(x: -100_000, y: -100_000)
+        adapter.render(.listening)
+        adapter.show()
+        let window = try XCTUnwrap(adapter.window)
+        let full = MascotMotion.hitRect(mini: false), mini = MascotMotion.hitRect(mini: true)
+        let spot = CGPoint(x: full.maxX - 1, y: full.minY + 1)
+        XCTAssertFalse(mini.contains(spot))
+        mouse = try screenPoint(spot, in: window)
+        adapter.pointerMoved(to: try XCTUnwrap(mouse))
+        XCTAssertFalse(window.ignoresMouseEvents)
+
+        adapter.render(.resting)
+        XCTAssertTrue(window.ignoresMouseEvents)
+    }
+
+    /// A mouse-up lost mid-press (Space switch) mustn't leave the window
+    /// holding the mouse: the next plain move ends the press.
+    func testAFreeMoveEndsAPressWhoseMouseUpNeverCame() throws {
+        let adapter = try makeAdapter()
+        adapter.render(.listening)
+        adapter.show()
+        let window = try XCTUnwrap(adapter.window)
+        adapter.pointerDown(at: try screenPoint(centre(MascotMotion.hitRect(mini: false)), in: window))
+
+        adapter.pointerMovedFreely(to: try screenPoint(CGPoint(x: 2, y: 2), in: window))
+        XCTAssertTrue(window.ignoresMouseEvents)
+    }
+
     func testClickReportsAndSavesNothing() throws {
         let adapter = try makeAdapter()
         var clicks = 0
