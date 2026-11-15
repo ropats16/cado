@@ -68,14 +68,10 @@ AVO3 = dict(F=[(60, 22), ((72, 22), (79.5, 34), (83.5, 46)), ((87.8, 58.9), (95,
                ((95, 101), (80, 108), (60, 108)), ((40, 108), (25, 101), (25, 83.5)),
                ((25, 68), (32.2, 58.9), (36.5, 46)), ((40.5, 34), (48, 22), (60, 22))],
             band=6.5, pit=(60, 86, 15), halo=(31, 21, -2), swell=1.5, ring=3)
-# glyph-only curve: same belly, a touch more taper up top so it can't read as an egg/onigiri at 18 px
-AVO3_GLYPH_F = [(60, 22), ((69, 22), (75, 34), (79, 46)), ((83.6, 59.8), (95, 68), (95, 82)),
-                ((95, 98), (80, 105), (60, 105)), ((40, 105), (25, 98), (25, 82)),
-                ((25, 68), (36.4, 59.8), (41, 46)), ((45, 34), (51, 22), (60, 22))]
 
-
-def bez_d(segs, s=1.0, dx=0.0, dy=0.0):
-    t = lambda p: f"{f(p[0] * s + dx)},{f(p[1] * s + dy)}"
+def bez_d(segs, s=1.0, dx=0.0, dy=0.0, sy=None):
+    sy = s if sy is None else sy
+    t = lambda p: f"{f(p[0] * s + dx)},{f(p[1] * sy + dy)}"
     return f"M{t(segs[0])} " + " ".join(f"C{t(a)} {t(b)} {t(c)}" for a, b, c in segs[1:]) + " Z"
 
 
@@ -475,25 +471,51 @@ MENUBAR = {
 }
 
 
-def _avo3_glyph(s=.222, ring=1.7, top=1.6, pit_dy=0.0, pit_r=None, eye_dy=6.2, ex=1.6, eye_r=.95, legs=None, F=None):
-    """v3 glyph: the art's own F curve scaled into 22 px and stroked as a ring, solid pit, cut-out face."""
-    F = F or AVO3["F"]
-    y0 = F[0][1]
-    dx, dy = 11 - 60 * s, top + ring / 2 - y0 * s
-    px, py, pr = AVO3["pit"]
-    pcx, pcy = px * s + dx, py * s + dy + pit_dy
-    ey = pcy - eye_dy
-    leg = ""
-    if legs:  # (half spacing, top y, length)
-        lx, lt, ll = legs
-        leg = f'<path d="M{f(11 - lx)},{f(lt)} v{f(ll)} M{f(11 + lx)},{f(lt)} v{f(ll)}" stroke="#000" stroke-width="1.6" stroke-linecap="round"/>'
-    return (f'<path d="{bez_d(F, s, dx, dy)}" fill="none" stroke="#000" stroke-width="{f(ring)}"/>{leg}'
-            f'<path d="{circ(pcx, pcy, pit_r or pr * s)} {circ(11 - ex, ey, eye_r)} {circ(11 + ex, ey, eye_r)}"/>'
-            f'<path d="M{f(11 - 1.05)},{f(ey + 1.75)} Q11,{f(ey + 2.65)} {f(11 + 1.05)},{f(ey + 1.75)}" fill="none" stroke="#000" stroke-width="1" stroke-linecap="round"/>',
-            "")
+def _bez_pt(p0, p1, p2, p3, t):
+    u = 1 - t
+    pt = tuple(u**3 * a + 3 * u * u * t * b + 3 * u * t * t * c + t**3 * d for a, b, c, d in zip(p0, p1, p2, p3))
+    dv = tuple(3 * u * u * (b - a) + 6 * u * t * (c - b) + 3 * t * t * (d - c) for a, b, c, d in zip(p0, p1, p2, p3))
+    return pt, dv
 
 
-MENUBAR["avocado-v3"] = _avo3_glyph(pit_dy=-.4, pit_r=2.9, eye_dy=7.6, F=AVO3_GLYPH_F)
+def _offset_closed(F, d, n=4):
+    """True offset of closed cubic path F by d (outward), sampled n/segment, re-fit as a smooth
+    Catmull-Rom cubic loop. Unlike scaling, it widens the narrow dome as much as the belly."""
+    pts, prev = [], F[0]
+    for seg in F[1:]:
+        for i in range(n):
+            (x, y), (tx, ty) = _bez_pt(prev, *seg, i / n)
+            L = (tx * tx + ty * ty) ** .5
+            pts.append((x + d * ty / L, y - d * tx / L))   # F runs clockwise on screen: (ty,-tx) points outward
+        prev = seg[2]
+    N = len(pts)
+    segs = [(pts[(i - 1) % N], pts[i], pts[(i + 1) % N], pts[(i + 2) % N]) for i in range(N)]
+    return [pts[0]] + [(tuple(b + (c - a) / 6 for a, b, c in zip(p0, p1, p2)),
+                        tuple(c - (e - b) / 6 for b, c, e in zip(p1, p2, p3)), p2) for p0, p1, p2, p3 in segs]
+
+
+def _avo3_glyph(top=.6, bottom=21.4, ring=2.0, grow=4.75, chub=1.0, pit_r=3.3, pit_gap=1.2,
+                eye_y=None, eye_gap=3.2, ex=1.75, eye_r=1.05, smile=True, mo=1.7, mw=1.1):
+    """v3 glyph: v3's own body curve (no extra taper) as an even ring that fills the 22 px canvas.
+    The ring is centred on F offset by `grow` art units (the middle of the art's green skin band), so its
+    outer edge is the character's silhouette (~0.85 wide:tall). Solid big low pit + plain-shape face (no mask)."""
+    G = _offset_closed(AVO3["F"], grow)
+    xs = [q[0] for q in [G[0]] + [p for seg in G[1:] for p in seg]]
+    ys = [q[1] for q in [G[0]] + [p for seg in G[1:] for p in seg]]
+    cx, gy0, gy1 = (min(xs) + max(xs)) / 2, min(ys), max(ys)
+    s = (bottom - top - ring) / (gy1 - gy0)          # ring centre-line spans top+ring/2 .. bottom-ring/2
+    dx, dy = 11 - cx * s * chub, top + ring / 2 - gy0 * s
+    inner_bot = gy1 * s + dy - ring / 2
+    pcy = inner_bot - pit_gap - pit_r
+    ey = eye_y if eye_y is not None else pcy - pit_r - eye_gap
+    face = f"{circ(11 - ex, ey, eye_r)} {circ(11 + ex, ey, eye_r)}"
+    mouth = (f'<path d="M{f(11 - mw)},{f(ey + mo)} Q11,{f(ey + mo + 1)} {f(11 + mw)},{f(ey + mo)}" fill="none" stroke="#000" '
+             f'stroke-width="1" stroke-linecap="round"/>' if smile else "")
+    return (f'<path d="{bez_d(G, s * chub, dx, dy, sy=s)}" fill="none" stroke="#000" stroke-width="{f(ring)}"/>'
+            f'<path d="{circ(11, pcy, pit_r)} {face}"/>{mouth}', "")
+
+
+MENUBAR["avocado-v3"] = _avo3_glyph(chub=1.04, pit_gap=1.0, eye_gap=4.2, ex=1.9, mo=2.0, mw=1.2)
 
 
 def menubar_svg(key):

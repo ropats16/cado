@@ -29,7 +29,14 @@ Owner verdict on round 2: wanted rounder, but v2 looked worse than v1. v3 (`avoc
 
 **Face/pit decision:** the face sits in the upper flesh, with the pit and belly patch in the lower half and a small gap of plain flesh between them. A belly-face on the pit was also rendered and rejected: dark features on the brown pit have low contrast, the top half goes empty, and the swelling/level-ring voice element would distort the face.
 
-**Glyph** (`avocado-v3-menubar.svg`): the art's own belly curve, scaled to 22 px and stroked as a 1.7 px ring, with a solid pit and a cut-out face. Two glyph-only tweaks: a bit more taper up top (`AVO3_GLYPH_F`), because the art's dome read as an egg or onigiri at 18 px, and no legs, because they cramped it at 18 px. In the revision, the pit grew (r 2.6 → 2.9 px) and the face went up 0.6 px to match the art, and it still reads at 22 and 18 px. On light and dark bars it reads as an avocado, not an egg or pear (pit + taper), and not the Apple logo (no leaf, no bite). At 18 px the face blurs, as it did in v1 and v2; the outline + pit carry it.
+**Glyph** (`avocado-v3-menubar.svg`), redone after owner feedback ("looks like the pointy v1, not v3"):
+- **Shape:** the old glyph used a glyph-only curve with extra taper at the top. In the real menu bar (18 pt), that taper made it read as v1. It's gone (`AVO3_GLYPH_F` removed). The ring is now v3's own body curve `F`, offset outward by 4.75 art units (`_offset_closed`: a true offset that widens the narrow dome as much as the belly, re-fit as smooth cubics). That puts the ring at the middle of the art's green band, so its outer edge is v3's silhouette, stretched 4% wider. Outer size is about 18.4 × 20.8 of 22 (was 17.3 × 20.1), so it fills the canvas next to Wi-Fi and battery.
+- **Ring:** even 2.0 stroke (was 1.7): 1.6 px at 18 pt @1x, 3.3 px @2x.
+- **Pit:** big and low, in v3 proportion: r 3.3 (was 2.9), with a 1.0 gap above the ring's inner bottom.
+- **Face:** eyes (r 1.05, ±1.9) + smile, with a wider gap between them than before. At 36 px (Retina) the smile is what makes it read as v3's happy face. Eyes-only read as a surprised face, with the pit as an "o" mouth. At 18 px @1x the face smudges, but no worse than eyes-only, so the smile stays.
+- **Structure:** unchanged: plain shapes on `fill="#000"`, no mask, filter, clip-path or CSS.
+- **Slash:** a mocked "not ready" slash (top-left → bottom-right, with a gap) still reads at both sizes.
+- **Egg read:** with the taper gone, avocado-ness comes from the big low pit and the wide belly. Next to the colour v3 it's clearly the same character.
 
 The existing v1/v2 SVGs are byte-identical.
 

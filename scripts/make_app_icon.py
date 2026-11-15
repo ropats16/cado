@@ -7,7 +7,7 @@ macOS icon grid (1024 canvas): an 824x824 body inset 100 px, corner radius
 straight from SVG (rsvg-convert), so small sizes are crisp, then packed with
 iconutil. Re-run after changing the art or the background: `make brand`.
 
-Usage: python3 scripts/make_app_icon.py [--background pink|cream] [--png DIR]
+Usage: python3 scripts/make_app_icon.py [--background yellow] [--png DIR]
   --png DIR   also write the 1024 master + iconset PNGs to DIR (for review)
 """
 import argparse
@@ -22,12 +22,10 @@ ART = ROOT / "plans/mascot/avocado-v3-idle.svg"
 OUT = ROOT / "Resources/AppIcon.icns"
 RSVG = shutil.which("rsvg-convert") or "/opt/homebrew/bin/rsvg-convert"
 
-# Top / bottom of the body's soft vertical gradient. Pink (the cheek colour,
-# the default) is green's complement, so the avocado pops most; cream (pale
-# flesh) is the calmer, analogous alternative.
+# Top / bottom of the body's soft vertical gradient: pastel yellow (the
+# owner's pick over the earlier pink), which keeps the green avocado readable.
 BACKGROUNDS = {
-    "cream": ("#fbf8dc", "#ecefbf"),
-    "pink": ("#ffeef0", "#ffd3da"),
+    "yellow": ("#fffbe3", "#ffe99a"),
 }
 
 # The idle art's drawn extent in its own units, from its paths: x0, y0, x1, y1.
@@ -88,7 +86,7 @@ SIZES = [(f"icon_{pt}x{pt}{suffix}.png", pt * k)
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--background", choices=BACKGROUNDS, default="pink")
+    ap.add_argument("--background", choices=BACKGROUNDS, default="yellow")
     ap.add_argument("--png", type=Path)
     args = ap.parse_args()
 

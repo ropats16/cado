@@ -67,6 +67,10 @@ if [[ "$INSTALL" -eq 1 ]]; then
   echo "==> Installing to $DEST"
   rm -rf "$DEST"
   ditto "$APP" "$DEST"
+  # Re-register with Launch Services, or Spotlight and System Settings keep
+  # showing the icon they cached from the previous install.
+  touch "$DEST"
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST" || true
   echo "✓ Installed to $DEST"
   if [[ "$SIGN_ID" != "-" ]]; then
     echo "  Signed with a stable certificate, so Microphone/Accessibility grants"
