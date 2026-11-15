@@ -19,8 +19,10 @@ only network use is downloading models (see [Privacy](#privacy)).
   at the cursor.
 - **Toggle mode:** press **⌃⌥Space** to start, press again to stop — for longer
   dictation without holding a key. Press **Esc** while recording to cancel.
-- **On-screen indicator** next to your cursor: a waveform while it listens, a
-  spinner while it transcribes, then it disappears.
+- **Cado on screen** in the bottom-left corner while it works: the avocado
+  pulses with your voice while it listens, wobbles while it transcribes and
+  hops when your text lands, then gets out of the way. It never takes focus
+  and clicks pass straight through.
 - **Works everywhere** by pasting (and restoring your clipboard afterward), so it
   works in browsers, native apps, terminals, and CLIs alike.
 - **Notifies you** on errors (mic unavailable, model missing, transcription
@@ -201,7 +203,7 @@ Cado was called VoiceType. If you had VoiceType installed, quit it first
 - Recording **auto-stops** after the max dictation length (Settings; default
   10 min, or "No limit", which still stops at 30 min) so a forgotten recording
   can't run forever. A notification tells you when that happens.
-- The indicator near your cursor shows **listening → transcribing → done**.
+- The avocado in the bottom-left corner shows **listening → transcribing → done**.
 - Your existing clipboard is restored after each dictation, so dictating never
   overwrites something you copied. (A password-manager copy isn't put back, so
   its auto-clear still holds — the dictation stays on the clipboard instead.)
