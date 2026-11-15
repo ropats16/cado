@@ -33,6 +33,29 @@ struct SettingsView: View {
                     }
                 }
 
+                // MARK: Mascot (#20)
+                SettingsSection(title: "Mascot", systemImage: "face.smiling") {
+                    SettingsRow("Always show Cado") {
+                        Toggle("Always show Cado",
+                               isOn: Binding(
+                                   get: { viewModel.mascotAlwaysVisible },
+                                   set: { viewModel.setMascotAlwaysVisible($0) }
+                               ))
+                    }
+                    StatusLine(text: "A small Cado stays on screen. Click it to start or stop dictating; drag it anywhere.")
+                        .padding(.bottom, 8)
+                    CardDivider()
+                    SettingsRow("Show Cado in screen shares") {
+                        Toggle("Show Cado in screen shares",
+                               isOn: Binding(
+                                   get: { viewModel.mascotInScreenShares },
+                                   set: { viewModel.setMascotInScreenShares($0) }
+                               ))
+                    }
+                    StatusLine(text: "Off: Cado is hidden from screen sharing and recordings.")
+                        .padding(.bottom, 8)
+                }
+
                 // MARK: Startup
                 SettingsSection(title: "Startup", systemImage: "power") {
                     SettingsRow("Launch Cado at login") {

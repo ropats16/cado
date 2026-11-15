@@ -117,6 +117,92 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertFalse(vm.soundCues)
     }
 
+    // MARK: - Mascot (#20)
+
+    func testMascotTogglesDefaultOff() {
+        let vm = makeVM()
+        XCTAssertFalse(vm.mascotAlwaysVisible)
+        XCTAssertFalse(vm.mascotInScreenShares)
+    }
+
+    func testMascotTogglesLoadFromConfig() {
+        configStore.update { $0.mascotAlwaysVisible = true; $0.mascotInScreenShares = true }
+        let vm = makeVM()
+        XCTAssertTrue(vm.mascotAlwaysVisible)
+        XCTAssertTrue(vm.mascotInScreenShares)
+    }
+
+    func testSetMascotAlwaysVisiblePersists() {
+        let vm = makeVM()
+        vm.setMascotAlwaysVisible(true)
+        XCTAssertTrue(configStore.config.mascotAlwaysVisible)
+        XCTAssertTrue(vm.mascotAlwaysVisible)
+        vm.setMascotAlwaysVisible(false)
+        XCTAssertFalse(configStore.config.mascotAlwaysVisible)
+        XCTAssertFalse(vm.mascotAlwaysVisible)
+    }
+
+    func testSetMascotInScreenSharesPersists() {
+        let vm = makeVM()
+        vm.setMascotInScreenShares(true)
+        XCTAssertTrue(configStore.config.mascotInScreenShares)
+        XCTAssertTrue(vm.mascotInScreenShares)
+        vm.setMascotInScreenShares(false)
+        XCTAssertFalse(configStore.config.mascotInScreenShares)
+        XCTAssertFalse(vm.mascotInScreenShares)
+    }
+
+    func testMascotTogglesDontTouchOtherSettings() {
+        configStore.update { $0.soundCues = true }
+        let vm = makeVM()
+        vm.setMascotAlwaysVisible(true)
+        vm.setMascotInScreenShares(true)
+        XCTAssertTrue(configStore.config.soundCues)
+        XCTAssertTrue(configStore.config.mascotPositions.isEmpty)
+    }
+
+    /// The overlay applies both toggles live: each change fires the callback,
+    /// after the config is saved, so the callback reads the new values.
+    func testMascotTogglesNotifyAfterPersisting() {
+        var seen: [(Bool, Bool)] = []
+        let vm = SettingsViewModel(
+            configStore: configStore,
+            loginItem: LoginItem(service: fakeLogin),
+            availableMics: { [] },
+            presentModelFilenames: { [] },
+            onNeedsMenuRefresh: {}, pauseHotkeys: {}, reloadHotkeys: {},
+            hardware: .current,
+            currentModel: { ModelSpec.file("/m/ggml-tiny.en.bin") },
+            modelStatus: .ready,
+            onModelSettingsChange: {},
+            onMascotSettingsChange: { [configStore] in
+                seen.append((configStore!.config.mascotAlwaysVisible, configStore!.config.mascotInScreenShares))
+            })
+        vm.setMascotAlwaysVisible(true)
+        vm.setMascotInScreenShares(true)
+        vm.setMascotAlwaysVisible(false)
+        XCTAssertEqual(seen.map(\.0), [true, true, false])
+        XCTAssertEqual(seen.map(\.1), [false, true, true])
+    }
+
+    func testOtherSettingsDontNotifyMascot() {
+        var count = 0
+        let vm = SettingsViewModel(
+            configStore: configStore,
+            loginItem: LoginItem(service: fakeLogin),
+            availableMics: { [] },
+            presentModelFilenames: { [] },
+            onNeedsMenuRefresh: {}, pauseHotkeys: {}, reloadHotkeys: {},
+            hardware: .current,
+            currentModel: { ModelSpec.file("/m/ggml-tiny.en.bin") },
+            modelStatus: .ready,
+            onModelSettingsChange: {},
+            onMascotSettingsChange: { count += 1 })
+        vm.setSoundCues(true)
+        vm.setMaxDictationSeconds(300)
+        XCTAssertEqual(count, 0)
+    }
+
     // MARK: - Max dictation length
 
     func testMaxDictationDefaultsToTenMinutes() {
