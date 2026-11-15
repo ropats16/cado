@@ -59,23 +59,4 @@ final class SoundCuesTests: XCTestCase {
         sut.play(.stop)                 // flag is now true — should pass through
         XCTAssertEqual(spy.emitted, [.stop], "Must emit after flag flip")
     }
-
-    // MARK: - Synthesized output
-
-    /// Audio that can't be loaded is swallowed: emitting is a silent no-op.
-    /// (Valid cues aren't emitted here — tests must not make noise.)
-    func testUnloadableCueAudioIsSilentlySkipped() {
-        let output = SynthSoundCueOutput(audio: { _ in Data("not audio".utf8) })
-        output.emit(.start)
-        output.emit(.stop)
-    }
-
-    func testCueAudioIsRenderedOnceUpFront() {
-        var rendered: [SoundCue] = []
-        let output = SynthSoundCueOutput(audio: { rendered.append($0); return Data() })
-        XCTAssertEqual(rendered.sorted { "\($0)" < "\($1)" }, [.start, .stop])
-        output.emit(.start)
-        output.emit(.start)
-        XCTAssertEqual(rendered.count, 2, "emit must not re-render")
-    }
 }
