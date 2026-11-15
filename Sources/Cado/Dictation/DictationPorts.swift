@@ -2,15 +2,15 @@ import Foundation
 
 // The seams between `DictationSession` and the rest of the app. The session
 // owns every transition rule; each port is a thin adapter over a concrete
-// piece (the mic capture, the transcription engine, text delivery, the
-// indicator + sound cues + notifications, the history store, the clock
+// piece (the mic capture, the transcription engine, text delivery, sound
+// cues + notifications, the app-wide activity, the history store, the clock
 // — `Support/Clock.swift`). Tests drive the session with fakes of all of them.
 //
 // Every port is called on main, and must call its callbacks on main.
 
 /// Records the audio for one dictation. `AudioCapture` already has this shape.
 protocol DictationCapture: AnyObject {
-    /// 0...1 level of the running recording, for the indicator. Set once by
+    /// 0...1 level of the running recording, for the overlay. Set once by
     /// the session; called on main.
     var onLevel: ((Float) -> Void)? { get set }
 
@@ -70,14 +70,24 @@ protocol DictationDelivery: AnyObject {
     func deliver(_ transcript: String, trailingSpace: Bool) -> DeliveryReport
 }
 
-/// What the user sees and hears: the indicator, sound cues, notifications.
+/// What the user hears and is told: sound cues, notifications. Nothing
+/// visual: the overlay derives from `DictationActivity` instead (#19).
 protocol DictationFeedback: AnyObject {
-    func showRecording()
-    func showLevel(_ level: Float)
-    func showProcessing()
-    func dismiss()
     func play(_ cue: SoundCue)
     func notify(title: String, body: String)
+}
+
+/// Where the session reports what it's doing; the app-wide activity (and
+/// through it the overlay) derives from this. The session reports, nobody
+/// commands the overlay.
+protocol DictationActivity: AnyObject {
+    /// Called on every phase change, never twice for the same phase.
+    func dictationPhaseChanged(_ phase: DictationSession.Phase)
+    /// 0...1 mic level; only while recording.
+    func dictationLevel(_ level: Float)
+    /// Text was delivered (pasted or copied): once per delivery, before the
+    /// phase returns to idle. Not for drops or failures.
+    func dictationTextLanded()
 }
 
 /// Where delivered dictations are recorded. One `delivered` per dictation that

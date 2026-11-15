@@ -7,8 +7,8 @@ import Foundation
 /// driven by the user's intents (hold down/up, toggle, cancel) and by its own
 /// events (mic started or failed, max duration elapsed, post-roll captured,
 /// transcription finished). Every transition rule lives here; the mic, the
-/// engine, delivery, feedback (indicator, cues, notifications), history and
-/// time are ports (see `DictationPorts.swift`).
+/// engine, delivery, feedback (cues, notifications), activity (what the
+/// overlay derives from), history and time are ports (see `DictationPorts.swift`).
 ///
 /// Rules worth knowing:
 /// - Starting while not idle is ignored: one start cue, one timer, one capture.
@@ -25,8 +25,12 @@ import Foundation
 ///   dropped (stop cue, no transcription).
 /// - Toggle, hold and cancel do nothing while transcribing or delivering.
 /// - Delivery cleans the transcript; text it drops (empty, tag-only) gets no
-///   notice and no history. Each delivered text is reported once to the
-///   history; a copy (nothing editable focused) also gets one notice.
+///   notice, no history and no landing. Each delivered text is reported once
+///   to the history and once as landed; a copy (nothing editable focused)
+///   also gets one notice.
+/// - Activity hears every phase change exactly once, from `state` alone, so
+///   it can't drift from the machine: recording → transcribing → delivering
+///   → idle for a delivered dictation, straight back to idle otherwise.
 ///
 /// Main-thread only: call `handle` on main; ports call back on main.
 final class DictationSession {
@@ -61,19 +65,27 @@ final class DictationSession {
     private let engine: DictationEngine
     private let delivery: DictationDelivery
     private let feedback: DictationFeedback
+    private let activity: DictationActivity
     private let history: DictationHistory
     private let clock: Clock
     private let settings: () -> DictationSettings
     private let readiness: () -> AppStatus
 
-    private var state: State = .idle
+    private var state: State = .idle {
+        didSet {
+            let phase = Self.phase(of: state)
+            if phase != Self.phase(of: oldValue) { activity.dictationPhaseChanged(phase) }
+        }
+    }
     /// The running recording's max-duration timer; at most one exists.
     private var timer: ClockTimer?
     private var recordingCount = 0
     /// The last blocked press's notice, until a press is allowed again.
     private var lastNotice: (issue: ReadinessIssue, at: TimeInterval)?
 
-    var phase: Phase {
+    var phase: Phase { Self.phase(of: state) }
+
+    private static func phase(of state: State) -> Phase {
         switch state {
         case .idle: return .idle
         case .recording: return .recording
@@ -84,9 +96,11 @@ final class DictationSession {
 
     /// `settings` is read live: `maxSeconds` at start, `minSeconds` and
     /// `trailingSpace` at stop. `readiness` is read at each start; no default,
-    /// so nothing dictates without a gate.
+    /// so nothing dictates without a gate. Nor for `activity`: a recording
+    /// nobody shows would be a hot mic with no sign of it.
     init(capture: DictationCapture, engine: DictationEngine, delivery: DictationDelivery,
-         feedback: DictationFeedback, history: DictationHistory = NoDictationHistory(),
+         feedback: DictationFeedback, activity: DictationActivity,
+         history: DictationHistory = NoDictationHistory(),
          clock: Clock = SystemClock(),
          settings: @escaping () -> DictationSettings,
          readiness: @escaping () -> AppStatus) {
@@ -94,13 +108,14 @@ final class DictationSession {
         self.engine = engine
         self.delivery = delivery
         self.feedback = feedback
+        self.activity = activity
         self.history = history
         self.clock = clock
         self.settings = settings
         self.readiness = readiness
         capture.onLevel = { [weak self] level in
             guard let self, case .recording = state else { return }
-            self.feedback.showLevel(level)
+            self.activity.dictationLevel(level)
         }
     }
 
@@ -157,12 +172,11 @@ final class DictationSession {
             }
 
         case (.transcribing(let id, let trailingSpace), .transcribed(let finished, let result)) where finished == id:
-            feedback.dismiss()
-            state = .idle
             switch result {
             case .success(let raw):
                 deliver(raw, trailingSpace: trailingSpace)
             case .failure(let error):
+                state = .idle
                 fail("Transcription failed", error)
             }
 
@@ -184,7 +198,6 @@ final class DictationSession {
         // Reload an idle-unloaded model while the user talks, and keep it
         // loaded until the job or `endPrewarm()`.
         engine.prewarm()
-        feedback.showRecording()
         feedback.play(.start)
         timer = clock.schedule(after: limit) { [weak self] in
             self?.handle(.maxDurationElapsed(id: id))
@@ -213,7 +226,6 @@ final class DictationSession {
             return end()
         }
         Log.info("Recording stopped after \(String(format: "%.1f", duration))s; transcribing.")
-        feedback.showProcessing()
         state = .finishingCapture(id: id, trailingSpace: current.trailingSpace)
         capture.end { [weak self] samples in
             self?.handle(.captured(id: id, samples: samples))
@@ -224,7 +236,6 @@ final class DictationSession {
     private func end() {
         cancelTimer()
         engine.endPrewarm()
-        feedback.dismiss()
         state = .idle
     }
 
@@ -239,6 +250,7 @@ final class DictationSession {
                 feedback.notify(title: "Dictation copied", body: "No text field is focused — paste with ⌘V.")
             }
             history.delivered(delivered)
+            activity.dictationTextLanded()
         }
         state = .idle
     }

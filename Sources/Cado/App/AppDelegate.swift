@@ -50,8 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// load says it's being prepared rather than just "Loading".
     private let loadHistory: ModelLoadRecording = ModelLoadHistory.shared
     /// Built at launch, not on the first press, so the first dictation
-    /// doesn't pay for the indicator, delivery and session setup.
+    /// doesn't pay for the cues, delivery and session setup.
     private var dictation: DictationSession?
+    /// What the app is doing, for the overlay (#19); the session reports into it.
+    private let activity = AppActivityFeed()
     private var menu: StatusMenu!
     private var hotkeys: HotkeyManager?
     private var settingsWindowController: SettingsWindowController?
@@ -269,9 +271,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             capture: capture,
             engine: EngineDictationAdapter(engine),
             delivery: TextDelivery(),
-            feedback: IndicatorFeedback(soundCues: SoundCues(isEnabled: { [configStore] in
+            feedback: CueFeedback(soundCues: SoundCues(isEnabled: { [configStore] in
                 configStore.config.soundCues
             })),
+            activity: activity,
             settings: { [configStore] in
                 DictationSettings(maxSeconds: configStore.config.maxRecordingSeconds,
                                   ceilingSeconds: AudioCapture.ceilingSeconds,

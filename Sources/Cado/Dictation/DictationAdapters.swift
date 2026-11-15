@@ -21,20 +21,13 @@ final class EngineDictationAdapter: DictationEngine {
     }
 }
 
-/// The floating indicator, sound cues and notification banners.
-final class IndicatorFeedback: DictationFeedback {
-    private let indicator: IndicatorController
+/// Sound cues and notification banners. The overlay isn't here: it watches
+/// `AppActivityFeed`.
+final class CueFeedback: DictationFeedback {
     private let soundCues: SoundCues
 
-    init(indicator: IndicatorController = IndicatorController(), soundCues: SoundCues) {
-        self.indicator = indicator
-        self.soundCues = soundCues
-    }
+    init(soundCues: SoundCues) { self.soundCues = soundCues }
 
-    func showRecording() { indicator.showRecording() }
-    func showLevel(_ level: Float) { indicator.updateLevel(level) }
-    func showProcessing() { indicator.showProcessing() }
-    func dismiss() { indicator.dismiss() }
     func play(_ cue: SoundCue) { soundCues.play(cue) }
     func notify(title: String, body: String) { Notifier.notify(title: title, body: body) }
 }
