@@ -3,13 +3,14 @@ import SwiftUI
 
 extension Brand.Pose {
     /// The mascot pose for an overlay visual. A meeting has no pose of its own
-    /// yet (#30+): the calm idle one. `.hidden` is never rendered.
+    /// yet (#30+): the calm idle one, as resting is (small, see `MascotModel.isMini`).
+    /// `.hidden` is never rendered.
     init(_ visual: OverlayVisual) {
         switch visual {
         case .listening: self = .listening
         case .thinking: self = .thinking
         case .done: self = .done
-        case .meeting, .hidden: self = .idle
+        case .resting, .meeting, .hidden: self = .idle
         }
     }
 }
@@ -80,6 +81,7 @@ final class MascotOverlayPanel: OverlayPanel {
 
     func render(_ visual: OverlayVisual) {
         model.pose = Brand.Pose(visual)
+        model.isMini = visual == .resting
     }
 
     func setLevel(_ level: Float) {

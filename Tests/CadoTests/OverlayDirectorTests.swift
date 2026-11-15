@@ -42,6 +42,14 @@ final class OverlayDirectorTests: XCTestCase {
         XCTAssertEqual(OverlayVisual(.meetingLive), .meeting)
     }
 
+    func testAlwaysVisibleOnlyChangesIdle() {
+        XCTAssertEqual(OverlayVisual(.idle, alwaysVisible: true), .resting)
+        XCTAssertEqual(OverlayVisual(.idle, alwaysVisible: false), .hidden)
+        for activity: AppActivity in [.dictating, .transcribing, .meetingLive] {
+            XCTAssertEqual(OverlayVisual(activity, alwaysVisible: true), OverlayVisual(activity), "\(activity)")
+        }
+    }
+
     // MARK: - Showing and hiding
 
     func testStartsHiddenWithoutTouchingThePanel() {
@@ -256,6 +264,157 @@ final class OverlayDirectorTests: XCTestCase {
         director.activityChanged(.idle)
         clock.advance(by: fadeOut)
         assertHidden()
+    }
+
+    // MARK: - Always visible
+
+    func testAlwaysVisibleIsOffByDefault() {
+        XCTAssertFalse(director.alwaysVisible)
+    }
+
+    func testTurningAlwaysVisibleOnWhileIdleFadesTheRestingMascotIn() {
+        director.alwaysVisible = true
+        XCTAssertEqual(panel.calls, [.render(.resting), .alpha(0, duration: 0), .show, .alpha(1, duration: fadeIn)])
+        assertShowing(.resting)
+
+        panel.calls = []
+        director.alwaysVisible = true
+        XCTAssertEqual(panel.calls, [], "repeated setting is a no-op")
+    }
+
+    func testTurningAlwaysVisibleOffWhileRestingFadesOutThenOrdersOut() {
+        director.alwaysVisible = true
+        panel.calls = []
+        director.alwaysVisible = false
+        XCTAssertEqual(panel.calls, [.alpha(0, duration: fadeOut)])
+        clock.advance(by: fadeOut)
+        XCTAssertEqual(panel.calls, [.alpha(0, duration: fadeOut), .orderOut])
+        assertHidden()
+    }
+
+    func testRestingSwapsInPlaceWithDictation() {
+        director.alwaysVisible = true
+        panel.calls = []
+        director.activityChanged(.dictating)
+        XCTAssertEqual(panel.calls, [.level(0), .render(.listening)], "already on screen: no re-show or fade")
+        assertShowing(.listening)
+
+        director.activityChanged(.transcribing)
+        panel.calls = []
+        director.activityChanged(.idle)
+        XCTAssertEqual(panel.calls, [.render(.resting)], "back to resting, no fade-out")
+        assertShowing(.resting)
+        clock.advance(by: fadeOut * 4)
+        XCTAssertEqual(panel.orderOuts, 0)
+    }
+
+    func testCelebrationEndsOnRestingWhenAlwaysVisible() {
+        director.alwaysVisible = true
+        director.activityChanged(.transcribing)
+        director.textLanded()
+        director.activityChanged(.idle)
+        assertShowing(.done)
+        clock.advance(by: done)
+        assertShowing(.resting)
+        clock.advance(by: fadeOut * 4)
+        XCTAssertEqual(panel.orderOuts, 0)
+        XCTAssertEqual(panel.renders, [.resting, .thinking, .done, .resting])
+    }
+
+    func testTogglingAlwaysVisibleWhileActiveWaitsForIdle() {
+        director.activityChanged(.dictating)
+        panel.calls = []
+        director.alwaysVisible = true
+        director.alwaysVisible = false
+        director.alwaysVisible = true
+        XCTAssertEqual(panel.calls, [])
+        assertShowing(.listening)
+
+        director.activityChanged(.idle)
+        assertShowing(.resting)
+    }
+
+    func testTogglingAlwaysVisibleDuringTheCelebrationWaitsForItsEnd() {
+        director.activityChanged(.transcribing)
+        director.textLanded()
+        director.activityChanged(.idle)
+        panel.calls = []
+        director.alwaysVisible = true
+        XCTAssertEqual(panel.calls, [])
+        assertShowing(.done)
+        clock.advance(by: done)
+        assertShowing(.resting)
+    }
+
+    func testTurningAlwaysVisibleOnDuringTheFadeOutShowsRestingInPlace() {
+        director.activityChanged(.dictating)
+        director.activityChanged(.idle)
+        panel.calls = []
+        director.alwaysVisible = true
+        XCTAssertEqual(panel.calls, [.render(.resting), .alpha(1, duration: fadeIn)])
+        clock.advance(by: fadeOut * 4)
+        assertShowing(.resting)
+    }
+
+    func testSystemChangeWhileRestingReassertsInPlace() {
+        director.alwaysVisible = true
+        panel.calls = []
+        director.systemStateChanged()
+        XCTAssertEqual(panel.calls, [.show])
+        assertShowing(.resting)
+    }
+
+    func testLevelIsNotForwardedWhileResting() {
+        director.alwaysVisible = true
+        director.levelChanged(0.5)
+        XCTAssertEqual(panel.levels, [])
+    }
+
+    // MARK: - Click
+
+    private var toggles = 0
+
+    private func wireClicks() {
+        director.onToggleDictation = { [unowned self] in toggles += 1 }
+    }
+
+    func testClickWhileRestingOrListeningTogglesDictation() {
+        wireClicks()
+        director.alwaysVisible = true
+        director.clicked()
+        XCTAssertEqual(toggles, 1, "resting: start")
+        director.activityChanged(.dictating)
+        director.clicked()
+        XCTAssertEqual(toggles, 2, "listening: stop")
+    }
+
+    func testClickIsIgnoredWhenTheMascotMeansNothingToToggle() {
+        wireClicks()
+        director.clicked()
+        XCTAssertEqual(toggles, 0, "hidden")
+
+        director.activityChanged(.transcribing)
+        director.clicked()
+        director.textLanded()
+        director.clicked()
+        XCTAssertEqual(toggles, 0, "thinking, done: busy or about to rest")
+
+        director.activityChanged(.idle)
+        clock.advance(by: done)
+        XCTAssertEqual(panel.alpha, 0, "fading out")
+        director.clicked()
+        XCTAssertEqual(toggles, 0, "fading out: already gone as far as the user goes")
+
+        director.activityChanged(.meetingLive)
+        director.clicked()
+        XCTAssertEqual(toggles, 0, "meeting: not a dictation")
+    }
+
+    func testClickWithNothingWiredIsHarmless() {
+        director.alwaysVisible = true
+        panel.calls = []
+        director.clicked()
+        XCTAssertEqual(panel.calls, [])
     }
 
     // MARK: - Full cycle

@@ -116,6 +116,68 @@ final class MascotMotionTests: XCTestCase {
         XCTAssertGreaterThan(MascotView.padding + 24 / 148 * MascotView.artSide, MascotMotion.hopHeight + 4)
     }
 
+    // MARK: - Mini (resting)
+
+    private let frame = CGRect(x: 0, y: 0, width: MascotView.side, height: MascotView.side)
+
+    func testBodyBoundsHugEveryPosesArtAtRest() {
+        let b = MascotMotion.bodyBounds
+        XCTAssertTrue(MascotMotion.viewBox.contains(b))
+        // Extremes from the v3 art: skin outline top (22 − 19/2), feet bottom
+        // (123.5 + 3.2), the listening left hand (8 − 4.3 − 1.2), the done right hand.
+        XCTAssertLessThanOrEqual(b.minY, 12.5)
+        XCTAssertGreaterThanOrEqual(b.maxY, 126.7)
+        XCTAssertLessThanOrEqual(b.minX, 2.5)
+        XCTAssertGreaterThanOrEqual(b.maxX, 120.5)
+        XCTAssertGreaterThan(b.minY, 5, "the sparkles and dots above the head aren't body")
+    }
+
+    func testHitRectIsTheBodyNotTheMargin() {
+        let hit = MascotMotion.hitRect(mini: false)
+        XCTAssertTrue(frame.contains(hit))
+        let pit = MascotMotion.pitCentre(in: CGSize(width: MascotView.artSide, height: MascotView.artSide))
+        XCTAssertTrue(hit.contains(CGPoint(x: pit.x + MascotView.padding, y: pit.y + MascotView.padding)), "the belly")
+        XCTAssertGreaterThan(hit.minX, MascotView.padding, "the margin passes clicks through")
+        XCTAssertGreaterThan(hit.minY, MascotView.padding)
+        XCTAssertLessThan(hit.maxY, frame.maxY - MascotView.padding)
+        XCTAssertGreaterThan(hit.width, 45)
+        XCTAssertGreaterThan(hit.height, 45)
+    }
+
+    func testMiniIsSmallerAndKeepsTheBottomLeftSpot() {
+        XCTAssertGreaterThanOrEqual(MascotMotion.miniScale, 0.5)
+        XCTAssertLessThanOrEqual(MascotMotion.miniScale, 0.7)
+        let full = MascotMotion.hitRect(mini: false), mini = MascotMotion.hitRect(mini: true)
+        XCTAssertEqual(mini.width, full.width * MascotMotion.miniScale, accuracy: 0.001)
+        XCTAssertEqual(mini.height, full.height * MascotMotion.miniScale, accuracy: 0.001)
+        XCTAssertEqual(mini.minX, full.minX, accuracy: 0.001, "left edge stays put")
+        XCTAssertEqual(mini.maxY, full.maxY, accuracy: 0.001, "feet stay on the ground")
+        XCTAssertGreaterThan(min(mini.width, mini.height), 24, "still an easy click")
+    }
+
+    func testMiniAnchorIsTheBodysBottomLeft() {
+        let a = MascotMotion.miniAnchor
+        let corner = MascotMotion.unitPoint(CGPoint(x: MascotMotion.bodyBounds.minX, y: MascotMotion.bodyBounds.maxY))
+        XCTAssertEqual(a.x, corner.x, accuracy: 0.0001)
+        XCTAssertEqual(a.y, corner.y, accuracy: 0.0001)
+    }
+
+    func testMiniTransitionIsQuick() {
+        XCTAssertGreaterThanOrEqual(MascotMotion.miniTransitionDuration, 0.15)
+        XCTAssertLessThanOrEqual(MascotMotion.miniTransitionDuration, 0.3)
+    }
+
+    /// Resting can sit on screen for hours: nothing may tick while mini.
+    func testOnlyFullSizePosesMove() {
+        for pose in Brand.Pose.allCases {
+            XCTAssertNil(MascotMotion.motion(pose, mini: true), "\(pose)")
+        }
+        XCTAssertEqual(MascotMotion.motion(.idle, mini: false), .breathe)
+        XCTAssertEqual(MascotMotion.motion(.listening, mini: false), .breathe)
+        XCTAssertEqual(MascotMotion.motion(.thinking, mini: false), .wobble)
+        XCTAssertEqual(MascotMotion.motion(.done, mini: false), .celebrate)
+    }
+
     // MARK: - Done
 
     func testCelebrationIsOneShotAndEndsAtRest() {
@@ -189,6 +251,32 @@ final class MascotMotionTests: XCTestCase {
             XCTAssertEqual(host.fittingSize, NSSize(width: MascotView.side, height: MascotView.side), "\(pose)")
             XCTAssertGreaterThan(inked(render(host)), 500, "\(pose) draws the mascot")
         }
+    }
+
+    @MainActor
+    func testMiniRendersSmallInTheSameFrameAtTheBottomLeft() throws {
+        let fullHost = NSHostingView(rootView: MascotView(model: MascotModel(pose: .idle)))
+        let miniHost = NSHostingView(rootView: MascotView(model: MascotModel(pose: .idle, isMini: true)))
+        XCTAssertEqual(miniHost.fittingSize, NSSize(width: MascotView.side, height: MascotView.side))
+        let full = render(fullHost), mini = render(miniHost)
+        let fullInk = inked(full), miniInk = inked(mini)
+        XCTAssertGreaterThan(miniInk, 200, "draws the mascot")
+        XCTAssertLessThan(Double(miniInk), Double(fullInk) * 0.5, "visibly smaller")
+
+        // Every inked pixel sits in the mini body's rect, give or take the shadow.
+        let scale = CGFloat(mini.pixelsWide) / MascotView.side
+        let allowed = MascotMotion.hitRect(mini: true).insetBy(dx: -3, dy: -3)
+        for y in 0..<mini.pixelsHigh {
+            for x in 0..<mini.pixelsWide where (mini.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.1 {
+                let p = CGPoint(x: (CGFloat(x) + 0.5) / scale, y: (CGFloat(y) + 0.5) / scale)
+                XCTAssertTrue(allowed.contains(p), "ink at \(p) outside \(allowed)")
+                if !allowed.contains(p) { return }
+            }
+        }
+    }
+
+    func testModelIsFullSizeByDefault() {
+        XCTAssertFalse(MascotModel().isMini)
     }
 
     @MainActor
