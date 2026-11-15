@@ -1,10 +1,10 @@
 import Foundation
 @testable import Cado
 
-/// An `OverlayPanel` that records every call, and tracks the panel as the
-/// window server would see it: on screen or not, and the alpha it's heading
-/// to. Shared by the director and overlay tests.
-final class FakeOverlayPanel: OverlayPanel {
+/// A `MascotSurface` that records every `OverlayPanel` call, and tracks the
+/// panel as the window server would see it: on screen or not, and the alpha
+/// it's heading to. Shared by the director and overlay tests.
+final class FakeOverlayPanel: MascotSurface {
     enum Call: Equatable {
         case show, orderOut, discard
         case alpha(Double, duration: TimeInterval)
@@ -24,6 +24,11 @@ final class FakeOverlayPanel: OverlayPanel {
         calls.compactMap { if case .level(let level) = $0 { return level } else { return nil } }
     }
     var orderOuts: Int { calls.filter { $0 == .orderOut }.count }
+
+    var onClick: (() -> Void)?
+    var showsInScreenShares = false
+    /// A click on the mascot's body, as the real panel reports one.
+    func click() { onClick?() }
 
     func show() { calls.append(.show); isOnScreen = true }
     func setAlpha(_ alpha: Double, duration: TimeInterval) {

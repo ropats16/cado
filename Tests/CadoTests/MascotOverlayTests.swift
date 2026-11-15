@@ -9,13 +9,19 @@ final class MascotOverlayTests: XCTestCase {
     private var panel: FakeOverlayPanel!
     private var clock: ManualClock!
     private var overlay: MascotOverlay!
+    private var toggles = 0
 
     override func setUp() {
         super.setUp()
         feed = AppActivityFeed()
         panel = FakeOverlayPanel()
         clock = ManualClock()
-        overlay = MascotOverlay(feed: feed, panel: panel, clock: clock)
+        overlay = makeOverlay()
+    }
+
+    private func makeOverlay(_ settings: MascotOverlay.Settings = .init()) -> MascotOverlay {
+        MascotOverlay(feed: feed, panel: panel, clock: clock, settings: settings,
+                      onToggleDictation: { [weak self] in self?.toggles += 1 })
     }
 
     override func tearDown() {
@@ -97,5 +103,63 @@ final class MascotOverlayTests: XCTestCase {
         NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
         feed.dictationPhaseChanged(.recording)
         XCTAssertEqual(panel.calls, [])
+    }
+
+    // MARK: - Settings and clicks (#20)
+
+    func testDefaultSettingsBuildNothingAndHideFromScreenShares() {
+        XCTAssertEqual(panel.calls, [], "hidden until active: no panel at launch")
+        XCTAssertFalse(panel.showsInScreenShares)
+    }
+
+    func testAlwaysVisibleAtLaunchShowsTheRestingMascot() {
+        panel = FakeOverlayPanel()
+        overlay = makeOverlay(.init(alwaysVisible: true, inScreenShares: true))
+        XCTAssertEqual(panel.shown, .resting)
+        XCTAssertTrue(panel.isOnScreen)
+        XCTAssertTrue(panel.showsInScreenShares)
+    }
+
+    func testSettingsApplyLive() {
+        overlay.apply(.init(alwaysVisible: true, inScreenShares: false))
+        XCTAssertEqual(panel.shown, .resting)
+        XCTAssertTrue(panel.isOnScreen)
+
+        overlay.apply(.init(alwaysVisible: true, inScreenShares: true))
+        XCTAssertTrue(panel.showsInScreenShares)
+        XCTAssertEqual(panel.renders, [.resting], "only the sharing changed")
+
+        overlay.apply(.init(alwaysVisible: false, inScreenShares: true))
+        clock.advance(by: OverlayDirector.fadeOutDuration)
+        XCTAssertFalse(panel.isOnScreen)
+        XCTAssertTrue(panel.showsInScreenShares)
+    }
+
+    func testSettingsFromConfig() {
+        var config = Config.defaults
+        XCTAssertEqual(MascotOverlay.Settings(config), .init(alwaysVisible: false, inScreenShares: false))
+        config.mascotAlwaysVisible = true
+        config.mascotInScreenShares = true
+        XCTAssertEqual(MascotOverlay.Settings(config), .init(alwaysVisible: true, inScreenShares: true))
+    }
+
+    func testClickOnTheRestingMascotTogglesDictationOnce() {
+        overlay.apply(.init(alwaysVisible: true, inScreenShares: false))
+        panel.click()
+        XCTAssertEqual(toggles, 1)
+    }
+
+    func testClickWhileListeningStopsAndWhileThinkingIsIgnored() {
+        feed.dictationPhaseChanged(.recording)
+        panel.click()
+        XCTAssertEqual(toggles, 1)
+        feed.dictationPhaseChanged(.transcribing)
+        panel.click()
+        XCTAssertEqual(toggles, 1)
+    }
+
+    func testClickWhileHiddenUntilActiveDoesNothing() {
+        panel.click()
+        XCTAssertEqual(toggles, 0)
     }
 }

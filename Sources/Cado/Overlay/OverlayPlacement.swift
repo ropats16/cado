@@ -90,9 +90,19 @@ final class MascotPlacement {
     /// Where to show a `size` window: the saved spot (or default corner) of
     /// the display under `mouse`, clamped. No displays: the zero corner.
     func frame(forMouse mouse: CGPoint, size: CGSize) -> CGRect {
-        guard let display = OverlayPlacement.display(at: mouse, in: displays()) else {
-            return CGRect(origin: .zero, size: size)
-        }
+        frame(on: OverlayPlacement.display(at: mouse, in: displays()), size: size)
+    }
+
+    /// Where a window already on screen at `windowFrame` goes on a re-show:
+    /// the saved spot (or default corner) of the display it's on, clamped to
+    /// that display's current visible frame. Its display gone, the nearest.
+    /// Saves nothing.
+    func frame(onDisplayOf windowFrame: CGRect) -> CGRect {
+        frame(on: OverlayPlacement.display(containing: windowFrame, in: displays()), size: windowFrame.size)
+    }
+
+    private func frame(on display: OverlayDisplay?, size: CGSize) -> CGRect {
+        guard let display else { return CGRect(origin: .zero, size: size) }
         let origin = OverlayPlacement.origin(on: display, size: size, saved: store.position(forDisplay: display.id))
         return CGRect(origin: origin, size: size)
     }

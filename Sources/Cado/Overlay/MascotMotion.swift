@@ -120,16 +120,16 @@ enum MascotMotion {
 
     /// The resting mascot's size relative to the full one.
     static let miniScale: CGFloat = 0.6
-    /// Mini scales about the body's bottom-left, so it stays in the corner the
-    /// panel is pinned to, feet on the same ground. The frame never resizes.
+    /// Mini scales about the body's bottom-left, so it stays put in the
+    /// window's corner, feet on the same ground. The frame never resizes.
     static let miniAnchor = unitPoint(CGPoint(x: bodyBounds.minX, y: bodyBounds.maxY))
     /// The one-off grow/shrink between resting and active.
     static let miniTransitionDuration: TimeInterval = 0.2
 
     /// Where a click or drag counts as on the mascot: the body's rect in
     /// `MascotView`'s coordinates (side × side, origin top-left, y down). The
-    /// margin round it should pass clicks through. At rest; motion strays a
-    /// few points, which doesn't matter for a target this size.
+    /// margin round it passes clicks through (`MascotOverlayPanel`). At rest;
+    /// motion strays a few points, which doesn't matter for a target this size.
     static func hitRect(mini: Bool) -> CGRect {
         let unit = MascotView.artSide / viewBox.width
         var rect = CGRect(x: MascotView.padding + (bodyBounds.minX - viewBox.minX) * unit,

@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// What the app is doing, for the overlay (#19); the session reports into it.
     private let activity = AppActivityFeed()
     /// The mascot, watching `activity`. Attached at launch; builds its panel
-    /// on first show.
+    /// on first show (at launch with "always visible" on).
     private var overlay: MascotOverlay?
     private var menu: StatusMenu!
     private var hotkeys: HotkeyManager?
@@ -76,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenu()
         wireMonitor()
         startEngine()
-        overlay = MascotOverlay(feed: activity)
+        overlay = makeOverlay()
         dictation = makeDictationSession()
         requestPermissionsIfNeeded()
         monitor.start()
@@ -289,6 +289,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    /// The mascot at its saved spots, with the user's settings; a click on it
+    /// is a toggle-hotkey press.
+    private func makeOverlay() -> MascotOverlay {
+        let placement = MascotPlacement(store: ConfigMascotPositionStore(configStore), displays: OverlayDisplay.current)
+        return MascotOverlay(feed: activity, panel: MascotOverlayPanel(placement: placement),
+                             settings: MascotOverlay.Settings(configStore.config),
+                             onToggleDictation: { [weak self] in
+                                 self?.appleSpeechWatch.check()
+                                 self?.dictation?.handle(.toggle)
+                             })
+    }
+
     /// (Re)installs the hotkey tap from the current config and reports the
     /// outcome to the monitor, which retries a failure with backoff. Only the
     /// monitor calls this (`onTapNeeded`).
@@ -338,6 +350,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     onModelSettingsChange: { [weak self] in
                         self?.failedAutomaticEngines = []   // a settings change retries them
                         self?.applyModelSettings()
+                    },
+                    onMascotSettingsChange: { [weak self] in
+                        guard let self else { return }
+                        overlay?.apply(MascotOverlay.Settings(configStore.config))
                     },
                     isFirstLoad: { [loadHistory] in EngineRegistry.shared.isFirstLoad($0, history: loadHistory) },
                     engineFacts: { [weak self] in self?.engineFacts }

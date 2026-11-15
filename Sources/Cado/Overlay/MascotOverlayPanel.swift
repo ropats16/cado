@@ -15,9 +15,8 @@ extension Brand.Pose {
     }
 }
 
-/// The real `OverlayPanel`: `MascotView` in a borderless, transparent,
-/// click-through panel pinned to the bottom-left of the screen under the
-/// mouse. Dumb by design; `OverlayDirector` sequences it.
+/// The real `MascotSurface`: `MascotView` in a borderless, transparent,
+/// non-activating panel. Dumb by design; `OverlayDirector` sequences it.
 ///
 /// Nothing is built until the first `show`. While off screen there is no
 /// hosting view, so none of the mascot's looping SwiftUI animations run:
@@ -25,8 +24,26 @@ extension Brand.Pose {
 /// pose's animation from the top). The model outlives both, so `render` and
 /// `setLevel` work before `show`, as the director calls them.
 ///
+/// Placement (#20), by `MascotPlacement`: the mascot picks a display only
+/// when it comes on screen, the one under the mouse, at that display's saved
+/// spot. Once on screen it stays on its display, active or resting, until it
+/// next hides: a re-`show` (Space switch, wake, display change) puts it back
+/// at its own display's spot, re-clamped, and never yanks it to the mouse's.
+/// So a dictation started from the resting mascot plays where it rests.
+///
+/// Mouse (#20): only the avocado's body (`MascotMotion.hitRect`) takes the
+/// mouse; the margin round it is click-through. Hit-testing alone can't do
+/// that (the window server has already handed the click to this window), so
+/// the window ignores mouse events except while the pointer is over the
+/// body, tracked by a global mouse-moved monitor (pointer over other apps)
+/// and the view's tracking area (over this panel). A press on the body is a
+/// click or a drag (`MascotGesture`); a drag moves the window by hand
+/// (`performDrag` would swallow the mouse-up) and saves the spot it ends at.
+/// Never key, main or activating: focus stays in the text field being
+/// dictated into.
+///
 /// Main-thread only.
-final class MascotOverlayPanel: OverlayPanel {
+final class MascotOverlayPanel: MascotSurface {
     /// Never key or main: focus stays in the text field being dictated into.
     private final class Panel: NSPanel {
         override var canBecomeKey: Bool { false }
@@ -36,24 +53,47 @@ final class MascotOverlayPanel: OverlayPanel {
     let model = MascotModel()
     /// The window, once shown and until discarded.
     private(set) var window: NSPanel?
+    var onClick: (() -> Void)?
+    /// Applied live, and re-asserted on every show.
+    var showsInScreenShares = false {
+        didSet { if let window { applySharing(window) } }
+    }
+
+    private let placement: MascotPlacement
+    private let mouseLocation: () -> CGPoint
     /// The last alpha asked for, applied to a panel built after it was set
     /// (the director sets 0 just before the first `show`).
     private var alpha: Double = 1
+    /// The press under way and the window's origin at it; nil between presses.
+    private var press: (gesture: MascotGesture, origin: CGPoint)?
+    /// Pointer moves over other apps, while on screen.
+    private var mouseMonitor: Any?
 
     private static let size = CGSize(width: MascotView.side, height: MascotView.side)
+    private static let snapDuration: TimeInterval = 0.15
+
+    /// `mouseLocation` (screen coordinates) picks the display on show.
+    init(placement: MascotPlacement, mouseLocation: @escaping () -> CGPoint = { NSEvent.mouseLocation }) {
+        self.placement = placement
+        self.mouseLocation = mouseLocation
+    }
 
     func show() {
         let panel = window ?? makePanel()
+        let wasVisible = panel.isVisible
         // A new panel comes with a plain content view; after `orderOut`, none.
-        if !(panel.contentView is NSHostingView<MascotView>) {
-            panel.contentView = NSHostingView(rootView: MascotView(model: model))
+        if !(panel.contentView is MascotHostingView) {
+            let view = MascotHostingView(rootView: MascotView(model: model))
+            view.owner = self
+            panel.contentView = view
         }
         // Re-asserted on every show: cheap insurance against window-server
         // state loss from events nobody observes (fullscreen and Mission
         // Control transitions can reset collection behaviour too).
         applyBehaviour(panel)
-        pinBottomLeft(panel)
+        place(panel, wasVisible: wasVisible)
         panel.orderFrontRegardless()
+        trackPointer()
     }
 
     func setAlpha(_ alpha: Double, duration: TimeInterval) {
@@ -70,8 +110,11 @@ final class MascotOverlayPanel: OverlayPanel {
 
     func orderOut() {
         guard let window else { return }
+        stopTrackingPointer()
+        press = nil   // hidden mid-press: that press is over
         window.orderOut(nil)
         window.contentView = nil
+        window.ignoresMouseEvents = true
     }
 
     func discard() {
@@ -88,6 +131,65 @@ final class MascotOverlayPanel: OverlayPanel {
         model.level = level
     }
 
+    // MARK: - Pointer (screen coordinates; from the hosting view and the monitor)
+
+    /// Takes mouse events only with the pointer over the body. Left alone
+    /// mid-press: the window must keep the press it started.
+    func pointerMoved(to point: CGPoint) {
+        guard press == nil, let window else { return }
+        let ignores = !isOnBody(point)
+        if window.ignoresMouseEvents != ignores { window.ignoresMouseEvents = ignores }
+    }
+
+    func pointerDown(at point: CGPoint) {
+        guard let window else { return }
+        press = (MascotGesture(down: point), window.frame.origin)
+    }
+
+    func pointerDragged(to point: CGPoint) {
+        guard var press, let window else { return }
+        if let offset = press.gesture.moved(to: point) { window.setFrameOrigin(press.origin.offset(by: offset)) }
+        self.press = press
+    }
+
+    func pointerUp(at point: CGPoint) {
+        guard var press, let window else { return }
+        self.press = nil
+        switch press.gesture.ended(at: point) {
+        case .click:
+            onClick?()
+        case .drag(let offset):
+            window.setFrameOrigin(press.origin.offset(by: offset))
+            let settled = placement.remember(windowFrame: window.frame)
+            if settled != window.frame {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = Self.snapDuration
+                    window.animator().setFrame(settled, display: true)
+                }
+            }
+        }
+        pointerMoved(to: point)
+    }
+
+    private func isOnBody(_ point: CGPoint) -> Bool {
+        guard let window, let view = window.contentView as? MascotHostingView else { return false }
+        return view.isOnBody(view.convert(window.convertPoint(fromScreen: point), from: nil))
+    }
+
+    private func trackPointer() {
+        if mouseMonitor == nil {
+            mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
+                self?.pointerMoved(to: NSEvent.mouseLocation)
+            }
+        }
+        pointerMoved(to: mouseLocation())
+    }
+
+    private func stopTrackingPointer() {
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        mouseMonitor = nil
+    }
+
     // MARK: - Window
 
     private func makePanel() -> Panel {
@@ -97,7 +199,8 @@ final class MascotOverlayPanel: OverlayPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false   // the mascot draws its own, hugging the art
-        panel.ignoresMouseEvents = true
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.ignoresMouseEvents = true   // until the pointer is over the body
         panel.alphaValue = alpha
         window = panel
         return panel
@@ -112,20 +215,63 @@ final class MascotOverlayPanel: OverlayPanel {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
+        applySharing(panel)
     }
 
-    /// The bottom-left corner of whichever screen the mouse is on. One fixed
-    /// spot by design: chasing the caret made it jump, since apps disagree
-    /// about reporting caret geometry to accessibility.
-    ///
-    /// The frame's corner sits on the visible frame's: the view's own clear
-    /// margin (~16 pt below the feet, ~20 pt left of the hands) is the inset,
-    /// and the whole window, shadow included, stays on screen.
-    private func pinBottomLeft(_ panel: NSPanel) {
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
-            ?? NSScreen.main ?? NSScreen.screens.first
-        let visible = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
-        panel.setFrame(CGRect(origin: visible.origin, size: Self.size), display: false)
+    /// `.none` keeps the mascot out of screen shares, recordings and screenshots.
+    private func applySharing(_ panel: NSPanel) {
+        panel.sharingType = showsInScreenShares ? .readOnly : .none
     }
+
+    /// See the type's placement rule. Not mid-press: a re-show (a system
+    /// event) mustn't fight a drag.
+    private func place(_ panel: NSPanel, wasVisible: Bool) {
+        guard press == nil else { return }
+        let frame = wasVisible ? placement.frame(onDisplayOf: panel.frame)
+            : placement.frame(forMouse: mouseLocation(), size: Self.size)
+        if frame != panel.frame { panel.setFrame(frame, display: false) }
+    }
+}
+
+/// The mascot's hosting view: takes the mouse only on the avocado's body and
+/// hands presses to its panel. `isFlipped` (as every `NSHostingView`), so its
+/// coordinates are `MascotMotion.hitRect`'s.
+final class MascotHostingView: NSHostingView<MascotView> {
+    weak var owner: MascotOverlayPanel?
+
+    required init(rootView: MascotView) {
+        super.init(rootView: rootView)
+        // Moves over the panel reach `pointerMoved` here, so leaving the body
+        // turns click-through back on.
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways,
+                                                              .inVisibleRect], owner: self))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("not built from a nib") }
+
+    /// `point` in this view's coordinates is on the body, at the current size.
+    func isOnBody(_ point: CGPoint) -> Bool {
+        MascotMotion.hitRect(mini: rootView.model.isMini).contains(point)
+    }
+
+    /// nil off the body: a click there lands on nothing in this window.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = superview.map { convert(point, from: $0) } ?? point
+        return isOnBody(local) ? self : nil
+    }
+
+    /// The app is never active, so every click is a first click.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) { owner?.pointerDown(at: NSEvent.mouseLocation) }
+    override func mouseDragged(with event: NSEvent) { owner?.pointerDragged(to: NSEvent.mouseLocation) }
+    override func mouseUp(with event: NSEvent) { owner?.pointerUp(at: NSEvent.mouseLocation) }
+    override func mouseMoved(with event: NSEvent) { owner?.pointerMoved(to: NSEvent.mouseLocation) }
+    override func mouseEntered(with event: NSEvent) { owner?.pointerMoved(to: NSEvent.mouseLocation) }
+    override func mouseExited(with event: NSEvent) { owner?.pointerMoved(to: NSEvent.mouseLocation) }
+}
+
+private extension CGPoint {
+    func offset(by v: CGVector) -> CGPoint { CGPoint(x: x + v.dx, y: y + v.dy) }
 }

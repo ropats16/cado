@@ -33,7 +33,8 @@ enum OverlayVisual: Equatable {
 protocol OverlayPanel: AnyObject {
     /// Orders the panel front without activating the app, creating it first if
     /// needed (or after `discard`), and re-asserts its window behaviour
-    /// (level, all-Spaces) and position. Leaves alpha alone.
+    /// (level, all-Spaces) and position (on screen already: on its own
+    /// display, see `MascotOverlayPanel`). Leaves alpha alone.
     func show()
     /// Animates alpha to `alpha` over `duration`; 0 sets it at once. A new call
     /// retargets any running animation.

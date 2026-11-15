@@ -183,6 +183,29 @@ final class OverlayPlacementTests: XCTestCase {
         XCTAssertEqual(placement.frame(forMouse: CGPoint(x: 10, y: 10), size: size),
                        CGRect(x: 500, y: 370, width: 88, height: 88))
     }
+
+    /// A re-show while on screen stays on the window's display (wherever the
+    /// mouse is), back at that display's spot, re-clamped to its visible frame.
+    func testReShowKeepsTheWindowsDisplayAtItsSpot() {
+        let store = FakeMascotPositionStore()
+        store.positions["right"] = MascotPosition(x: 200, y: 100)
+        var displays = [main, leftBelow, right]
+        let placement = MascotPlacement(store: store, displays: { displays })
+        let onRight = CGRect(x: 1640, y: 100, width: 88, height: 88)
+        XCTAssertEqual(placement.frame(onDisplayOf: onRight), onRight)
+        XCTAssertEqual(placement.frame(onDisplayOf: CGRect(x: 10, y: 600, width: 88, height: 88)),
+                       CGRect(x: 0, y: 70, width: 88, height: 88), "Nothing saved on main: default corner")
+
+        // Right's Dock moved to its left edge and grew: same offset, new origin.
+        displays[2] = OverlayDisplay(id: "right", frame: right.frame,
+                                     visibleFrame: CGRect(x: 1540, y: 0, width: 1180, height: 875))
+        XCTAssertEqual(placement.frame(onDisplayOf: onRight), CGRect(x: 1740, y: 100, width: 88, height: 88))
+
+        // Right unplugged: the nearest display left, main, at its own spot.
+        displays.removeLast()
+        XCTAssertEqual(placement.frame(onDisplayOf: onRight), CGRect(x: 0, y: 70, width: 88, height: 88))
+        XCTAssertEqual(store.positions, ["right": MascotPosition(x: 200, y: 100)], "Nothing saved")
+    }
 }
 
 /// An in-memory `MascotPositionStore`.
