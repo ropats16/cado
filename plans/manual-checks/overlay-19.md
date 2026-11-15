@@ -20,6 +20,10 @@ mouse.
 
 - [ ] Sleep/wake: close the lid (and separately, let the display sleep), wake,
       dictate: overlay shows.
+- [ ] Display sleeps and wakes mid-dictation (toggle mode, mascot on screen):
+      overlay still there after wake.
+- [ ] Switch Spaces mid-dictation with the mouse on another display: note
+      whether the overlay jumps displays (it re-pins to the mouse's screen).
 - [ ] Switch Spaces mid-dictation: overlay follows to the new Space.
 - [ ] Switch Spaces between dictations, then dictate: overlay shows.
 - [ ] Over a fullscreen app: overlay shows on top.
