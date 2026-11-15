@@ -68,22 +68,26 @@ final class DictationSessionTests: XCTestCase {
         }
     }
 
-    private final class FakeFeedback: DictationFeedback {
+    /// Feedback (cues, notices) and activity reports in one log, so their
+    /// relative order is checked too.
+    private final class FakeFeedback: DictationFeedback, DictationActivity {
         enum Event: Equatable {
-            case showRecording, showProcessing, dismiss
+            case phase(DictationSession.Phase)
             case level(Float)
+            case landed
             case cue(SoundCue)
             case notify(String, String)
         }
         private(set) var events: [Event] = []
 
-        func showRecording() { events.append(.showRecording) }
-        func showLevel(_ level: Float) { events.append(.level(level)) }
-        func showProcessing() { events.append(.showProcessing) }
-        func dismiss() { events.append(.dismiss) }
+        func dictationPhaseChanged(_ phase: DictationSession.Phase) { events.append(.phase(phase)) }
+        func dictationLevel(_ level: Float) { events.append(.level(level)) }
+        func dictationTextLanded() { events.append(.landed) }
         func play(_ cue: SoundCue) { events.append(.cue(cue)) }
         func notify(title: String, body: String) { events.append(.notify(title, body)) }
 
+        var phases: [DictationSession.Phase] { events.compactMap { if case .phase(let p) = $0 { return p } else { return nil } } }
+        var landings: Int { events.filter { $0 == .landed }.count }
         var cues: [SoundCue] { events.compactMap { if case .cue(let c) = $0 { return c } else { return nil } } }
         var notifications: [String] { events.compactMap { if case .notify(let t, _) = $0 { return t } else { return nil } } }
     }
@@ -123,7 +127,7 @@ final class DictationSessionTests: XCTestCase {
         status = .ready
         session = DictationSession(
             capture: capture, engine: engine, delivery: delivery, feedback: feedback,
-            history: history, clock: clock, settings: { [unowned self] in settings },
+            activity: feedback, history: history, clock: clock, settings: { [unowned self] in settings },
             readiness: { [unowned self] in status }
         )
     }
@@ -136,7 +140,7 @@ final class DictationSessionTests: XCTestCase {
         XCTAssertEqual(session.phase, .recording)
         XCTAssertEqual(engine.prewarms, 1)
         XCTAssertEqual(capture.begins.count, 1)
-        XCTAssertEqual(feedback.events, [.showRecording, .cue(.start)])
+        XCTAssertEqual(feedback.events, [.phase(.recording), .cue(.start)])
         XCTAssertEqual(clock.live.count, 1)
         XCTAssertEqual(clock.live.first?.due, 1_000 + 600)
     }
@@ -258,7 +262,7 @@ final class DictationSessionTests: XCTestCase {
         session.handle(.holdUp)
 
         XCTAssertEqual(session.phase, .transcribing)
-        XCTAssertEqual(feedback.events.last, .showProcessing)
+        XCTAssertEqual(feedback.events.last, .phase(.transcribing))
         XCTAssertEqual(capture.ends.count, 1)
         XCTAssertEqual(feedback.cues, [.start], "Stop cue waits for the post-roll")
         XCTAssertTrue(engine.jobs.isEmpty)
@@ -271,8 +275,23 @@ final class DictationSessionTests: XCTestCase {
         engine.finish(text: "Hello world.")
         XCTAssertEqual(delivery.delivered, ["Hello world."])
         XCTAssertEqual(history.entries, [.init(text: "Hello world.", method: .pasted)])
-        XCTAssertEqual(feedback.events.last, .dismiss)
+        XCTAssertEqual(feedback.events.last, .phase(.idle))
         XCTAssertEqual(session.phase, .idle)
+    }
+
+    func testDeliveredDictationReportsEachPhaseOnceThenLands() {
+        dictate("hi")
+        XCTAssertEqual(feedback.events, [.phase(.recording), .cue(.start),
+                                         .phase(.transcribing),   // once, across post-roll + engine
+                                         .cue(.stop),
+                                         .phase(.delivering), .landed, .phase(.idle)])
+    }
+
+    func testTextLandsOncePerDeliveredText() {
+        dictate("one")
+        delivery.method = .copied
+        dictate("two")
+        XCTAssertEqual(feedback.landings, 2)
     }
 
     func testReleaseCancelsMaxDurationTimer() {
@@ -282,7 +301,7 @@ final class DictationSessionTests: XCTestCase {
         XCTAssertTrue(clock.live.isEmpty)
     }
 
-    func testIndicatorDismissedBeforeDelivery() {
+    func testDeliveryRunsInDeliveringAndLandsAfter() {
         final class OrderingDelivery: DictationDelivery {
             var feedback: FakeFeedback!
             var eventsAtDelivery: [FakeFeedback.Event] = []
@@ -294,10 +313,11 @@ final class DictationSessionTests: XCTestCase {
         let ordering = OrderingDelivery()
         ordering.feedback = feedback
         session = DictationSession(capture: capture, engine: engine, delivery: ordering,
-                                   feedback: feedback, history: history, clock: clock,
+                                   feedback: feedback, activity: feedback, history: history, clock: clock,
                                    settings: { [unowned self] in settings }, readiness: { .ready })
         dictate("hi")
-        XCTAssertEqual(ordering.eventsAtDelivery.last, .dismiss)
+        XCTAssertEqual(ordering.eventsAtDelivery.last, .phase(.delivering), "Overlay still busy while pasting")
+        XCTAssertEqual(feedback.events.suffix(2), [.landed, .phase(.idle)])
     }
 
     func testCopiedOutcomeTellsUserToPaste() {
@@ -305,8 +325,9 @@ final class DictationSessionTests: XCTestCase {
         dictate("hello")
         XCTAssertEqual(delivery.delivered, ["hello"])
         XCTAssertEqual(history.entries, [.init(text: "hello", method: .copied)])
-        XCTAssertEqual(feedback.events.last,
-                       .notify("Dictation copied", "No text field is focused — paste with ⌘V."))
+        XCTAssertEqual(feedback.events.suffix(3),
+                       [.notify("Dictation copied", "No text field is focused — paste with ⌘V."),
+                        .landed, .phase(.idle)])
     }
 
     func testPastedOutcomeIsSilent() {
@@ -324,7 +345,9 @@ final class DictationSessionTests: XCTestCase {
         XCTAssertTrue(delivery.delivered.isEmpty)
         XCTAssertTrue(history.entries.isEmpty)
         XCTAssertEqual(Array(feedback.events.suffix(2)),
-                       [.dismiss, .notify("Transcription failed", "model gone")])
+                       [.phase(.idle), .notify("Transcription failed", "model gone")])
+        XCTAssertFalse(feedback.phases.contains(.delivering))
+        XCTAssertEqual(feedback.landings, 0)
         XCTAssertEqual(session.phase, .idle)
     }
 
@@ -340,6 +363,9 @@ final class DictationSessionTests: XCTestCase {
         dictate("two")
         XCTAssertEqual(delivery.delivered, ["one", "two"])
         XCTAssertEqual(feedback.cues.filter { $0 == .start }.count, 7)
+        XCTAssertEqual(feedback.phases.filter { $0 == .recording }.count, 7)
+        XCTAssertEqual(feedback.phases.filter { $0 == .idle }.count, 7, "Every ending reports idle")
+        XCTAssertEqual(feedback.landings, 2)
         XCTAssertTrue(clock.live.isEmpty)
     }
 
@@ -354,7 +380,7 @@ final class DictationSessionTests: XCTestCase {
         XCTAssertTrue(capture.ends.isEmpty)
         XCTAssertEqual(engine.endPrewarms, 1)
         XCTAssertTrue(engine.jobs.isEmpty)
-        XCTAssertEqual(feedback.events, [.showRecording, .cue(.start), .cue(.stop), .dismiss])
+        XCTAssertEqual(feedback.events, [.phase(.recording), .cue(.start), .cue(.stop), .phase(.idle)])
         XCTAssertTrue(clock.live.isEmpty)
         XCTAssertEqual(session.phase, .idle)
     }
@@ -387,7 +413,7 @@ final class DictationSessionTests: XCTestCase {
         XCTAssertTrue(capture.ends.isEmpty)
         XCTAssertEqual(engine.endPrewarms, 1)
         XCTAssertTrue(clock.live.isEmpty)
-        XCTAssertEqual(feedback.events, [.showRecording, .cue(.start), .dismiss])
+        XCTAssertEqual(feedback.events, [.phase(.recording), .cue(.start), .phase(.idle)])
         XCTAssertEqual(session.phase, .idle)
 
         session.handle(.holdUp)   // the hold key, released after Esc
@@ -404,7 +430,7 @@ final class DictationSessionTests: XCTestCase {
 
         XCTAssertTrue(feedback.notifications.isEmpty)
         XCTAssertEqual(engine.endPrewarms, 1)
-        XCTAssertEqual(feedback.events, [.showRecording, .cue(.start), .dismiss])
+        XCTAssertEqual(feedback.events, [.phase(.recording), .cue(.start), .phase(.idle)])
         XCTAssertEqual(session.phase, .idle)
     }
 
@@ -457,7 +483,7 @@ final class DictationSessionTests: XCTestCase {
         }
         let reentrant = ReentrantDelivery()
         session = DictationSession(capture: capture, engine: engine, delivery: reentrant,
-                                   feedback: feedback, history: history, clock: clock,
+                                   feedback: feedback, activity: feedback, history: history, clock: clock,
                                    settings: { [unowned self] in settings }, readiness: { .ready })
         reentrant.session = session
         dictate("hi")
@@ -488,7 +514,7 @@ final class DictationSessionTests: XCTestCase {
         XCTAssertEqual(session.phase, .transcribing)
         XCTAssertEqual(capture.ends.count, 1)
         XCTAssertEqual(feedback.events.suffix(2),
-                       [.showProcessing,
+                       [.phase(.transcribing),
                         .notify("Dictation stopped", "Dictation stopped at the 2-min limit — change it in Settings.")])
         XCTAssertTrue(clock.live.isEmpty)
 
@@ -541,7 +567,7 @@ final class DictationSessionTests: XCTestCase {
         XCTAssertEqual(session.phase, .idle)
         XCTAssertEqual(engine.endPrewarms, 1)
         XCTAssertTrue(clock.live.isEmpty)
-        XCTAssertEqual(feedback.events.suffix(2), [.notify("Couldn't start recording", "no mic"), .dismiss])
+        XCTAssertEqual(feedback.events.suffix(2), [.notify("Couldn't start recording", "no mic"), .phase(.idle)])
 
         session.handle(.holdUp)
         XCTAssertTrue(capture.ends.isEmpty)
@@ -561,7 +587,7 @@ final class DictationSessionTests: XCTestCase {
         XCTAssertTrue(engine.jobs.isEmpty)
         XCTAssertEqual(feedback.notifications, ["Couldn't start recording"])
         XCTAssertEqual(feedback.cues, [.start], "No stop cue for a recording that never ran")
-        XCTAssertEqual(feedback.events.last, .dismiss)
+        XCTAssertEqual(feedback.events.last, .phase(.idle))
     }
 
     func testStaleMicFailureIgnoredByNewerRecording() {
@@ -582,7 +608,7 @@ final class DictationSessionTests: XCTestCase {
 
         XCTAssertTrue(engine.jobs.isEmpty)
         XCTAssertEqual(engine.endPrewarms, 1)
-        XCTAssertEqual(feedback.events.last, .dismiss)
+        XCTAssertEqual(feedback.events.last, .phase(.idle))
         XCTAssertEqual(session.phase, .idle)
     }
 
@@ -604,7 +630,7 @@ final class DictationSessionTests: XCTestCase {
 
     // MARK: - Levels
 
-    func testLevelsShownOnlyWhileRecording() {
+    func testLevelsReportedOnlyWhileRecording() {
         capture.onLevel?(0.1)
         session.handle(.holdDown)
         capture.onLevel?(0.5)
@@ -630,7 +656,7 @@ final class DictationSessionTests: XCTestCase {
         XCTAssertEqual(feedback.notifications, ["Dictation copied", "Dictation copied"])
     }
 
-    func testDroppedTextGetsNoNoticeAndNoHistory() {
+    func testDroppedTextGetsNoNoticeNoHistoryAndNoLanding() {
         delivery.method = nil
         for raw in ["  \n ", "[BLANK_AUDIO]", "[Music]\n(laughs)"] {
             dictate(raw)
@@ -638,7 +664,8 @@ final class DictationSessionTests: XCTestCase {
         XCTAssertEqual(delivery.received.count, 3)
         XCTAssertTrue(history.entries.isEmpty)
         XCTAssertTrue(feedback.notifications.isEmpty)
-        XCTAssertEqual(feedback.events.last, .dismiss)
+        XCTAssertEqual(feedback.landings, 0)
+        XCTAssertEqual(feedback.events.last, .phase(.idle))
         XCTAssertEqual(session.phase, .idle)
     }
 
