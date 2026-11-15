@@ -67,6 +67,71 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(back.keepModelWarm, true)
     }
 
+    // MARK: - Mascot keys (#20)
+
+    func testMascotKeysDefaultWhenMissing() throws {
+        let c = try decode("{}")
+        XCTAssertFalse(c.mascotAlwaysVisible)
+        XCTAssertFalse(c.mascotInScreenShares)
+        XCTAssertEqual(c.mascotPositions, [:])
+    }
+
+    func testMascotKeysAreReadAndRoundTrip() throws {
+        let c = try decode(#"""
+            {"mascotAlwaysVisible": true, "mascotInScreenShares": true,
+             "mascotPositions": {"37D8832A-2D66-02CA-B9F7-8F30A301B230": {"x": 12.5, "y": -3}}}
+            """#)
+        XCTAssertTrue(c.mascotAlwaysVisible)
+        XCTAssertTrue(c.mascotInScreenShares)
+        XCTAssertEqual(c.mascotPositions, ["37D8832A-2D66-02CA-B9F7-8F30A301B230": MascotPosition(x: 12.5, y: -3)])
+        let back = try JSONDecoder().decode(Config.self, from: JSONEncoder().encode(c))
+        XCTAssertTrue(back.mascotAlwaysVisible)
+        XCTAssertTrue(back.mascotInScreenShares)
+        XCTAssertEqual(back.mascotPositions, c.mascotPositions)
+    }
+
+    // MARK: - Mascot position store
+
+    private func tempConfigURL() -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("config-positions-\(UUID().uuidString).json")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
+    func testMascotPositionsPersistAcrossConfigStores() {
+        let url = tempConfigURL()
+        let store = ConfigMascotPositionStore(ConfigStore(url: url))
+        XCTAssertNil(store.position(forDisplay: "A"))
+        store.save(MascotPosition(x: 10.25, y: 20.5), forDisplay: "A")
+        store.save(MascotPosition(x: -1, y: 2), forDisplay: "B")
+        store.save(MascotPosition(x: 30, y: 40), forDisplay: "A")
+
+        let reopened = ConfigStore(url: url)
+        XCTAssertEqual(reopened.config.mascotPositions,
+                       ["A": MascotPosition(x: 30, y: 40), "B": MascotPosition(x: -1, y: 2)],
+                       "Written to disk; each display keeps its own spot")
+        let readBack = ConfigMascotPositionStore(reopened)
+        XCTAssertEqual(readBack.position(forDisplay: "A"), MascotPosition(x: 30, y: 40))
+        XCTAssertEqual(readBack.position(forDisplay: "B"), MascotPosition(x: -1, y: 2))
+        XCTAssertNil(readBack.position(forDisplay: "C"))
+    }
+
+    /// Dragging past the edge saves the clamped spot, so a restart restores
+    /// exactly where the mascot settled.
+    func testADragRoundTripsThroughTheConfigFile() {
+        let url = tempConfigURL()
+        let display = OverlayDisplay(id: "D", frame: CGRect(x: -1920, y: -400, width: 1920, height: 1080),
+                                     visibleFrame: CGRect(x: -1920, y: -400, width: 1920, height: 1055))
+        let size = CGSize(width: 88, height: 88)
+        let settled = MascotPlacement(store: ConfigMascotPositionStore(ConfigStore(url: url)), displays: { [display] })
+            .remember(windowFrame: CGRect(x: -1950.5, y: 100.25, width: 88, height: 88))
+        XCTAssertEqual(settled, CGRect(x: -1920, y: 100.25, width: 88, height: 88))
+
+        let restarted = MascotPlacement(store: ConfigMascotPositionStore(ConfigStore(url: url)), displays: { [display] })
+        XCTAssertEqual(restarted.frame(forMouse: CGPoint(x: -100, y: 0), size: size), settled)
+    }
+
     // MARK: - Support folder override
 
     func testSupportFolderOverrideIsSharedWithTheScripts() {
