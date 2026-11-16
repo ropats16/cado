@@ -16,8 +16,8 @@ final class MeetingReplayTests: XCTestCase {
             self.them = try WavFileSource(url: them)
         }
         func streams(for app: MeetingApp, maxSeconds: Double) -> (me: MeetingStream, them: MeetingStream) {
-            (AudioCapture(source: me, idleSeconds: 0, maxSeconds: { maxSeconds }),
-             AudioCapture(source: them, idleSeconds: 0, maxSeconds: { maxSeconds }))
+            (AudioCapture(source: me, idleSeconds: 0, maxSeconds: { maxSeconds }, keepsTime: true),
+             AudioCapture(source: them, idleSeconds: 0, maxSeconds: { maxSeconds }, keepsTime: true))
         }
     }
 

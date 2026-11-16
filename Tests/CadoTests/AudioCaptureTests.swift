@@ -350,6 +350,57 @@ final class AudioCaptureTests: XCTestCase {
         XCTAssertEqual(samples.count, 19_200, accuracy: 8, "The next recording starts the source fresh")
     }
 
+    // MARK: - Keeping time (meetings)
+
+    /// The capture's clock, moved by the test.
+    private final class TestClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var time: TimeInterval = 100
+        var now: TimeInterval { lock.withLock { time } }
+        func advance(_ seconds: TimeInterval) { lock.withLock { time += seconds } }
+    }
+
+    /// Plays `seconds` of the source in 10 ms slices with the clock moving
+    /// along, as a live device delivers.
+    private func play(_ source: WavFileSource, seconds: Double, clock: TestClock) {
+        for _ in 0..<Int((seconds * 100).rounded()) {
+            clock.advance(0.01)
+            source.push(seconds: 0.01)
+        }
+    }
+
+    /// 1 s of a 440 Hz tone, then the device changes (the source restarts)
+    /// and delivers nothing for 2 s, then 1 s of an 880 Hz tone.
+    private func recordAcrossAGap(keepsTime: Bool) async throws -> [Float] {
+        let clock = TestClock()
+        let source = try WavFileSource(url: try makeWav(rate: 48_000, seconds: 2, sine(440)))
+        let capture = AudioCapture(source: source, idleSeconds: 0, keepsTime: keepsTime, now: { clock.now })
+        await begin(capture)
+        play(source, seconds: 1, clock: clock)
+        try source.open(try makeWav(rate: 48_000, seconds: 2, sine(880)))
+        _ = capture.retainedSampleCount   // restarted
+        clock.advance(2)
+        play(source, seconds: 1, clock: clock)
+        return await end(capture, source, thenPush: 0.2)
+    }
+
+    func testKeepingTimeRecordsARestartGapAsSilenceSoLaterAudioStaysOnTime() async throws {
+        let samples = try await recordAcrossAGap(keepsTime: true)
+
+        XCTAssertEqual(samples.count, 67_200, accuracy: 160, "1 s + 2 s gap + 1 s + 0.2 s post-roll")
+        XCTAssertEqual(AudioMeasure.frequency(Array(samples[1_000..<15_000])), 440, accuracy: 2)
+        XCTAssertLessThan(rms(samples[17_000..<47_000]), 0.001, "The gap is silence")
+        let resumed = samples.indices.dropFirst(20_000).first { abs(samples[$0]) > 0.1 } ?? 0
+        XCTAssertEqual(resumed, 48_000, accuracy: 160, "The 880 Hz tone starts 3 s in, when it was heard")
+        XCTAssertEqual(AudioMeasure.frequency(Array(samples[49_000..<63_000])), 880, accuracy: 2)
+    }
+
+    func testDictationLeavesARestartGapOut() async throws {
+        let samples = try await recordAcrossAGap(keepsTime: false)
+
+        XCTAssertEqual(samples.count, 35_200, accuracy: 16, "1 s + 1 s + 0.2 s post-roll: no silence added")
+    }
+
     // MARK: - Silent sources
 
     /// A running source that never writes: a mic gone quiet under a format

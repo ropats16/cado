@@ -8,7 +8,8 @@ extension AudioCapture: MeetingStream {}
 
 /// The live streams: the configured mic and the app's audio through a
 /// process tap, each in its own capture that stops its source as soon as the
-/// meeting ends (no warm mic or lingering capture indicator).
+/// meeting ends (no warm mic or lingering capture indicator), and keeps time
+/// across a source restart (`keepsTime`) so Me and Them stay interleaved.
 final class LiveMeetingRecorder: MeetingRecorder {
     private let microphoneUID: () -> String?
 
@@ -16,9 +17,9 @@ final class LiveMeetingRecorder: MeetingRecorder {
 
     func streams(for app: MeetingApp, maxSeconds: Double) -> (me: MeetingStream, them: MeetingStream) {
         let me = AudioCapture(source: MicSource(configuredUID: microphoneUID), idleSeconds: 0,
-                              maxSeconds: { maxSeconds })
+                              maxSeconds: { maxSeconds }, keepsTime: true)
         let them = AudioCapture(source: SystemAudioSource(target: app.target), idleSeconds: 0,
-                                maxSeconds: { maxSeconds })
+                                maxSeconds: { maxSeconds }, keepsTime: true)
         return (me, them)
     }
 }

@@ -33,7 +33,8 @@ final class AudioCapture {
     /// call-quality mode don't linger.
     static let idleSeconds = 30.0
     /// Longest press when the config sets no limit, so memory is always
-    /// bounded (~115 MB).
+    /// bounded (~115 MB; recordings grow in fixed blocks, `SampleBlocks`, so
+    /// never twice that while growing).
     static let ceilingSeconds = 30.0 * 60
     /// Slack past the post-roll before `end` gives up waiting for audio, so a
     /// source that went silent can't leave a recording unfinished.
@@ -63,6 +64,8 @@ final class AudioCapture {
     private let keepWarm: Bool
     private let idleStopSamples: Int
     private let maxSeconds: () -> Double
+    private let keepsTime: Bool
+    private let now: () -> TimeInterval
     private let queue = DispatchQueue(label: "com.ropats16.Cado.capture", qos: .userInitiated)
 
     // Everything below is touched only on `queue` (the ring's write side
@@ -74,7 +77,7 @@ final class AudioCapture {
     private var outputBuffer: AVAudioPCMBuffer?
     private var timer: DispatchSourceTimer?
     private var preRoll = PreRoll(capacity: Int(preRollSeconds * sampleRate))
-    private var recording: [Float]?
+    private var recording: SampleBlocks?
     private var recordingCap = Int.max
     /// Set by `end`: post-roll samples still to record, and who gets the result.
     private var pendingEnd: (remaining: Int, completion: ([Float]) -> Void)?
@@ -88,6 +91,10 @@ final class AudioCapture {
     private static let restartWindowSeconds = 2.0
     /// Samples since the last recording ended, for the idle stop.
     private var idleSamples = 0
+    /// With `keepsTime`: when the recording's last audio arrived before the
+    /// source restarted; the gap up to the restarted source's first audio
+    /// is recorded as silence.
+    private var gapSince: TimeInterval?
 
     /// `keepWarm` keeps the source running once started instead of stopping it
     /// after `idleSeconds` (0 = as soon as a recording ends, e.g. system
@@ -95,12 +102,22 @@ final class AudioCapture {
     /// `maxSeconds` is the longest press (read at `begin`; `<= 0` =
     /// `ceilingSeconds`); a recording holds at most that plus pre- and
     /// post-roll.
+    ///
+    /// `keepsTime` (meetings) keeps a sample's position true to the time
+    /// since the recording began: when the source restarts mid-recording
+    /// (a route change, a stall, a rebuilt tap), the time until it delivers
+    /// again is recorded as silence instead of being left out, so two
+    /// streams recorded side by side still line up. Off (dictation), the
+    /// gap is left out. `now` is the clock that's measured on (seconds).
     init(source: AudioSource, keepWarm: Bool = false, idleSeconds: Double = AudioCapture.idleSeconds,
-         maxSeconds: @escaping () -> Double = { 0 }) {
+         maxSeconds: @escaping () -> Double = { 0 }, keepsTime: Bool = false,
+         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.source = source
         self.keepWarm = keepWarm
         idleStopSamples = Int(max(0, idleSeconds) * Self.sampleRate)
         self.maxSeconds = maxSeconds
+        self.keepsTime = keepsTime
+        self.now = now
         // ~1.4 s at 48 kHz: far more than one drain interval.
         ring = vt_ring_create(1 << 16)!
         source.onEvent = { [weak self] event in
@@ -182,6 +199,7 @@ final class AudioCapture {
         isRecording = false
         queue.async { [self] in
             recording = nil
+            gapSince = nil
             idleSamples = 0
         }
     }
@@ -195,15 +213,17 @@ final class AudioCapture {
         // Not `drainRingAndStopIfIdle`: an idle stop here would leave the new
         // recording on a stopped source.
         drainRing()
-        recording = []
+        recording = SampleBlocks()
+        gapSince = nil
         recordingCap = cap
         preRoll.take().withUnsafeBufferPointer { record($0) }
     }
 
     private func finishRecording() {
         guard let completion = pendingEnd?.completion else { return }
-        let samples = recording ?? []
+        let samples = recording?.take() ?? []
         recording = nil
+        gapSince = nil
         pendingEnd = nil
         idleSamples = 0
         DispatchQueue.main.async { completion(samples) }
@@ -225,13 +245,22 @@ final class AudioCapture {
         if recording == nil { idleSamples += rest.count }
     }
 
+    /// Appends `seconds` of silence to the recording, up to its cap.
+    private func recordSilence(_ seconds: TimeInterval) {
+        guard recording != nil else { return }
+        let samples = min(Int(seconds * Self.sampleRate), recordingCap - recording!.count)
+        guard samples > 0 else { return }
+        Log.info("Audio source was silent for \(String(format: "%.2f", seconds)) s across a restart; keeping the gap.")
+        recording!.appendSilence(samples)
+    }
+
     /// Appends to the recording, up to its cap.
     private func record(_ samples: UnsafeBufferPointer<Float>) {
         guard !samples.isEmpty else { return }
         let room = recordingCap - recording!.count
         guard room > 0 else { return }
         let kept = UnsafeBufferPointer(rebasing: samples.prefix(room))
-        recording!.append(contentsOf: kept)
+        recording!.append(kept)
 
         var sumSquares: Float = 0
         for s in kept { sumSquares += s * s }
@@ -262,7 +291,7 @@ final class AudioCapture {
         self.outputBuffer = outputBuffer
         isRunning = true
         idleSamples = 0
-        lastAudioAt = ProcessInfo.processInfo.systemUptime
+        lastAudioAt = now()
 
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(10))
@@ -302,11 +331,14 @@ final class AudioCapture {
     /// Restarts a running source, keeping any recording in progress.
     private func restartSource(because reason: String) {
         stopSource()
+        // Still recording (no end in its post-roll): what's missed from here
+        // on is silence, timed from the last audio that arrived.
+        if keepsTime, recording != nil, gapSince == nil { gapSince = lastAudioAt }
         // A route that keeps changing (or a source that keeps reporting it, or
         // keeps stalling) would otherwise restart the mic forever; stop
         // instead, and let the next `begin` start it fresh.
-        let now = ProcessInfo.processInfo.systemUptime
-        recentRestarts = recentRestarts.filter { now - $0 < Self.restartWindowSeconds } + [now]
+        let time = now()
+        recentRestarts = recentRestarts.filter { time - $0 < Self.restartWindowSeconds } + [time]
         guard recentRestarts.count <= Self.maxRestartsPerWindow else {
             Log.error("\(reason) again; stopping the audio source until the next recording.")
             recentRestarts = []
@@ -335,7 +367,7 @@ final class AudioCapture {
         // changes format under the mic, which can go silent without the
         // change ever looking like one when it's reported.
         if isRunning, let timeout = source.stallTimeout,
-           ProcessInfo.processInfo.systemUptime - lastAudioAt > timeout {
+           now() - lastAudioAt > timeout {
             restartSource(because: "Microphone stopped delivering audio")
         }
         if isRunning && !keepWarm && recording == nil && idleSamples >= idleStopSamples {
@@ -349,7 +381,12 @@ final class AudioCapture {
         while true {
             let n = vt_ring_read(ring, sourceBuffer.floatChannelData![0], sourceBuffer.frameCapacity)
             guard n > 0 else { return }
-            lastAudioAt = ProcessInfo.processInfo.systemUptime
+            lastAudioAt = now()
+            if let since = gapSince {
+                gapSince = nil
+                // This audio began n frames before it was drained.
+                recordSilence(lastAudioAt - Double(n) / sourceBuffer.format.sampleRate - since)
+            }
             sourceBuffer.frameLength = n
             convert(sourceBuffer)
         }

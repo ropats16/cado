@@ -13,9 +13,14 @@ import Foundation
 ///
 /// Rules worth knowing:
 /// - Start is ignored unless idle; stop only while recording.
-/// - Recording stops by itself at `maxSeconds` (both streams are held in
-///   memory, ~230 MB an hour each), with a notice; the note is still written
-///   and says so.
+/// - Recording stops by itself at `maxSeconds`, with a notice; the note is
+///   still written and says so. Both streams are held in memory, ~230 MB an
+///   hour each (~920 MB together at the 2-hour cap). They grow in fixed
+///   blocks (`SampleBlocks`), so growing never copies a stream; ending one
+///   gathers it into one array, briefly ~1 MB over its size.
+/// - Each stream's samples stay on its own wall-clock timeline: a source
+///   restart mid-meeting is kept as silence (`AudioCapture`'s `keepsTime`),
+///   so a chunk's offset is the stream's origin plus its sample position.
 /// - A side that can't start, or stops by itself, gets a notice and a caveat
 ///   in the note; the other side keeps recording. With no side left
 ///   recording, the meeting stops.

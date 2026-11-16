@@ -109,8 +109,8 @@ enum MeetingSelfTest {
         let me: WavFileSource, them: WavFileSource
         init(me: WavFileSource, them: WavFileSource) { self.me = me; self.them = them }
         func streams(for app: MeetingApp, maxSeconds: Double) -> (me: MeetingStream, them: MeetingStream) {
-            (AudioCapture(source: me, idleSeconds: 0, maxSeconds: { maxSeconds }),
-             AudioCapture(source: them, idleSeconds: 0, maxSeconds: { maxSeconds }))
+            (AudioCapture(source: me, idleSeconds: 0, maxSeconds: { maxSeconds }, keepsTime: true),
+             AudioCapture(source: them, idleSeconds: 0, maxSeconds: { maxSeconds }, keepsTime: true))
         }
     }
 
