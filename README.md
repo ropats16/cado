@@ -241,10 +241,9 @@ Everyday dictations are never written to your notes folder.
 
 ### Notes folder
 
-**Settings → Notes** also sets the folder where Cado saves notes as plain
-Markdown (default `~/Documents/Cado`). Point it at an Obsidian vault, or a folder
-inside one, to see them there. Cado uploads none of it; if you sync Documents
-with iCloud, that folder syncs too.
+**Settings → Notes** also picks a notes folder (default `~/Documents/Cado`).
+Nothing is saved there yet: it's where meeting notes will go, as plain Markdown,
+so you'll be able to point it at an Obsidian vault.
 
 ---
 
@@ -364,7 +363,7 @@ logs the problem at startup and the menu shows a **Config issue** warning.
 | `mascotAlwaysVisible` | Keep a small resting Cado on screen; click it to start/stop dictating (default off). |
 | `mascotInScreenShares`| Let screen shares, recordings and screenshots capture Cado (default off: hidden). |
 | `mascotPositions`     | Where you dragged Cado, per display (written when you drag it). |
-| `notesFolder`         | Folder where notes are saved as Markdown (`""` = default `~/Documents/Cado`). |
+| `notesFolder`         | Folder for meeting notes, not used yet (`""` = default `~/Documents/Cado`). |
 | `dictationHistory`    | Keep the last 10 dictations for **Recent Dictations** in the menu (default `false`). |
 
 ---

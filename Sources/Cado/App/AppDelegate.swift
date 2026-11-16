@@ -88,6 +88,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos: .utility).async { FolderModelDownloader.removeStalePartFolders(in: Paths.modelsDir) }
 
         reportConfigIssues()
+        // Off (also by a hand-edited config) = nothing kept.
+        if !configStore.config.dictationHistory { recents.clear() }
         setupMenu()
         wireMonitor()
         startEngine()
@@ -498,7 +500,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             isFirstLoad: { [loadHistory] in EngineRegistry.shared.isFirstLoad($0, history: loadHistory) },
             engineFacts: { [weak self] in self?.engineFacts },
-            onNotesSettingsChange: { [weak self] in
+            onDictationHistoryChange: { [weak self] in
                 guard let self else { return }
                 // Turned off = forgotten, not just hidden.
                 if !configStore.config.dictationHistory { recents.clear() }

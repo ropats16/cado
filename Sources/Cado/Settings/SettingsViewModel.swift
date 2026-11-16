@@ -58,8 +58,9 @@ final class SettingsViewModel: ObservableObject {
     let pickNotesFolder: () -> URL?
     /// Shows a folder in Finder (creating it first if missing).
     let revealFolder: (URL) -> Void
-    /// A notes setting changed (saved first): the app refreshes the menu (and forgets the recents when turned off).
-    let onNotesSettingsChange: () -> Void
+    /// "Keep recent dictations" changed (saved first): the app refreshes the
+    /// menu, and forgets the recents when it was turned off.
+    let onDictationHistoryChange: () -> Void
 
     // MARK: - Published display state
 
@@ -143,7 +144,7 @@ final class SettingsViewModel: ObservableObject {
          engineFacts: @escaping () -> EngineFacts? = { nil },
          pickNotesFolder: (() -> URL?)? = nil,
          revealFolder: @escaping (URL) -> Void = SettingsViewModel.revealInFinder,
-         onNotesSettingsChange: @escaping () -> Void = {}) {
+         onDictationHistoryChange: @escaping () -> Void = {}) {
         self.configStore = configStore
         self.loginItem = loginItem
         self.availableMics = availableMics
@@ -165,7 +166,7 @@ final class SettingsViewModel: ObservableObject {
             SettingsViewModel.presentNotesFolderPanel(startingAt: configStore.map { NotesFolder.resolve($0.config) })
         }
         self.revealFolder = revealFolder
-        self.onNotesSettingsChange = onNotesSettingsChange
+        self.onDictationHistoryChange = onDictationHistoryChange
         // This Mac's OS, with the injected hardware (so tests control both).
         self.environment = environment ?? EngineEnvironment(macOSMajor: EngineEnvironment.current.macOSMajor,
                                                             macOSMinor: EngineEnvironment.current.macOSMinor,
@@ -240,7 +241,7 @@ final class SettingsViewModel: ObservableObject {
     func setDictationHistory(_ on: Bool) {
         configStore.update { $0.dictationHistory = on }
         dictationHistory = on
-        onNotesSettingsChange()
+        onDictationHistoryChange()
     }
 
     /// Lets the user pick the notes folder; cancelling changes nothing.
@@ -248,7 +249,6 @@ final class SettingsViewModel: ObservableObject {
         guard let url = pickNotesFolder() else { return }
         configStore.update { NotesFolder.store(url, in: &$0) }
         notesFolderPath = Self.displayPath(NotesFolder.resolve(configStore.config))
-        onNotesSettingsChange()
     }
 
     /// Persists the selected microphone UID (nil = system default) and refreshes

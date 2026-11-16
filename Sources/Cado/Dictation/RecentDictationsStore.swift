@@ -158,3 +158,13 @@ final class RecentDictationsStore: DictationHistory {
         }
     }
 }
+
+/// One recent dictation, as the store gives it back.
+struct DictationHistoryEntry: Equatable {
+    /// When it was delivered.
+    let date: Date
+    /// The delivered text.
+    let text: String
+    /// How it reached the user.
+    let method: DeliveryMethod
+}

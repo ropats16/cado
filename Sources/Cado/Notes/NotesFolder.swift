@@ -1,6 +1,7 @@
 import Foundation
 
-/// Where the notes library lives (#28): a user-chosen folder, kept in the
+/// Where the notes library will live (#28; meeting notes, #30, are its
+/// first writer): a user-chosen folder, kept in the
 /// config as a path plus a bookmark so it survives being renamed or moved.
 /// Point it at an Obsidian vault (or a folder inside one) and the notes are
 /// just Markdown there. Everyday dictations never go here (see
@@ -36,14 +37,4 @@ enum NotesFolder {
         config.notesFolder = url.path
         config.notesFolderBookmark = (try? url.bookmarkData())?.base64EncodedString()
     }
-}
-
-/// One recent dictation, as `RecentDictationsStore` gives it back.
-struct DictationHistoryEntry: Equatable {
-    /// When it was delivered.
-    let date: Date
-    /// The delivered text.
-    let text: String
-    /// How it reached the user (the "outcome").
-    let method: DeliveryMethod
 }

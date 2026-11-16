@@ -48,7 +48,7 @@ final class SettingsNotesTests: XCTestCase {
             onModelSettingsChange: {},
             pickNotesFolder: pick,
             revealFolder: { [weak self] in self?.revealed.append($0) },
-            onNotesSettingsChange: { [weak self] in self?.changes += 1 }
+            onDictationHistoryChange: { [weak self] in self?.changes += 1 }
         )
     }
 
@@ -91,8 +91,9 @@ final class SettingsNotesTests: XCTestCase {
         let chosen = try makeFolder("vault").resolvingSymlinksInPath()
         let vm = makeVM(pick: { chosen })
         vm.chooseNotesFolder()
-        XCTAssertEqual(changes, 1)
-        XCTAssertEqual(vm.notesFolderPath, SettingsViewModel.displayPath(chosen))
+        XCTAssertEqual(changes, 0)
+        // The bookmark resolves to /private/var…, the temp dir is /var…: same folder.
+        XCTAssertEqual(URL(fileURLWithPath: vm.notesFolderPath).resolvingSymlinksInPath().path, chosen.path)
         let reloaded = ConfigStore(url: configURL).config
         XCTAssertEqual(reloaded.notesFolder, chosen.path)
         XCTAssertNotNil(reloaded.notesFolderBookmark)
