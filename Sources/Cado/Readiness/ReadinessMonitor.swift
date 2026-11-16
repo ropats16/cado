@@ -144,6 +144,7 @@ final class ReadinessMonitor {
         if accessibility != inputs.accessibility { resetBackoff() }
         inputs.accessibility = accessibility
         inputs.microphone = probe.microphone
+        inputs.systemAudio = probe.systemAudio
         if inputs.accessibility == .denied { inputs.hotkeyTap = .notInstalled }
 
         if tapNeeded {

@@ -6,6 +6,8 @@ struct ReadinessInputs: Equatable {
     var microphone: MicrophonePermission
     var engine: EngineReadiness
     var hotkeyTap: HotkeyTapHealth
+    /// Meetings only: `AppReadiness` ignores it (see `SystemAudioReadiness`).
+    var systemAudio: SystemAudioPermission = .unconfirmed
 }
 
 /// What the user can do about an issue; the menu, onboarding and overlay map
