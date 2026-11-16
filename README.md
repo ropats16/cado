@@ -227,6 +227,24 @@ Cado was called VoiceType. If you had VoiceType installed, quit it first
   step that still needs you (a permission revoked, a model missing).
 - Quit anytime from the avocado menu (**Quit Cado**).
 
+### Recent dictations
+
+Lost a dictation, or want it somewhere else too? Cado can keep your last 10 so
+you can copy one again. It's off by default.
+
+- Turn it on in **Settings → Notes → Keep recent dictations**.
+- **Recent Dictations** then appears in the avocado menu. Click one to copy it.
+- Only the last 10 are kept, in a small file in Cado's own support folder on
+  your Mac. Turn the setting off and they're deleted.
+
+Everyday dictations are never written to your notes folder.
+
+### Notes folder
+
+**Settings → Notes** also picks a notes folder (default `~/Documents/Cado`).
+Nothing is saved there yet: it's where meeting notes will go, as plain Markdown,
+so you'll be able to point it at an Obsidian vault.
+
 ---
 
 ## Changing the model or hotkey
@@ -345,6 +363,8 @@ logs the problem at startup and the menu shows a **Config issue** warning.
 | `mascotAlwaysVisible` | Keep a small resting Cado on screen; click it to start/stop dictating (default off). |
 | `mascotInScreenShares`| Let screen shares, recordings and screenshots capture Cado (default off: hidden). |
 | `mascotPositions`     | Where you dragged Cado, per display (written when you drag it). |
+| `notesFolder`         | Folder for meeting notes, not used yet (`""` = default `~/Documents/Cado`). |
+| `dictationHistory`    | Keep the last 10 dictations for **Recent Dictations** in the menu (default `false`). |
 
 ---
 
@@ -412,6 +432,10 @@ ever leaves your machine. The only things that touch the network are model
 downloads, which happen when you run setup or click **Download** — see
 [Network activity](#network-activity) for the full list.
 
+Dictated text isn't kept after it's pasted, unless you turn on
+[Recent dictations](#recent-dictations): then the last 10 stay in a file on your
+Mac until you turn it off.
+
 ---
 
 ## Network activity
@@ -456,6 +480,7 @@ make build        # compile only
 make package      # assemble dist/Cado.app
 make install      # build + package + copy to /Applications
 make clean        # remove build artifacts
+make release VERSION=x.y.z  # signed, notarized DMG (maintainer; see docs/RELEASING.md)
 make brand        # regenerate the app icon + embedded mascot art from plans/mascot (needs rsvg-convert)
 make acknowledgements  # regenerate the in-app Acknowledgements text from ACKNOWLEDGEMENTS.md + LICENSE
 ```

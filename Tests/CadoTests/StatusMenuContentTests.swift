@@ -100,6 +100,70 @@ final class StatusMenuContentTests: XCTestCase {
         XCTAssertEqual(menu.reason, .init(title: "Preparing model for this Mac (first load, ~20 s)…", action: nil))
     }
 
+    // MARK: - Recent Dictations
+
+    private var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        calendar.locale = Locale(identifier: "en_GB")
+        return calendar
+    }
+
+    /// 2026-11-16 14:32 UTC.
+    private let now = Date(timeIntervalSince1970: 1_794_839_520)
+
+    private func recents(_ texts: [String], enabled: Bool = true,
+                         dates: [Date]? = nil) -> RecentDictations? {
+        let entries = texts.enumerated().map { index, text in
+            DictationHistoryEntry(date: dates?[index] ?? now, text: text, method: .pasted)
+        }
+        let inputs = ReadinessInputs(
+            accessibility: .granted, microphone: .authorized,
+            engine: EngineReadiness(status: .ready, modelPath: "/m.bin", download: .command("make model")),
+            hotkeyTap: .installed)
+        return StatusMenuContent(status: .ready, inputs: inputs, hold: "⌃⇧", toggle: "⌃⌥Space",
+                                 configIssues: [], recentDictations: entries, historyEnabled: enabled,
+                                 now: now, calendar: calendar).recents
+    }
+
+    func testRecentsHiddenWhenHistoryIsOff() {
+        XCTAssertNil(recents(["hello"], enabled: false))
+        XCTAssertNil(content(.ready).recents)
+    }
+
+    func testRecentsEmptyState() {
+        XCTAssertEqual(recents([])?.rows, [])
+    }
+
+    func testTitleCollapsesToOneLine() {
+        XCTAssertEqual(recents(["  hello\n\nthere   world\t!  "])?.rows.first?.title, "hello there world !")
+    }
+
+    func testTitleTruncationBoundary() {
+        let exact = String(repeating: "a", count: 60)
+        XCTAssertEqual(recents([exact])?.rows.first?.title, exact)
+        XCTAssertEqual(recents([exact + "b"])?.rows.first?.title, exact + "…")
+    }
+
+    func testRecentsCapAtTenInOrder() {
+        let texts = (1...12).map { "note \($0)" }
+        XCTAssertEqual(recents(texts)?.rows.map(\.title), Array(texts.prefix(10)))
+    }
+
+    func testFullTextIsPreserved() {
+        let text = "line one\nline two " + String(repeating: "x", count: 100)
+        let row = recents([text])?.rows.first
+        XCTAssertEqual(row?.text, text)
+        XCTAssertNotEqual(row?.title, text)
+    }
+
+    func testTimeLabelTodayVersusOlder() {
+        let yesterday = now.addingTimeInterval(-86_400)
+        let rows = recents(["a", "b"], dates: [now, yesterday])?.rows
+        XCTAssertEqual(rows?[0].time, "14:32")
+        XCTAssertEqual(rows?[1].time, "15 Nov at 14:32")
+    }
+
     func testConfigLineOnlyWithErrorsCountsAllIssues() {
         let warning = ConfigIssue(severity: .warning, message: "w")
         let error = ConfigIssue(severity: .error, message: "e")

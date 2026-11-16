@@ -89,6 +89,33 @@ struct SettingsView: View {
                     }
                 }
 
+                // MARK: Notes (#28)
+                SettingsSection(title: "Notes", systemImage: "folder.fill") {
+                    HStack(spacing: 8) {
+                        Text("Notes folder").foregroundStyle(Brand.Palette.ink)
+                        Spacer(minLength: 8)
+                        Text(viewModel.notesFolderPath)
+                            .foregroundStyle(Brand.Palette.inkSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Button("Choose…") { viewModel.chooseNotesFolder() }
+                        Button("Show in Finder") { viewModel.showNotesFolder() }
+                    }
+                    .settingsRowPadding()
+                    StatusLine(text: "For meeting notes, once meeting recording arrives: plain Markdown, so you can point this at an Obsidian vault. Nothing is saved here yet.")
+                        .padding(.bottom, 8)
+                    CardDivider()
+                    SettingsRow("Keep recent dictations") {
+                        Toggle("Keep recent dictations",
+                               isOn: Binding(
+                                   get: { viewModel.dictationHistory },
+                                   set: { viewModel.setDictationHistory($0) }
+                               ))
+                    }
+                    StatusLine(text: "Keeps your last \(RecentDictations.limit) dictations on this Mac, so you can copy one again from the menu. They aren't saved to the notes folder.")
+                        .padding(.bottom, 8)
+                }
+
                 // MARK: Microphone
                 SettingsSection(title: "Microphone", systemImage: "mic.fill") {
                     SettingsRow("Microphone") {

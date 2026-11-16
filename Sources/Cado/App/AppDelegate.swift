@@ -52,6 +52,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Built at launch, not on the first press, so the first dictation
     /// doesn't pay for the cues, delivery and session setup.
     private var dictation: DictationSession?
+    /// The last few dictations, for the menu's copy-again (#28); kept only
+    /// while the user's switch is on (read live).
+    private lazy var recents = RecentDictationsStore(
+        file: Paths.recentDictationsFile,
+        isEnabled: { [configStore] in configStore.config.dictationHistory },
+        limit: RecentDictations.limit
+    )
     /// What the app is doing, for the overlay (#19); the session reports into it.
     private let activity = AppActivityFeed()
     /// The mascot, watching `activity`. Attached at launch; builds its panel
@@ -81,6 +88,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos: .utility).async { FolderModelDownloader.removeStalePartFolders(in: Paths.modelsDir) }
 
         reportConfigIssues()
+        // Off (also by a hand-edited config) = nothing kept.
+        if !configStore.config.dictationHistory { recents.clear() }
         setupMenu()
         wireMonitor()
         startEngine()
@@ -113,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.onOpenSettings = { [weak self] in self?.openSettings() }
         menu.onOpenAcknowledgements = { [weak self] in self?.openAcknowledgements() }
         menu.onOpenConfig = { [weak self] in self?.openConfig() }
+        menu.onCopyAgain = { SystemClipboard().write($0) }
         // Re-read permissions on open: a mic change while Accessibility is
         // denied leaves the status alone but changes a row.
         menu.onWillOpen = { [weak self] in
@@ -126,7 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = configStore.config
         menu.render(StatusMenuContent(status: monitor.status, inputs: monitor.inputs,
                                       hold: "\(config.hold)", toggle: "\(config.toggle)",
-                                      configIssues: configIssues))
+                                      configIssues: configIssues,
+                                      recentDictations: recents.recent(),
+                                      historyEnabled: config.dictationHistory))
         // Hotkeys rebound, models downloaded or the language changed.
         MainActor.assumeIsolated {
             if isOnboardingVisible { onboardingModel?.refresh() }
@@ -400,6 +412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 configStore.config.soundCues
             })),
             activity: activity,
+            history: recents,
             settings: { [configStore] in
                 DictationSettings(maxSeconds: configStore.config.maxRecordingSeconds,
                                   ceilingSeconds: AudioCapture.ceilingSeconds,
@@ -486,7 +499,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 overlay?.apply(MascotOverlay.Settings(configStore.config))
             },
             isFirstLoad: { [loadHistory] in EngineRegistry.shared.isFirstLoad($0, history: loadHistory) },
-            engineFacts: { [weak self] in self?.engineFacts }
+            engineFacts: { [weak self] in self?.engineFacts },
+            onDictationHistoryChange: { [weak self] in
+                guard let self else { return }
+                // Turned off = forgotten, not just hidden.
+                if !configStore.config.dictationHistory { recents.clear() }
+                refreshMenu()
+            }
         )
         settingsViewModel = vm
         return vm
