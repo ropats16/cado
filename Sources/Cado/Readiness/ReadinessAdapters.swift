@@ -6,7 +6,7 @@ extension Permissions: PermissionProbe {
         isAccessibilityTrusted() ? .granted : .denied
     }
 
-    // `microphone` is `Permissions.microphone`.
+    // `microphone` and `systemAudio` are `Permissions`'.
 }
 
 extension EngineReadiness {

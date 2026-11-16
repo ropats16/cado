@@ -27,9 +27,10 @@ final class AudioCapture {
     static let preRollSeconds = 0.3
     /// Audio kept after `end`, so the last word isn't clipped by an early release.
     static let postRollSeconds = 0.2
-    /// How long the source stays warm after a recording, unless `keepWarm`.
-    /// Long enough for back-to-back dictations; short enough that the mic
-    /// indicator and Bluetooth call-quality mode don't linger.
+    /// How long the source stays warm after a recording, unless `keepWarm`
+    /// (the default for `init`'s `idleSeconds`). Long enough for back-to-back
+    /// dictations; short enough that the mic indicator and Bluetooth
+    /// call-quality mode don't linger.
     static let idleSeconds = 30.0
     /// Longest press when the config sets no limit, so memory is always
     /// bounded (~115 MB).
@@ -54,6 +55,7 @@ final class AudioCapture {
 
     private let source: AudioSource
     private let keepWarm: Bool
+    private let idleStopSamples: Int
     private let maxSeconds: () -> Double
     private let queue = DispatchQueue(label: "com.ropats16.Cado.capture", qos: .userInitiated)
 
@@ -82,12 +84,16 @@ final class AudioCapture {
     private var idleSamples = 0
 
     /// `keepWarm` keeps the source running once started instead of stopping it
-    /// after `idleSeconds`. `maxSeconds` is the longest press (read at `begin`;
-    /// `<= 0` = `ceilingSeconds`); a recording holds at most that plus pre- and
+    /// after `idleSeconds` (0 = as soon as a recording ends, e.g. system
+    /// audio after a meeting, so its capture indicator doesn't linger).
+    /// `maxSeconds` is the longest press (read at `begin`; `<= 0` =
+    /// `ceilingSeconds`); a recording holds at most that plus pre- and
     /// post-roll.
-    init(source: AudioSource, keepWarm: Bool = false, maxSeconds: @escaping () -> Double = { 0 }) {
+    init(source: AudioSource, keepWarm: Bool = false, idleSeconds: Double = AudioCapture.idleSeconds,
+         maxSeconds: @escaping () -> Double = { 0 }) {
         self.source = source
         self.keepWarm = keepWarm
+        idleStopSamples = Int(max(0, idleSeconds) * Self.sampleRate)
         self.maxSeconds = maxSeconds
         // ~1.4 s at 48 kHz: far more than one drain interval.
         ring = vt_ring_create(1 << 16)!
@@ -180,7 +186,9 @@ final class AudioCapture {
         finishRecording()   // a previous recording still in its post-roll ends here
         if isRunning && source.needsRestart { stopSource() }
         if !isRunning { try startSource() }
-        drainRingAndStopIfIdle()
+        // Not `drainRingAndStopIfIdle`: an idle stop here would leave the new
+        // recording on a stopped source.
+        drainRing()
         recording = []
         recordingCap = cap
         preRoll.take().withUnsafeBufferPointer { record($0) }
@@ -315,8 +323,8 @@ final class AudioCapture {
            ProcessInfo.processInfo.systemUptime - lastAudioAt > timeout {
             restartSource(because: "Microphone stopped delivering audio")
         }
-        if isRunning && !keepWarm && recording == nil && idleSamples >= Int(Self.idleSeconds * Self.sampleRate) {
-            Log.info("Microphone idle for \(Int(Self.idleSeconds))s; stopping.")
+        if isRunning && !keepWarm && recording == nil && idleSamples >= idleStopSamples {
+            Log.info("Audio source idle for \(idleStopSamples / Int(Self.sampleRate))s; stopping.")
             stopSource()
         }
     }

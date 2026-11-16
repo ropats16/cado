@@ -8,6 +8,10 @@ LegacyMigration.runAtLaunch()
 if CommandLine.arguments.contains("--selftest") {
     exit(SelfTest.run(arguments: CommandLine.arguments))
 }
+// Records a few seconds of system audio to a WAV (process tap, macOS 14.2+).
+if CommandLine.arguments.contains("--system-audio-test") {
+    exit(SystemAudioSelfTest.run(arguments: CommandLine.arguments))
+}
 // Benchmark: run an engine over the bench fixtures, print a table, write JSON.
 if CommandLine.arguments.contains("--bench") {
     exit(BenchCommand.run(arguments: CommandLine.arguments))

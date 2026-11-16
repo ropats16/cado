@@ -9,10 +9,33 @@ enum AccessibilityPermission: Equatable { case granted, denied }
 
 enum MicrophonePermission: Equatable { case authorized, denied, restricted, notDetermined }
 
+/// System-audio recording (Core Audio process taps), for meetings only —
+/// never part of dictation readiness (`AppReadiness`).
+///
+/// Only what can be known truthfully: no public API reads or requests the
+/// permission. The system asks the first time a tap's device starts, and a
+/// tap without the grant delivers silence, not an error. So the one proof of
+/// a grant is a capture that delivered sound; silence proves nothing (nothing
+/// may have played), and "denied" can't be told apart from "not asked yet".
+enum SystemAudioPermission: Equatable {
+    /// macOS before 14.2: no process taps.
+    case unsupported
+    /// Not known: never asked, denied, or granted but nothing heard yet this
+    /// run. Recording may still work; the first one shows the system prompt.
+    case unconfirmed
+    /// A system-audio capture this run delivered sound: granted.
+    case confirmed
+
+    init(supported: Bool, heardSound: Bool) {
+        self = !supported ? .unsupported : heardSound ? .confirmed : .unconfirmed
+    }
+}
+
 /// Reads the permissions the app needs. Cheap: polled every few seconds.
 protocol PermissionProbe: AnyObject {
     var accessibility: AccessibilityPermission { get }
     var microphone: MicrophonePermission { get }
+    var systemAudio: SystemAudioPermission { get }
 }
 
 /// What readiness needs to know about the engine: its status, and enough
