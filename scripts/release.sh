@@ -10,7 +10,15 @@
 #   SKIP_NOTARIZE=1      rehearsal: run every stage except notarize/staple/Gatekeeper
 #                        checks. CADO_SIGN_IDENTITY may then be any identity (or "-" ad-hoc);
 #                        the DMG is NOT distributable.
-#   CADO_BUILD           override the build number (default: git commit count).
+#   CADO_BUILD           override the build number (default: git commit count). Either
+#                        way it must be new to the published appcast and greater than
+#                        its newest build (checked in preflight, before the build).
+#   CADO_APPCAST_BASE    use this file as the published appcast instead of fetching it
+#                        (an empty file = a new feed).
+#
+# A real release refuses a dirty tree (tracked changes, or untracked files where the
+# build reads them): the DMG must be HEAD, which the printed 'gh release create
+# --target' tags. A rehearsal only warns.
 #   CADO_SPARKLE_ACCOUNT login-keychain account of the Sparkle EdDSA key (default: cado).
 #                        It signs dist/appcast.xml's entry; its public half must equal
 #                        Resources/Info.plist's SUPublicEDKey. Rehearsals sign too.
@@ -36,6 +44,8 @@ VERSION="${1:-}"
 
 # CFBundleVersion = number of commits on HEAD: monotonically increasing along main,
 # needs no state file, and is a plain integer. Override with CADO_BUILD if needed.
+# Two releases from one HEAD would share it: preflight refuses that against the
+# published appcast (make_appcast.py --check).
 BUILD="${CADO_BUILD:-$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || true)}"
 [[ "$BUILD" =~ ^[0-9]+$ ]] || die "cannot derive build number (shallow clone?); set CADO_BUILD=<integer>"
 
@@ -46,9 +56,11 @@ DMG_SHA256=""
 # Temp dirs / mounts to clean on any exit.
 STAGE_DIR=""
 MNT=""
+BASE_APPCAST=""
 cleanup() {
   [[ -z "$MNT" ]] || { hdiutil detach "$MNT" -quiet >/dev/null 2>&1 || true; rmdir "$MNT" 2>/dev/null || true; }
   [[ -z "$STAGE_DIR" ]] || rm -rf "$STAGE_DIR"
+  [[ -z "$BASE_APPCAST" ]] || rm -f "$BASE_APPCAST"
 }
 trap cleanup EXIT
 
@@ -85,7 +97,25 @@ stage_preflight() {
     echo "SKIP_NOTARIZE=1: rehearsal, result is NOT distributable"
   fi
   command -v hdiutil >/dev/null || die "hdiutil not found"
+  check_clean_tree
   echo "version $VERSION  build $BUILD  identity '$CADO_SIGN_IDENTITY'"
+}
+
+# The DMG is built from the working tree but the release tags HEAD: they must match.
+check_clean_tree() {
+  local changes
+  changes="$(git -C "$ROOT" status --porcelain --untracked-files=no
+             git -C "$ROOT" ls-files --others --exclude-standard -- \
+               Sources Resources Package.swift Package.resolved scripts Makefile | sed 's/^/?? /')"
+  [[ -n "$changes" ]] || return 0
+  if [[ "$SKIP_NOTARIZE" == "1" ]]; then
+    echo "warning: uncommitted changes (a real release refuses these; this rehearsal builds them):"
+    sed 's/^/  /' <<<"$changes"
+  else
+    echo "error: uncommitted changes; the DMG would not be the HEAD the release tags. Commit or stash:" >&2
+    sed 's/^/  /' <<<"$changes" >&2
+    exit 1
+  fi
 }
 
 stage_build() {
@@ -182,13 +212,35 @@ stage_preflight_sparkle() {
   echo "update key OK ($shipped)"
   [[ "$CADO_SIGN_IDENTITY" != "-" ]] || echo "note: ad-hoc + Hardened Runtime fails library validation for" \
     "Sparkle.framework, so this rehearsal app won't launch; use an Apple Development identity for a runnable one"
+  fetch_base_appcast
+  # Sparkle offers by build number: refuse one the feed already has under another
+  # version, or one not newer than its newest, before the long build.
+  python3 "$ROOT/scripts/make_appcast.py" --check --base "$BASE_APPCAST" --version "$VERSION" --build "$BUILD"
+}
+
+# BASE_APPCAST = the published appcast (or CADO_APPCAST_BASE); empty = new feed.
+fetch_base_appcast() {
+  local feed code
+  feed="$(plist_get SUFeedURL)"
+  BASE_APPCAST="$(mktemp)"
+  if [[ -n "${CADO_APPCAST_BASE:-}" ]]; then
+    cp "$CADO_APPCAST_BASE" "$BASE_APPCAST"
+    echo "base appcast: $CADO_APPCAST_BASE"
+  else
+    code="$(curl -sSL --max-time 30 -o "$BASE_APPCAST" -w '%{http_code}' "$feed" || true)"
+    case "$code" in
+      200) echo "base appcast: published $feed" ;;
+      404) : >"$BASE_APPCAST"; echo "no published appcast yet ($feed): starting a new one" ;;
+      *) die "fetching $feed gave HTTP '$code'; retry, or set CADO_APPCAST_BASE=<file> (empty file = new feed)" ;;
+    esac
+  fi
 }
 
 # dist/appcast.xml = the published appcast (if any) + a signed item for this DMG.
 # The item's sparkle:version is the stamped CFBundleVersion ($BUILD).
 stage_appcast() {
   say "Sparkle appcast entry"
-  local sig len base url feed code
+  local sig len url
   # May raise a one-time keychain prompt for sign_update: choose Always Allow.
   sig="$("$SPARKLE_BIN/sign_update" --account "$SPARKLE_ACCOUNT" -p "$DMG")" || die "sign_update failed"
   # Checked against the key the app in this DMG trusts, not the keychain.
@@ -196,24 +248,11 @@ stage_appcast() {
     "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP/Contents/Info.plist")" "$sig" "$DMG"
   len="$(stat -f%z "$DMG")"
   url="https://github.com/$REPO/releases/download/v$VERSION/$(basename "$DMG")"
-  feed="$(plist_get SUFeedURL)"
-  base="$(mktemp)"
-  if [[ -n "${CADO_APPCAST_BASE:-}" ]]; then
-    cp "$CADO_APPCAST_BASE" "$base"
-    echo "base appcast: $CADO_APPCAST_BASE"
-  else
-    code="$(curl -sSL --max-time 30 -o "$base" -w '%{http_code}' "$feed" || true)"
-    case "$code" in
-      200) echo "base appcast: published $feed" ;;
-      404) : >"$base"; echo "no published appcast yet ($feed): starting a new one" ;;
-      *) rm -f "$base"; die "fetching $feed gave HTTP '$code'; retry, or set CADO_APPCAST_BASE=<file> (empty file = new feed)" ;;
-    esac
-  fi
-  python3 "$ROOT/scripts/make_appcast.py" --out "$APPCAST" --base "$base" \
+  # The base fetched in preflight (and checked against this build there).
+  python3 "$ROOT/scripts/make_appcast.py" --out "$APPCAST" --base "$BASE_APPCAST" \
     --version "$VERSION" --build "$BUILD" --min-os "$(plist_get LSMinimumSystemVersion)" \
     --url "$url" --length "$len" --signature "$sig" \
     --notes-url "https://github.com/$REPO/releases/tag/v$VERSION"
-  rm -f "$base"
   xmllint --noout "$APPCAST"
   # The item must match the bundle it describes.
   [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" == "$BUILD" ]] \

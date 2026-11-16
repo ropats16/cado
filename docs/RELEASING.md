@@ -57,7 +57,8 @@ make release VERSION=0.2.0
 ```
 
 Stages: preflight (fails early naming any missing variable, identity or notary
-profile; then checks the keychain's Sparkle key matches `SUPublicEDKey`) >
+profile; refuses a dirty tree; then checks the keychain's Sparkle key matches
+`SUPublicEDKey` and that the build number is new to the published appcast) >
 build + assemble (Sparkle.framework embedded in `Contents/Frameworks`) > sign
 app (Sparkle's `Autoupdate`, `Updater.app`, then the framework, then the app;
 inside-out, never `--deep`, all Hardened Runtime + secure timestamp;
@@ -83,7 +84,7 @@ After the DMG is notarized, stapled and verified, `stage_appcast` writes
 `dist/appcast.xml`: the currently published feed
 (`SUFeedURL` = `https://github.com/ropats16/cado/releases/latest/download/appcast.xml`,
 fetched read-only; a 404 starts a new feed) with this release's item added on
-top (`scripts/make_appcast.py`; an existing item for the same version/build is
+top (`scripts/make_appcast.py`; an existing item for the same version is
 replaced). The item's `sparkle:version` is the stamped `CFBundleVersion`,
 `sparkle:shortVersionString` the version, the enclosure
 `https://github.com/ropats16/cado/releases/download/v<version>/Cado-<version>.dmg`
@@ -92,6 +93,17 @@ stapled DMG). The signature is then checked against the `SUPublicEDKey` inside
 the built app (`scripts/verify_update_signature.swift`, no keychain).
 Offline, or to build on a different feed: `CADO_APPCAST_BASE=<file>` (an empty
 file starts a new feed).
+
+Sparkle offers an update by build number, so the feed must never hold one
+build under two versions, and a new build must be newer than every item
+already there. Preflight fetches the feed and runs `make_appcast.py --check`,
+which refuses (before the long build) a build the feed already has under
+another version (e.g. a second release from the same HEAD: the older item would
+be dropped and Sparkle would never offer the newer one), or one not greater
+than its newest build. Re-running the same version and build (e.g. after a
+failed upload) just replaces its item. Fix: commit (the commit count moves on),
+or set `CADO_BUILD` to a greater integer. Its tests run offline:
+`python3 -m unittest discover -s scripts/tests`.
 
 ### Publish (by hand, never automatic)
 
@@ -108,6 +120,7 @@ version, and the app only starts Sparkle inside a `.app` with an https feed and 
 valid key (`UpdaterAvailability`).
 
 - `CFBundleShortVersionString` = `VERSION`. `CFBundleVersion` = git commit count on HEAD (monotonic along main; override with `CADO_BUILD=<int>`). Needs full git history, not a shallow clone.
+- **Clean tree:** the DMG is built from the working tree but `gh release create --target` tags HEAD, so a real release refuses uncommitted changes (tracked files, or untracked ones under `Sources`, `Resources`, `scripts`, `Package.swift`/`.resolved`, `Makefile`). A rehearsal lists them as a warning and goes on.
 - **Rehearsal** (no Apple credentials needed, any signing identity or `-`; result is *not* distributable):
   `SKIP_NOTARIZE=1 CADO_SIGN_IDENTITY="-" make release VERSION=0.2.0`
   It runs the appcast stage too (signing with the keychain key) and prints, but
