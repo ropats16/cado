@@ -15,14 +15,14 @@ enum Brand {
     enum Palette {
         /// Avocado-skin green: tint/accent for controls, links, selection.
         static let accent = Color(nsColor: NS.accent)
-        /// Pale avocado-flesh cream (deep green-black in dark): window background.
+        /// The system window background: Settings looks like a stock Mac
+        /// window (owner's call), with the brand in the accent, type and art.
         static let background = Color(nsColor: NS.background)
         /// A raised surface on `background`: grouped boxes, cards, fields.
         static let surface = Color(nsColor: NS.surface)
-        /// Warm brown ink, the art's outline (cream in dark): primary text.
+        /// The system label colour: primary text.
         static let ink = Color(nsColor: NS.ink)
-        /// Softer ink for hints and values; still WCAG AA (≥4.5:1) on
-        /// `background` and `surface`.
+        /// The system secondary label colour: hints and values.
         static let inkSecondary = Color(nsColor: NS.inkSecondary)
         /// Cheek pink: a soft, friendly highlight (badges, a selected row's fill).
         static let cheek = Color(nsColor: NS.cheek)
@@ -33,10 +33,10 @@ enum Brand {
         /// `Palette` as `NSColor`s, for AppKit.
         enum NS {
             static let accent = themed("accent", light: 0x4f8a3c, dark: 0x8fc76f)
-            static let background = themed("background", light: 0xf6f9e6, dark: 0x1d2118)
-            static let surface = themed("surface", light: 0xfcfdf5, dark: 0x282e21)
-            static let ink = themed("ink", light: 0x3b2a22, dark: 0xf2efdc)
-            static let inkSecondary = themed("inkSecondary", light: 0x71655d, dark: 0xabab9b)
+            static let background = NSColor.windowBackgroundColor
+            static let surface = NSColor.controlBackgroundColor
+            static let ink = NSColor.labelColor
+            static let inkSecondary = NSColor.secondaryLabelColor
             static let cheek = rgb(0xff8fa3)
             static let pulse = themed("pulse", light: 0xc4392d, dark: 0xff6f61)
         }

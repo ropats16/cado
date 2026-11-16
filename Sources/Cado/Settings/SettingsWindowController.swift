@@ -49,10 +49,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             defer: false
         )
         w.title = "Cado Settings"
-        // The titlebar shows the brand background (content stays below it,
-        // so nothing scrolls under the traffic lights).
-        w.titlebarAppearsTransparent = true
-        w.backgroundColor = Brand.Palette.NS.background
         w.isReleasedWhenClosed = false
         w.contentView = hosting
         return w
