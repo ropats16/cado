@@ -50,6 +50,11 @@ enum Paths {
         appSupportDir.appendingPathComponent("model-loads.json", isDirectory: false)
     }
 
+    /// `.../Cado/usage-ping-id` — the random anonymous id of the opt-in launch ping (see `LaunchPing`).
+    static var pingIdentityFile: URL {
+        appSupportDir.appendingPathComponent("usage-ping-id", isDirectory: false)
+    }
+
     /// `.../Cado/recent-dictations.json` — the last few dictations, when the
     /// user keeps them (see `RecentDictationsStore`).
     static var recentDictationsFile: URL {

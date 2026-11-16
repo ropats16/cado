@@ -427,9 +427,10 @@ the engine's Automatic pick (add `--engine parakeet`, `whisperkit` or
 
 ## Privacy
 
-Everything runs on your Mac. No accounts, no telemetry, and no audio or text
+Everything runs on your Mac. No accounts, no tracking, and no audio or text
 ever leaves your machine. The only things that touch the network are model
-downloads, which happen when you run setup or click **Download** — see
+downloads (when you run setup or click **Download**) and an optional,
+off-by-default anonymous launch count you can switch on — see
 [Network activity](#network-activity) for the full list.
 
 Dictated text isn't kept after it's pasted, unless you turn on
@@ -449,6 +450,8 @@ file.
 | `huggingface.co` | `make setup` (`scripts/download_model.sh`) and the other `scripts/download_*_model.sh` scripts | Downloads whisper.cpp model files (and the VAD model for benchmarks), WhisperKit and Parakeet model folders. Each file is checked against a pinned SHA-256; WhisperKit/Parakeet files are also pinned to one repo commit. | You run the script |
 | `huggingface.co` | In the app, only when you click **Download** in Settings › Model | Downloads whisper.cpp model files (from the same place as `make model`, pinned by SHA-256 only, like the script) and WhisperKit/Parakeet model files (pinned by commit and SHA-256), each verified before use. A plain file request: no cookies, no account. | Yes, per click |
 | Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
+
+| `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Help count Cado's users** (onboarding, or Settings › Usage Count) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. | Yes, **off by default** |
 
 Downloads from `huggingface.co` may be redirected to Hugging Face's CDN. The
 speech libraries Cado uses (WhisperKit, FluidAudio) are set up never to

@@ -11,6 +11,9 @@ import Combine
 final class OnboardingViewModel: ObservableObject {
     @Published private(set) var content: OnboardingContent
     @Published private(set) var current: OnboardingStepID
+    /// The optional launch-ping choice on Ready (#26); off until the user turns it on.
+    @Published private(set) var usagePing: Bool
+    private let onUsagePing: (Bool) -> Void
 
     private let config: () -> Config
     private let downloads: ModelDownloadControl
@@ -25,8 +28,11 @@ final class OnboardingViewModel: ObservableObject {
 
     init(config: @escaping () -> Config, inputs: ReadinessInputs, downloads: ModelDownloadControl,
          options: @escaping () -> [OnboardingModelOption], isFirstShow: Bool,
-         perform: @escaping (ReadinessAction) -> Void, onFinish: @escaping () -> Void) {
+         perform: @escaping (ReadinessAction) -> Void, onFinish: @escaping () -> Void,
+         setUsagePing: @escaping (Bool) -> Void = { _ in }) {
         self.config = config
+        self.usagePing = config().usagePing
+        self.onUsagePing = setUsagePing
         self.downloads = downloads
         self.options = options
         self.performReadiness = perform
@@ -125,6 +131,12 @@ final class OnboardingViewModel: ObservableObject {
         case .finish:
             onFinish()
         }
+    }
+
+    /// The launch-ping choice; the app saves it and makes or deletes the id.
+    func setUsagePing(_ on: Bool) {
+        usagePing = on
+        onUsagePing(on)
     }
 
     func back() {

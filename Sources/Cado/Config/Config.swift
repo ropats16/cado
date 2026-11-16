@@ -48,6 +48,9 @@ struct Config: Codable {
     /// Missing (older configs) = false; launch then marks a Mac that's
     /// already set up as done (`OnboardingLaunch`), so upgraders never see it.
     var onboardingDone: Bool
+    /// Opt-in anonymous launch ping (#26). Off unless the user switches it on
+    /// (onboarding, Settings); missing in older configs = off.
+    var usagePing: Bool
     /// The notes folder's path (#28); "" = `NotesFolder.defaultURL`. Read it
     /// through `NotesFolder.resolve`, which prefers the bookmark.
     var notesFolder: String
@@ -79,6 +82,7 @@ struct Config: Codable {
             mascotInScreenShares: false,
             mascotPositions: [:],
             onboardingDone: false,
+            usagePing: false,
             notesFolder: "",
             notesFolderBookmark: nil,
             dictationHistory: false
@@ -92,6 +96,7 @@ struct Config: Codable {
          keepModelWarm: Bool? = nil, modelIdleMinutes: Double = 5,
          mascotAlwaysVisible: Bool = false, mascotInScreenShares: Bool = false,
          mascotPositions: [String: MascotPosition] = [:], onboardingDone: Bool = false,
+         usagePing: Bool = false,
          notesFolder: String = "", notesFolderBookmark: String? = nil,
          dictationHistory: Bool = false) {
         self.engine = engine
@@ -114,6 +119,7 @@ struct Config: Codable {
         self.mascotInScreenShares = mascotInScreenShares
         self.mascotPositions = mascotPositions
         self.onboardingDone = onboardingDone
+        self.usagePing = usagePing
         self.notesFolder = notesFolder
         self.notesFolderBookmark = notesFolderBookmark
         self.dictationHistory = dictationHistory
@@ -147,6 +153,7 @@ struct Config: Codable {
         mascotInScreenShares = try c.decodeIfPresent(Bool.self, forKey: .mascotInScreenShares) ?? d.mascotInScreenShares
         mascotPositions = try c.decodeIfPresent([String: MascotPosition].self, forKey: .mascotPositions) ?? d.mascotPositions
         onboardingDone = try c.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? d.onboardingDone
+        usagePing = try c.decodeIfPresent(Bool.self, forKey: .usagePing) ?? d.usagePing
         notesFolder = try c.decodeIfPresent(String.self, forKey: .notesFolder) ?? d.notesFolder
         notesFolderBookmark = try c.decodeIfPresent(String.self, forKey: .notesFolderBookmark)
         dictationHistory = try c.decodeIfPresent(Bool.self, forKey: .dictationHistory) ?? d.dictationHistory

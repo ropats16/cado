@@ -70,6 +70,18 @@ final class OnboardingViewModelTests: XCTestCase {
                             onFinish: { [unowned self] in finished += 1 })
     }
 
+    func testUsagePingChoiceIsOffByDefaultAndReported() {
+        var calls: [Bool] = []
+        let vm = OnboardingViewModel(config: { .defaults }, inputs: inputs(), downloads: control,
+                                     options: { [] }, isFirstShow: true, perform: { _ in },
+                                     onFinish: {}, setUsagePing: { calls.append($0) })
+        XCTAssertFalse(vm.usagePing)
+        XCTAssertTrue(calls.isEmpty)
+        vm.setUsagePing(true)
+        XCTAssertTrue(vm.usagePing)
+        XCTAssertEqual(calls, [true])
+    }
+
     private func go(_ vm: OnboardingViewModel, to id: OnboardingStepID) {
         while vm.current < id { vm.forward() }
     }

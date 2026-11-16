@@ -90,6 +90,20 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(back.mascotPositions, c.mascotPositions)
     }
 
+    // MARK: - Launch ping (#26)
+
+    func testUsagePingDefaultsOffAndOldConfigsDecode() throws {
+        XCTAssertFalse(Config.defaults.usagePing)
+        XCTAssertFalse(try decode("{}").usagePing)
+        XCTAssertFalse(try decode(#"{"onboardingDone": true, "soundCues": true}"#).usagePing)
+    }
+
+    func testUsagePingRoundTrips() throws {
+        let c = try decode(#"{"usagePing": true}"#)
+        XCTAssertTrue(c.usagePing)
+        XCTAssertTrue(try JSONDecoder().decode(Config.self, from: JSONEncoder().encode(c)).usagePing)
+    }
+
     // MARK: - Onboarding (#22)
 
     func testOnboardingIsNotDoneUntilSaid() throws {
