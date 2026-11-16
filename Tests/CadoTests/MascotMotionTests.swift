@@ -43,7 +43,7 @@ final class MascotMotionTests: XCTestCase {
 
     func testBodyScaleIsRestAtSilenceAndGrowsWithLevel() {
         XCTAssertEqual(MascotMotion.bodyScale(level: 0), CGSize(width: 1, height: 1))
-        let half = MascotMotion.bodyScale(level: 0.5), full = MascotMotion.bodyScale(level: 1)
+        let half = MascotMotion.bodyScale(level: 0.2), full = MascotMotion.bodyScale(level: 1)
         XCTAssertGreaterThan(half.height, 1)
         XCTAssertGreaterThan(full.height, half.height)
         XCTAssertGreaterThan(full.height, full.width, "stretches taller more than wider")
@@ -273,6 +273,16 @@ final class MascotMotionTests: XCTestCase {
                 if !allowed.contains(p) { return }
             }
         }
+    }
+
+    /// Normal speech (0.1–0.3 on the capture's scale) must read at a glance.
+    func testSpeechLevelsGiveAClearlyVisibleHalo() {
+        XCTAssertEqual(MascotMotion.response(level: 0), 0)
+        XCTAssertEqual(MascotMotion.response(level: 1), 1)
+        XCTAssertEqual(MascotMotion.response(level: 7), 1)
+        XCTAssertGreaterThan(MascotMotion.response(level: 0.1), 0.4)
+        XCTAssertLessThan(MascotMotion.response(level: 0.1), MascotMotion.response(level: 0.3))
+        XCTAssertGreaterThan(MascotMotion.haloRings(level: 0.15)[0].opacity, 0.5)
     }
 
     func testModelIsFullSizeByDefault() {

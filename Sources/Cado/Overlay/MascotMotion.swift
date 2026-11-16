@@ -57,10 +57,18 @@ enum MascotMotion {
         return clamp(current + (target - current) * alpha)
     }
 
+    /// How strongly the mascot reacts to a mic level. Normal speech sits around
+    /// 0.1–0.3 on the capture's scale, where a linear response left the rings
+    /// too faint to notice (owner feedback): speech now lands at ~0.45–0.85,
+    /// and only a raised voice reaches 1.
+    static func response(level: Float) -> Float {
+        Float(pow(Double(clamp(level * 2.5)), 0.6))
+    }
+
     /// Body scale for a level, pivoting on `feet`: taller more than wider, a
     /// gentle stretch with each syllable.
     static func bodyScale(level: Float) -> CGSize {
-        let l = CGFloat(clamp(level))
+        let l = CGFloat(response(level: level))
         return CGSize(width: 1 + 0.04 * l, height: 1 + 0.07 * l)
     }
 
@@ -76,16 +84,16 @@ enum MascotMotion {
     /// Faint but present at silence so the pose still reads as listening. It
     /// only grows a little: the face sits just above and the skin band below.
     static func pitRing(level: Float) -> Ring {
-        let l = CGFloat(clamp(level))
+        let l = CGFloat(response(level: level))
         return Ring(centre: pitCentre, radius: 19.5 + 2 * l, lineWidth: 3 + 1 * l, opacity: 0.45 + 0.55 * Double(l))
     }
 
     /// The two halo rings round the body (replace the art's static `#pulse`),
     /// swelling and brightening with the voice: the cue that reads at a glance.
     static func haloRings(level: Float) -> [Ring] {
-        let l = CGFloat(clamp(level)), d = Double(l)
-        return [Ring(centre: haloCentre, radius: 55 + 4 * l, lineWidth: 3, opacity: 0.15 + 0.45 * d),
-                Ring(centre: haloCentre, radius: 62 + 5 * l, lineWidth: 2.5, opacity: 0.05 + 0.25 * d)]
+        let l = CGFloat(response(level: level)), d = Double(l)
+        return [Ring(centre: haloCentre, radius: 53 + 6 * l, lineWidth: 3.5, opacity: 0.2 + 0.7 * d),
+                Ring(centre: haloCentre, radius: 60 + 6 * l, lineWidth: 3, opacity: 0.08 + 0.52 * d)]
     }
 
     // MARK: - Loops
