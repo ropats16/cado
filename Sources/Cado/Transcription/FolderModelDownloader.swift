@@ -1,20 +1,36 @@
 import Foundation
 
-/// One folder model to fetch: its pinned files and where the finished
-/// folder goes (`EngineDescriptor.inAppDownload`).
+/// One model to fetch: its pinned files and where the finished model goes
+/// (`EngineDescriptor.inAppDownload`). A folder of files (WhisperKit,
+/// Parakeet) or a single file (whisper.cpp's ggml models, `file(...)`).
 struct ModelDownload: Equatable, Sendable {
+    enum Layout: Equatable, Sendable {
+        /// `<models>/<subdirectory>/<id>/`, holding every one of `files`.
+        case folder
+        /// One file, `files`' only one, at `destination` itself.
+        case file
+    }
+
     let modelID: String
     let files: [PinnedFile]
-    /// The finished folder, `<models>/<subdirectory>/<id>/`.
+    /// The finished folder, `<models>/<subdirectory>/<id>/`, or the
+    /// finished file, e.g. `<models>/ggml-<id>.bin`.
     let destination: URL
+    var layout: Layout = .folder
+
+    /// A one-file model, downloaded to `destination`.
+    static func file(modelID: String, _ file: PinnedFile, destination: URL) -> ModelDownload {
+        ModelDownload(modelID: modelID, files: [file], destination: destination, layout: .file)
+    }
 
     var totalBytes: Int64 { files.map(\.bytes).reduce(0, +) }
 
-    /// Where the folder is assembled, beside the destination (same volume,
-    /// so the final rename is atomic): `<id>.part/`, as the scripts use.
+    /// Where the model is assembled, beside the destination (same volume,
+    /// so the final rename is atomic), named as the scripts name it:
+    /// `<id>.part/` for a folder, `<file>.part` for a file.
     var partFolder: URL {
         destination.deletingLastPathComponent()
-            .appendingPathComponent(destination.lastPathComponent + ".part", isDirectory: true)
+            .appendingPathComponent(destination.lastPathComponent + ".part", isDirectory: layout == .folder)
     }
 }
 
@@ -55,7 +71,7 @@ protocol DownloadTransport: Sendable {
 
 /// Downloads a folder model the way `scripts/lib/folder_model.sh` does, so
 /// Settings and `make whisperkit-model` / `make parakeet-model` produce the
-/// same folder:
+/// same folder (a one-file model: see `downloadFile`):
 ///
 /// - The folder is assembled in `<id>.part/`; each file resumes from what's
 ///   there (HTTP Range) and must match its pinned size and SHA-256 (a bad
@@ -81,6 +97,7 @@ struct FolderModelDownloader: Sendable {
 
     /// `progress` gets the bytes in place so far, out of `download.totalBytes`.
     func download(_ download: ModelDownload, progress: @escaping @Sendable (Int64) -> Void = { _ in }) async throws {
+        if download.layout == .file { return try await downloadFile(download, progress: progress) }
         let fm = FileManager.default
         let destination = download.destination, part = download.partFolder
         let manifest = FolderModelPins.manifest(download.files)
@@ -103,28 +120,9 @@ struct FolderModelDownloader: Sendable {
             try Task.checkCancellation()
             let out = part.appendingPathComponent(file.path)
             try fm.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
-            var size = Self.size(of: out)
-            if size == file.bytes, try ModelVerifier.sha256(of: out) == file.sha256 {
-                done += file.bytes
-                progress(done)
-                continue
-            }
-            // At or past its size yet wrong: not a prefix to resume from.
-            if size >= file.bytes { try fm.removeItem(at: out); size = 0 }
-
-            let before = done
-            try await transport.fetch(baseURL.appendingPathComponent(file.source), from: size, appendingTo: out) {
-                progress(before + min($0, file.bytes))
-            }
-            size = Self.size(of: out)
-            guard size == file.bytes else {
-                throw ModelDownloadError.incomplete(path: file.path, bytes: size, expected: file.bytes)
-            }
-            guard try ModelVerifier.sha256(of: out) == file.sha256 else {
-                try? fm.removeItem(at: out)
-                throw ModelDownloadError.checksumMismatch(path: file.path)
-            }
+            try await fetch(file, into: out, after: done, progress: progress)
             done += file.bytes
+            progress(done)
         }
 
         try Data(manifest.utf8).write(to: part.appendingPathComponent(ModelVerifier.folderManifestName), options: .atomic)
@@ -138,6 +136,66 @@ struct FolderModelDownloader: Sendable {
                                  sha256: ModelVerifier.sha256(of: Data(manifest.utf8)))
         }
         Log.info("Downloaded \(download.modelID) to \(destination.path).")
+    }
+
+    /// A one-file model, the way `scripts/download_model.sh` fetches it, so
+    /// either resumes what the other left: into `<file>.part` beside the
+    /// destination, renamed into place only once its size and SHA-256 match
+    /// the pin. A file already at the destination with its pinned size is
+    /// left alone (the engine hashes it before loading); a shorter one is
+    /// resumed from (older scripts downloaded in place), a longer one dropped.
+    private func downloadFile(_ download: ModelDownload, progress: @escaping @Sendable (Int64) -> Void) async throws {
+        guard download.files.count == 1, let file = download.files.first else {
+            preconditionFailure("a one-file download pins exactly one file")
+        }
+        let fm = FileManager.default
+        let destination = download.destination, part = download.partFolder
+        if fm.fileExists(atPath: destination.path) {
+            let size = Self.size(of: destination)
+            if size == file.bytes { return progress(file.bytes) }
+            if size < file.bytes {
+                try? fm.removeItem(at: part)
+                try fm.moveItem(at: destination, to: part)
+            } else {
+                try fm.removeItem(at: destination)
+            }
+        }
+        try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Task.checkCancellation()
+        try await fetch(file, into: part, after: 0, progress: progress)
+        try Task.checkCancellation()   // a Cancel during the checksum still stops it; the part stays
+
+        try? fm.removeItem(at: destination)   // a copy the script finished meanwhile; ours is checked
+        try fm.moveItem(at: part, to: destination)
+        // Stamped at the final path, as the verifier will look it up.
+        try? verifier?.record(path: destination.path, sha256: file.sha256)
+        progress(file.bytes)
+        Log.info("Downloaded \(download.modelID) to \(destination.path).")
+    }
+
+    /// Makes `out` hold `file`: kept if it already matches its pin, else
+    /// resumed from what's there (restarted if that's at or past its size,
+    /// so not a prefix) and checked. A wrong file is deleted, not kept to
+    /// resume from; a short one is kept. `progress` gets `before` plus this
+    /// file's bytes so far.
+    private func fetch(_ file: PinnedFile, into out: URL, after before: Int64,
+                       progress: @escaping @Sendable (Int64) -> Void) async throws {
+        let fm = FileManager.default
+        var size = Self.size(of: out)
+        if size == file.bytes, try ModelVerifier.sha256(of: out) == file.sha256 { return }
+        if size >= file.bytes { try fm.removeItem(at: out); size = 0 }
+
+        try await transport.fetch(baseURL.appendingPathComponent(file.source), from: size, appendingTo: out) {
+            progress(before + min($0, file.bytes))
+        }
+        size = Self.size(of: out)
+        guard size == file.bytes else {
+            throw ModelDownloadError.incomplete(path: file.path, bytes: size, expected: file.bytes)
+        }
+        guard try ModelVerifier.sha256(of: out) == file.sha256 else {
+            try? fm.removeItem(at: out)
+            throw ModelDownloadError.checksumMismatch(path: file.path)
+        }
     }
 
     /// The pinned manifest is there and every file has its size (the engine
@@ -169,28 +227,32 @@ struct FolderModelDownloader: Sendable {
         try fm.removeItem(at: folder)
     }
 
-    /// Deletes `<models>/<engine>/<id>.part/` folders untouched (no file in
-    /// them written) for `age`: a cancelled download keeps its partial
-    /// folder to resume from, up to ~1 GB, and one nobody resumed in a week
-    /// isn't coming back. Run at launch, off main, while nothing downloads.
+    /// Deletes partial downloads untouched (nothing in them written) for
+    /// `age`: `<models>/<engine>/<id>.part/` folders and whisper.cpp's
+    /// `<models>/<file>.part` files, whether the app or a script left them.
+    /// A cancelled download keeps its part to resume from, up to ~1.6 GB, and
+    /// one nobody resumed in a week isn't coming back; one being written
+    /// now is never that old. Run at launch, off main, while nothing downloads.
     static func removeStalePartFolders(in modelsDir: URL, olderThan age: TimeInterval = 7 * 86_400, now: Date = Date()) {
         let fm = FileManager.default
-        let engines = (try? fm.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil)) ?? []
-        for engine in engines {
-            let parts = ((try? fm.contentsOfDirectory(at: engine, includingPropertiesForKeys: nil)) ?? [])
-                .filter { $0.pathExtension == "part" && $0.hasDirectoryPath }
-            for part in parts where now.timeIntervalSince(lastWrite(in: part)) > age {
-                do {
-                    try fm.removeItem(at: part)
-                    Log.info("Removed a partial download untouched for a week: \(part.path).")
-                } catch {
-                    Log.error("Could not remove \(part.path): \(error.localizedDescription)")
-                }
+        func children(_ dir: URL) -> [URL] {
+            ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "part" }
+        }
+        let top = (try? fm.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil)) ?? []
+        let partFiles = children(modelsDir).filter { !$0.hasDirectoryPath }
+        let partFolders = top.flatMap(children).filter(\.hasDirectoryPath)
+        for part in partFiles + partFolders where now.timeIntervalSince(lastWrite(in: part)) > age {
+            do {
+                try fm.removeItem(at: part)
+                Log.info("Removed a partial download untouched for a week: \(part.path).")
+            } catch {
+                Log.error("Could not remove \(part.path): \(error.localizedDescription)")
             }
         }
     }
 
-    /// The newest modification date of `folder` and everything in it.
+    /// The newest modification date of `folder` and everything in it (of
+    /// the file, for a file).
     private static func lastWrite(in folder: URL) -> Date {
         let fm = FileManager.default
         func modified(_ path: String) -> Date {

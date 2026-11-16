@@ -90,6 +90,22 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(back.mascotPositions, c.mascotPositions)
     }
 
+    // MARK: - Onboarding (#22)
+
+    func testOnboardingIsNotDoneUntilSaid() throws {
+        XCTAssertFalse(try decode("{}").onboardingDone, "Older configs: decided at launch (OnboardingLaunch)")
+        XCTAssertFalse(Config.defaults.onboardingDone)
+        XCTAssertTrue(try decode(#"{"onboardingDone": true}"#).onboardingDone)
+    }
+
+    func testOnboardingDoneRoundTrips() throws {
+        var c = Config.defaults
+        c.onboardingDone = true
+        let json = try JSONEncoder().encode(c)
+        XCTAssertTrue(String(decoding: json, as: UTF8.self).contains(#""onboardingDone":true"#))
+        XCTAssertTrue(try JSONDecoder().decode(Config.self, from: json).onboardingDone)
+    }
+
     // MARK: - Mascot position store
 
     private func tempConfigURL() -> URL {

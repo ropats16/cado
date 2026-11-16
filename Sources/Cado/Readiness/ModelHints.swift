@@ -10,9 +10,9 @@ struct ModelNotice: Equatable {
 /// The model-problem wording, in one place: the menu's one-liner
 /// (`ReadinessIssue.detail`) and the notice posted when the engine reports a
 /// missing or broken model. How to get the model comes from its engine
-/// (`EngineDescriptor.downloadHint`): a command (whisper's `make model`) is
-/// quoted to run; a model Settings downloads (WhisperKit, Parakeet) points
-/// there first, its command second; instructions (an engine whose models
+/// (`EngineDescriptor.downloadHint`): a command is quoted to run; a model
+/// Settings downloads (whisper.cpp, WhisperKit, Parakeet) points there
+/// first, its command second; instructions (an engine whose models
 /// aren't files fetched by command) are shown as written, with no file path
 /// assumed. A model that's there but won't load isn't offered in Settings
 /// (it lists only models not downloaded), so a failure names the command.
@@ -67,7 +67,7 @@ enum ModelHints {
             switch redownload(engine) {
             case .command(let command)?: fix = " Try `\(command)` to re-download it."
             case .inApp(let command)?:
-                fix = " Try `\(command)` to re-download it, or delete its folder and download it again in Settings › Model."
+                fix = " Try `\(command)` to re-download it, or delete the model and download it again in Settings › Model."
             case .instructions(let text)?: fix = " \(text)"
             case nil: fix = ""
             }

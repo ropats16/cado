@@ -179,8 +179,66 @@ final class SettingsModelDownloadTests: XCTestCase {
         XCTAssertEqual(vm.inAppDownloadableModels.map(\.key), [key("big")])
 
         let whisper = makeVM(engine: .whisper)
-        XCTAssertFalse(whisper.canDownloadModel(ModelDownloadKey(engine: .whisper, id: "small.en-q5_1")), "whisper's come by command")
-        XCTAssertEqual(whisper.inAppDownloadableModels, [])
+        XCTAssertTrue(whisper.canDownloadModel(whisperKey("small.en-q5_1")))
+        XCTAssertEqual(whisper.inAppDownloadableModels.map(\.key), ModelCatalog.models.map { whisperKey($0.id) },
+                       "every catalog model not downloaded, in catalog order")
+    }
+
+    // MARK: - whisper.cpp (one file per model)
+
+    private func whisperKey(_ id: String) -> ModelDownloadKey { ModelDownloadKey(engine: .whisper, id: id) }
+
+    func testAWhisperModelOnDiskOffersNoDownload() throws {
+        try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+        try Data([1]).write(to: modelsDir.appendingPathComponent("ggml-tiny.en.bin"))
+        let vm = makeVM(engine: .whisper)
+        XCTAssertFalse(vm.canDownloadModel(whisperKey("tiny.en")))
+        XCTAssertTrue(vm.canDownloadModel(whisperKey("base.en")))
+        XCTAssertFalse(vm.canDownloadModel(whisperKey("large-v1")), "not in the catalog")
+    }
+
+    /// A hand-set `modelPath` stands in for whisper's pick, not for each
+    /// named model: the catalog models can still be downloaded.
+    func testACustomWhisperFileDoesntHideTheDownloads() throws {
+        try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+        let custom = modelsDir.appendingPathComponent("finetune.bin")
+        try Data([1]).write(to: custom)
+        configStore.update { $0.modelPath = custom.path }
+        let vm = makeVM(engine: .whisper)
+        XCTAssertTrue(vm.canDownloadModel(whisperKey("tiny.en")))
+    }
+
+    /// The missing whisper file is where its Download puts it (its name
+    /// isn't the model id), so the hint points at the button.
+    func testAMissingWhisperFileIsDownloadableInApp() {
+        let vm = makeVM(engine: .whisper, model: .named("tiny.en"))
+        let spec = ModelSpec.file(modelsDir.appendingPathComponent("ggml-tiny.en.bin").path)
+        XCTAssertTrue(vm.isDownloadableInApp(spec))
+        XCTAssertFalse(vm.isDownloadableInApp(.file("/elsewhere/ggml-tiny.en.bin")), "not where the download goes")
+        XCTAssertFalse(vm.isDownloadableInApp(.file(modelsDir.appendingPathComponent("finetune.bin").path)))
+    }
+
+    func testDownloadingTheSelectedWhisperModelReloadsTheEngine() async {
+        let vm = makeVM(engine: .whisper, model: .named("tiny.en"))
+
+        await vm.downloadModel(whisperKey("tiny.en"))?.value
+
+        XCTAssertEqual(downloader.started, ["tiny.en"])
+        XCTAssertEqual(applied, 1)
+    }
+
+    /// Cancel keeps `<file>.part` (the name `make model` resumes too).
+    func testAPartialWhisperFileCanBeDiscarded() throws {
+        let vm = makeVM(engine: .whisper)
+        XCTAssertFalse(vm.hasPartialDownload(whisperKey("tiny.en")))
+        try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+        let part = modelsDir.appendingPathComponent("ggml-tiny.en.bin.part")
+        try Data(repeating: 1, count: 10).write(to: part)
+        XCTAssertTrue(vm.hasPartialDownload(whisperKey("tiny.en")))
+
+        vm.discardPartialDownload(whisperKey("tiny.en"))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: part.path))
     }
 
     func testADownloadShowsProgressThenTheModelIsListedAsDownloaded() async {
@@ -309,13 +367,16 @@ final class SettingsModelDownloadTests: XCTestCase {
         vm.selectEngine(.engine(.whisper))
 
         XCTAssertEqual(vm.engine, .whisper)
-        XCTAssertEqual(vm.inAppDownloadableModels.map(\.key), [key("big")])
-        XCTAssertEqual(vm.inAppDownloadableModels.first?.label, "Big — WhisperKit (Core ML)")
+        let others = vm.inAppDownloadableModels.filter { $0.key.engine != .whisper }
+        XCTAssertEqual(others.map(\.key), [key("big")])
+        XCTAssertEqual(others.first?.label, "Big — WhisperKit (Core ML)")
+        XCTAssertEqual(vm.inAppDownloadableModels.last?.key, key("big"), "after whisper's own rows")
         XCTAssertTrue(vm.isDownloadingModel(key("big")))
         vm.cancelModelDownload(key("big"))
         await task?.value
         XCTAssertFalse(vm.isDownloadingModel(key("big")))
-        XCTAssertEqual(vm.inAppDownloadableModels, [], "whisper has no Download rows")
+        XCTAssertFalse(vm.inAppDownloadableModels.contains { $0.key.engine != .whisper },
+                       "only whisper's own Download rows left")
     }
 
     // MARK: - Partial downloads

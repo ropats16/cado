@@ -8,7 +8,6 @@ struct SettingsSection<Content: View>: View {
     let title: String
     let systemImage: String
     @ViewBuilder let content: Content
-    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -24,14 +23,24 @@ struct SettingsSection<Content: View>: View {
             .font(Brand.Typography.headline)
             .padding(.leading, 2)
 
-            VStack(alignment: .leading, spacing: 0) { content }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Brand.Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Brand.Palette.ink.opacity(contrast == .increased ? 0.45 : 0.1)))
+            SettingsCard { content }
         }
+    }
+}
+
+/// A section's `surface` card on its own, without the headline.
+struct SettingsCard<Content: View>: View {
+    @ViewBuilder let content: Content
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) { content }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Brand.Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Brand.Palette.ink.opacity(contrast == .increased ? 0.45 : 0.1)))
     }
 }
 

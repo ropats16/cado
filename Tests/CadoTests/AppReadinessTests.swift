@@ -196,7 +196,7 @@ final class AppReadinessTests: XCTestCase {
         let broken = EngineReadiness(status: .failed(reason: "bad"), modelPath: "/m/whisperkit/tiny.en", download: hint)
         XCTAssertEqual(ModelHints.notice(for: .failed(reason: "bad"), engine: broken)?.body,
                        "bad Try `make whisperkit-model WHISPERKIT=tiny.en` to re-download it, "
-                           + "or delete its folder and download it again in Settings › Model.")
+                           + "or delete the model and download it again in Settings › Model.")
     }
 
     func testOSManagedModelsOpenSettingsToo() {

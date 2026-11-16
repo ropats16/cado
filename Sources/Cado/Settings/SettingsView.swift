@@ -11,8 +11,11 @@ struct SettingsView: View {
     /// can reach it via `viewModel.cancelCapture()` from `windowWillClose(_:)`.
     /// Passed explicitly so SwiftUI observes its `@Published` properties.
     @ObservedObject var recorder: HotkeyRecorder
-    /// The Download list starts open: a missing model's hint points at it.
-    @State private var showsDownloads = true
+    /// The Download list; nil = not toggled yet: open while it's short (a
+    /// missing model's hint points at it), closed when it's long (whisper
+    /// alone has dozens).
+    @State private var showsDownloads: Bool?
+    private static let maxDownloadsShownOpen = 6
 
     /// Room for the longest model and engine names before they truncate.
     private static let pickerWidth: CGFloat = 240
@@ -218,10 +221,12 @@ struct SettingsView: View {
                 .frame(maxWidth: Self.pickerWidth, alignment: .trailing)
             }
 
-            // WhisperKit, Parakeet: a Download button per model not yet installed.
+            // whisper.cpp, WhisperKit, Parakeet: a Download button per model not yet installed.
             let downloadable = viewModel.inAppDownloadableModels
             if !downloadable.isEmpty {
-                DisclosureGroup(isExpanded: $showsDownloads) {
+                DisclosureGroup(isExpanded: Binding(
+                    get: { showsDownloads ?? (downloadable.count <= Self.maxDownloadsShownOpen) },
+                    set: { showsDownloads = $0 })) {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(downloadable) { model in
                             ModelDownloadRow(model: model, viewModel: viewModel)

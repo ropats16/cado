@@ -165,11 +165,12 @@ struct EngineModelOption: Hashable, Identifiable {
 
 /// How the user gets a model that isn't installed.
 enum ModelDownloadHint: Equatable {
-    /// A command to run in the repo, e.g. `make model MODEL=small.en-q5_1`.
+    /// A command to run in the repo, for a model the app can't fetch itself
+    /// (e.g. a catalog folder model with no pinned files).
     case command(String)
     /// Settings' Download button fetches it (`EngineDescriptor.inAppDownload`);
-    /// `command` fetches the same files from the repo, e.g. `make
-    /// whisperkit-model WHISPERKIT=tiny.en`.
+    /// `command` fetches the same files from the repo, e.g. `make model
+    /// MODEL=small.en-q5_1` or `make whisperkit-model WHISPERKIT=tiny.en`.
     case inApp(command: String)
     /// A sentence, for engines whose models aren't fetched by a command, e.g.
     /// "Open Settings › Model to download it."

@@ -154,9 +154,11 @@ enum AppStatus: Equatable {
 ///  8. Model loading (preparing, on its first load).
 ///
 /// Actionable before transient: the user can fix a permission while the model
-/// loads. Permissions before the model: they're the first-run steps, in
-/// onboarding order. A tap issue is never shown while Accessibility is
-/// denied: one cause, one reason.
+/// loads. Permissions before the model: they're the first-run steps.
+/// Accessibility leads here because nothing works without it; onboarding
+/// asks for the microphone first (`OnboardingStepID`), as its one-click
+/// dialog is the easier start. A tap issue is never shown while
+/// Accessibility is denied: one cause, one reason.
 enum AppReadiness {
     static func issues(for inputs: ReadinessInputs) -> [ReadinessIssue] {
         var issues: [ReadinessIssue] = []

@@ -142,7 +142,7 @@ final class EngineRegistryTests: XCTestCase {
 
         XCTAssertEqual(registry.downloadHint(for: fake), .instructions("Open Settings › Model to download it."))
         let catalog = ModelSpec.file(Paths.modelsDir.appendingPathComponent("ggml-tiny.en.bin").path)
-        XCTAssertEqual(registry.downloadHint(for: catalog), .command("make model MODEL=tiny.en"))
+        XCTAssertEqual(registry.downloadHint(for: catalog), .inApp(command: "make model MODEL=tiny.en"))
     }
 
     // MARK: - Switching engines live

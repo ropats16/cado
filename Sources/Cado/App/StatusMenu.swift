@@ -79,6 +79,7 @@ struct StatusMenuContent: Equatable {
 final class StatusMenu: NSObject, NSMenuDelegate {
     /// A clicked reason or permission row.
     var onAction: ((ReadinessAction) -> Void)?
+    var onOpenOnboarding: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenAcknowledgements: (() -> Void)?
     var onOpenConfig: (() -> Void)?
@@ -109,6 +110,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             header, reason, modelHint, .separator(),
             microphone, accessibility, .separator(),
             hold, toggle,
+            item("Set Up Cado…", #selector(openOnboarding)),
             item("Settings…", #selector(openSettings), key: ","),
             item("Acknowledgements…", #selector(openAcknowledgements)),
             item("Open Config File…", #selector(openConfig)),
@@ -164,6 +166,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func rowClicked(_ sender: NSMenuItem) {
         if let action = sender.representedObject as? ReadinessAction { onAction?(action) }
     }
+    @objc private func openOnboarding() { onOpenOnboarding?() }
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openAcknowledgements() { onOpenAcknowledgements?() }
     @objc private func openConfig() { onOpenConfig?() }

@@ -8,8 +8,8 @@ and the Claude Code CLI. No audio or text is ever sent to the internet; the
 only network use is downloading models (see [Privacy](#privacy)).
 
 > **Status:** v1. You install it by building it on your own Mac (steps below).
-> A ready-made download will come later. WhisperKit and Parakeet models
-> download from Settings › Model (only when you click Download).
+> A ready-made download will come later. Models (whisper.cpp, WhisperKit,
+> Parakeet) download from Settings › Model (only when you click Download).
 
 ---
 
@@ -142,6 +142,14 @@ it to see the app's status and controls.
 
 ### 5. Grant the two permissions
 
+**First launch:** Cado opens a short setup window that walks you through both
+permissions, offers the speech model recommended for your Mac (download with
+progress, Cancel and Retry; checksum-verified before use — optional if
+`make setup` already installed one) and shows how to dictate. It updates by itself as you grant things in System Settings. Close
+it any time; it opens again at the next launch until you press **Done** (or
+**Finish later**), and **Set Up Cado…** in the avocado menu reopens it. The steps below are the same
+thing by hand.
+
 Cado needs two macOS permissions. Click the avocado menu-bar icon to see their
 status; both must say **Granted** before dictation works.
 
@@ -215,6 +223,8 @@ Cado was called VoiceType. If you had VoiceType installed, quit it first
 - Your existing clipboard is restored after each dictation, so dictating never
   overwrites something you copied. (A password-manager copy isn't put back, so
   its auto-clear still holds — the dictation stays on the clipboard instead.)
+- **Set Up Cado…** in the avocado menu reopens the setup window, on the first
+  step that still needs you (a permission revoked, a model missing).
 - Quit anytime from the avocado menu (**Quit Cado**).
 
 ---
@@ -243,7 +253,8 @@ Settings' Automatic row names the engine it picked and why it isn't Turbo
 set `engine`) to override it. Why these defaults: [`plans/bench-results/15`](plans/bench-results/15/README.md).
 
 **Switch to a different model.** By default the app picks one for your chip +
-RAM (**Automatic** in Settings). To use another, download it, then pick it in
+RAM (**Automatic** in Settings). To use another, download it (Settings → Model
+→ **Download a model**, or the command below), then pick it in
 **Settings → Model** — it switches right away, no restart (a dictation already
 being transcribed finishes on the old model):
 
@@ -253,7 +264,8 @@ make model MODEL=small.en-q8_0   # downloads it and checks its checksum
 
 Or set `"model": "small.en-q8_0"` in `config.json`. Models you haven't
 downloaded show under **Not downloaded** in Settings with the command to fetch
-them. Downloads land in a `.part` file and only get their real name once
+them, and each has a **Download** button. Either way, downloads land in a
+`.part` file (one can resume the other's) and only get their real name once
 complete and checksum-verified. A file that doesn't match its published SHA-256
 is refused; the first use of a new file shows **Verifying…** while it's hashed
 (once — the result is cached). If a switch fails, Cado keeps (or goes back
@@ -361,13 +373,14 @@ combo still doesn't fire, try a different one (see *Changing the hotkey*). For
 text. For `toggle`, keep at least one modifier with the key for the same reason.
 
 **“Model missing” in the menu.**
-The model the app wants isn't downloaded. The menu names it: run the
-`make model MODEL=…` it shows (or pick a downloaded model in Settings). If you
-set `modelPath`, confirm it points at a real file.
+The model the app wants isn't downloaded. Click it to open Settings › Model and
+**Download** it, or run the `make model MODEL=…` it shows (or pick a downloaded
+model in Settings). If you set `modelPath`, confirm it points at a real file.
 
 **“Model failed to load.”**
 Usually a corrupt or incomplete download (it failed its checksum). Delete the
-file from the models folder and run `make model MODEL=<name>` again.
+file from the models folder and download it again in Settings › Model (or run
+`make model MODEL=<name>`).
 
 **Text doesn't appear after I speak.**
 If no text field is focused, Cado copies the transcript to your clipboard
@@ -410,7 +423,7 @@ file.
 | Host | When | What's sent / received | Opt-in? |
 | --- | --- | --- | --- |
 | `huggingface.co` | `make setup` (`scripts/download_model.sh`) and the other `scripts/download_*_model.sh` scripts | Downloads whisper.cpp model files (and the VAD model for benchmarks), WhisperKit and Parakeet model folders. Each file is checked against a pinned SHA-256; WhisperKit/Parakeet files are also pinned to one repo commit. | You run the script |
-| `huggingface.co` | In the app, only when you click **Download** in Settings › Model | Downloads WhisperKit/Parakeet model files, pinned by commit and SHA-256 and verified before use. A plain file request: no cookies, no account. | Yes, per click |
+| `huggingface.co` | In the app, only when you click **Download** in Settings › Model | Downloads whisper.cpp model files (from the same place as `make model`, pinned by SHA-256 only, like the script) and WhisperKit/Parakeet model files (pinned by commit and SHA-256), each verified before use. A plain file request: no cookies, no account. | Yes, per click |
 | Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
 
 Downloads from `huggingface.co` may be redirected to Hugging Face's CDN. The

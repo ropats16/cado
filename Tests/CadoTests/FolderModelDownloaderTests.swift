@@ -272,6 +272,161 @@ final class FolderModelDownloaderTests: XCTestCase {
         XCTAssertEqual(transport.requests.count, 2, "nothing fetched the second time")
         try assertInstalled()
     }
+
+    // MARK: - Single file (whisper.cpp's ggml models)
+
+    private let weights = Data((0..<500).map { UInt8($0 % 251) })
+    private let ggmlSource = "ggerganov/whisper.cpp/resolve/main/ggml-t.bin"
+
+    private var fileDownload: ModelDownload {
+        ModelDownload.file(modelID: "t", PinnedFile(source: ggmlSource, path: "ggml-t.bin",
+                                                    bytes: Int64(weights.count), sha256: sha(weights)),
+                           destination: modelsDir.appendingPathComponent("ggml-t.bin"))
+    }
+
+    /// `<file>.part`, as `scripts/download_model.sh` names it, so either resumes the other.
+    private var partFile: URL { modelsDir.appendingPathComponent("ggml-t.bin.part") }
+
+    private func runFile(verifier: ModelVerifier? = nil,
+                         progress: @escaping @Sendable (Int64) -> Void = { _ in }) async throws {
+        transport.bodies[base.appendingPathComponent(ggmlSource)] = weights
+        try await FolderModelDownloader(transport: transport, baseURL: base, verifier: verifier)
+            .download(fileDownload, progress: progress)
+    }
+
+    private func assertFileNotInstalled(file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileDownload.destination.path),
+                       "nothing at the final path", file: file, line: line)
+    }
+
+    func testASingleFileIsFetchedIntoItsPartThenRenamedIntoPlace() async throws {
+        let reports = Reports()
+        try await runFile { reports.add($0) }
+
+        XCTAssertEqual(try Data(contentsOf: fileDownload.destination), weights)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partFile.path), "no part left")
+        XCTAssertEqual(fileDownload.partFolder.path, partFile.path)
+        XCTAssertEqual(transport.requests.map(\.url), [base.appendingPathComponent(ggmlSource)])
+        XCTAssertEqual(transport.requests.map(\.offset), [0])
+        XCTAssertEqual(reports.values.last, Int64(weights.count))
+        XCTAssertEqual(fileDownload.totalBytes, Int64(weights.count))
+    }
+
+    /// A part left by a cancelled download, or by `make model`, is resumed.
+    func testASingleFileResumesFromItsPart() async throws {
+        try weights.prefix(200).write(to: partFile)
+
+        try await runFile()
+
+        XCTAssertEqual(transport.requests.map(\.offset), [200])
+        XCTAssertEqual(try Data(contentsOf: fileDownload.destination), weights)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partFile.path))
+    }
+
+    func testASingleFileThatDoesntMatchItsPinIsDiscarded() async throws {
+        var tampered = weights
+        tampered[10] ^= 0xFF
+        transport.bodies[base.appendingPathComponent(ggmlSource)] = tampered
+
+        do {
+            try await FolderModelDownloader(transport: transport, baseURL: base).download(fileDownload)
+            XCTFail("a tampered file must fail the download")
+        } catch let error as ModelDownloadError {
+            XCTAssertEqual(error, .checksumMismatch(path: "ggml-t.bin"))
+            XCTAssertEqual(error.errorDescription, "ggml-t.bin doesn't match its pinned checksum (discarded). Try again.")
+        }
+        assertFileNotInstalled()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partFile.path), "the bad part isn't kept to resume from")
+    }
+
+    func testAShortSingleFileIsReportedIncompleteAndKeptToResume() async throws {
+        transport.short = [base.appendingPathComponent(ggmlSource)]
+
+        do {
+            try await runFile()
+            XCTFail("a short file must fail the download")
+        } catch let error as ModelDownloadError {
+            XCTAssertEqual(error, .incomplete(path: "ggml-t.bin", bytes: Int64(weights.count - 1),
+                                              expected: Int64(weights.count)))
+        }
+        assertFileNotInstalled()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: partFile.path))
+    }
+
+    /// Older `make model` downloaded in place: a short file at the
+    /// destination is resumed from, not trusted.
+    func testAShortFileAtTheDestinationIsResumed() async throws {
+        try weights.prefix(300).write(to: fileDownload.destination)
+
+        try await runFile()
+
+        XCTAssertEqual(transport.requests.map(\.offset), [300])
+        XCTAssertEqual(try Data(contentsOf: fileDownload.destination), weights)
+    }
+
+    /// A part already past the file's size can't be a prefix of it.
+    func testAnOversizedPartIsRefetchedFromTheStart() async throws {
+        try (weights + weights).write(to: partFile)
+
+        try await runFile()
+
+        XCTAssertEqual(transport.requests.map(\.offset), [0])
+        XCTAssertEqual(try Data(contentsOf: fileDownload.destination), weights)
+    }
+
+    func testCancellingASingleFileKeepsItsPart() async throws {
+        transport.hang = [base.appendingPathComponent(ggmlSource)]
+        let task = Task { try await runFile() }
+        while transport.requests.isEmpty { await Task.yield() }
+
+        task.cancel()
+
+        do { try await task.value; XCTFail("cancelled") } catch { XCTAssertTrue(error is CancellationError, "\(error)") }
+        assertFileNotInstalled()
+        XCTAssertEqual(try Data(contentsOf: partFile), weights)
+    }
+
+    func testAnInstalledSingleFileIsLeftAlone() async throws {
+        try await runFile()
+        try await runFile()
+
+        XCTAssertEqual(transport.requests.count, 1, "nothing fetched the second time")
+        XCTAssertEqual(try Data(contentsOf: fileDownload.destination), weights)
+    }
+
+    /// The download just hashed the file, so the engine's verify before the
+    /// first load answers from the checksum cache.
+    func testASingleFilesFirstLoadVerifyDoesntHashItAgain() async throws {
+        let hashes = Reports()
+        let verifier = ModelVerifier(cacheURL: nil, hash: { hashes.add(1); return try ModelVerifier.sha256(of: $0) },
+                                     log: { _ in })
+
+        try await runFile(verifier: verifier)
+        try verifier.verify(path: fileDownload.destination.path, sha256: sha(weights))
+
+        XCTAssertEqual(hashes.values.count, 0, "nothing re-hashed")
+    }
+
+    /// whisper.cpp's `<file>.part` files sit at the top of the models folder;
+    /// they go by the same rule as the folders' parts: a week untouched.
+    func testStalePartialFilesAreRemovedToo() throws {
+        let fm = FileManager.default
+        func file(_ name: String, touched daysAgo: Double) throws -> URL {
+            let url = modelsDir.appendingPathComponent(name)
+            try Data([1]).write(to: url)
+            try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -daysAgo * 86_400)], ofItemAtPath: url.path)
+            return url
+        }
+        let stale = try file("ggml-old.bin.part", touched: 8)
+        let recent = try file("ggml-new.bin.part", touched: 1)
+        let finished = try file("ggml-done.bin", touched: 30)
+
+        FolderModelDownloader.removeStalePartFolders(in: modelsDir)
+
+        XCTAssertFalse(fm.fileExists(atPath: stale.path))
+        XCTAssertTrue(fm.fileExists(atPath: recent.path))
+        XCTAssertTrue(fm.fileExists(atPath: finished.path))
+    }
 }
 
 /// Progress values, collected from any thread.

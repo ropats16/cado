@@ -1,11 +1,13 @@
 import Foundation
 
-/// One file of a folder model, pinned: where it comes from, where it goes
-/// in the folder, and what it must be.
+/// One file of a model, pinned: where it comes from, where it goes in the
+/// folder, and what it must be.
 struct PinnedFile: Equatable, Sendable {
-    /// `<repo>/resolve/<commit>/<path>` on Hugging Face.
+    /// `<repo>/resolve/<commit>/<path>` on Hugging Face (`main` for
+    /// whisper.cpp's files, as `make model` fetches them).
     let source: String
-    /// Relative to the model folder; what the manifest lists.
+    /// Relative to the model folder; what the manifest lists. A one-file
+    /// model's file name (`ModelDownload.file`).
     let path: String
     let bytes: Int64
     /// Lowercase hex.

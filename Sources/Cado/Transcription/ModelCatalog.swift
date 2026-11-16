@@ -22,6 +22,14 @@ struct WhisperModel: Hashable, Identifiable {
         return String(id[id.index(after: dash)...])
     }
 
+    /// The file as the in-app download fetches it (`WhisperEngine.inAppDownload`):
+    /// from where `scripts/download_model.sh` does, `main` of the official
+    /// ggml repo on Hugging Face. Pinned by size and SHA-256 only, not a
+    /// commit, like the script.
+    var pinnedFile: PinnedFile {
+        PinnedFile(source: "ggerganov/whisper.cpp/resolve/main/\(filename)", path: filename, bytes: bytes, sha256: sha256)
+    }
+
     /// e.g. "small.en-q5_1 (190 MB)".
     var label: String { "\(id) (\(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)))" }
 }

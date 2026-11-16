@@ -1,6 +1,6 @@
 import Foundation
 
-/// Fetches a folder model's pinned files (`FolderModelDownloader`). A port,
+/// Fetches a model's pinned files (`FolderModelDownloader`). A port,
 /// so Settings is testable without the network or the disk.
 protocol ModelDownloading: Sendable {
     /// `progress` gets the bytes in place so far, out of `download.totalBytes`.
@@ -31,18 +31,19 @@ struct DownloadableModel: Hashable, Identifiable {
 }
 
 /// Settings' Download button for engines whose models the app fetches itself
-/// (WhisperKit, Parakeet: `EngineDescriptor.inAppDownload`), mirroring Apple
+/// (whisper.cpp, WhisperKit, Parakeet: `EngineDescriptor.inAppDownload`), mirroring Apple
 /// Speech's: only on an explicit click, with progress, Cancel and the reason
 /// a download failed. Each not-downloaded model gets its own button; a
 /// finished one moves to the downloaded list, and if it's the model the
 /// settings select, the model settings are re-applied so the engine (which
-/// reported `.missing`) loads it. `make whisperkit-model` / `make
-/// parakeet-model` fetch the same pinned files.
+/// reported `.missing`) loads it. `make model` / `make whisperkit-model` /
+/// `make parakeet-model` fetch the same pinned files.
 ///
 /// Downloads are keyed by engine and model, not by the selected engine: one
 /// started before an engine switch keeps running and stays listed (named
 /// with its engine), so it can still be followed and cancelled. Cancel
-/// keeps `<id>.part/` to resume from; the row offers to discard it.
+/// keeps `<id>.part/` (`<file>.part` for whisper) to resume from; the row
+/// offers to discard it.
 extension SettingsViewModel {
 
     /// The Download list: the selected engine's not-downloaded models (in
@@ -67,7 +68,9 @@ extension SettingsViewModel {
     func canDownloadModel(_ key: ModelDownloadKey) -> Bool {
         guard !isDownloadingModel(key), let descriptor = engines.descriptor(for: key.engine),
               descriptor.inAppDownload(of: key.id, in: modelsDir) != nil else { return false }
-        return !descriptor.isPresent(descriptor.resolve(.named(key.id), in: modelContext(for: key.engine)))
+        var context = modelContext(for: key.engine)
+        context.customPath = ""   // a hand-set file would stand in for every named model
+        return !descriptor.isPresent(descriptor.resolve(.named(key.id), in: context))
     }
 
     /// Starts downloading model `key` (if `canDownloadModel`); the returned
@@ -122,7 +125,8 @@ extension SettingsViewModel {
     }
 
     /// Whether a stopped download of model `key` left its `<id>.part/`
-    /// folder (kept to resume from), so the row can offer to discard it.
+    /// folder or `<file>.part` (kept to resume from), so the row can offer
+    /// to discard it.
     func hasPartialDownload(_ key: ModelDownloadKey) -> Bool {
         guard !isDownloadingModel(key), let part = partFolder(key) else { return false }
         return FileManager.default.fileExists(atPath: part.path)
@@ -140,13 +144,14 @@ extension SettingsViewModel {
     }
 
     /// Whether the engine's model `spec` (reported missing) has a Download
-    /// button in the selected engine's list: its folder is where that
-    /// engine's download of the model named like it goes.
+    /// button in the selected engine's list: its path (folder or file) is
+    /// where that engine downloads one of its models to.
     func isDownloadableInApp(_ spec: ModelSpec) -> Bool {
         guard spec.engine == engine else { return false }
-        let folder = URL(fileURLWithPath: spec.path)
-        guard let download = descriptor.inAppDownload(of: folder.lastPathComponent, in: modelsDir) else { return false }
-        return download.destination.standardizedFileURL.path == folder.standardizedFileURL.path
+        let path = URL(fileURLWithPath: spec.path).standardizedFileURL.path
+        return descriptor.models.contains {
+            descriptor.inAppDownload(of: $0.id, in: modelsDir)?.destination.standardizedFileURL.path == path
+        }
     }
 
     // MARK: - Private
@@ -162,11 +167,11 @@ extension SettingsViewModel {
         modelDownloads[key] = .downloading(fraction: fraction)
     }
 
-    private func modelDownloadFinished(_ key: ModelDownloadKey, at folder: URL) {
+    private func modelDownloadFinished(_ key: ModelDownloadKey, at destination: URL) {
         modelDownloads[key] = nil
         objectWillChange.send()   // the model lists are read from disk
         let selected = selection(configStore.config).spec   // under Automatic, a Turbo download is its new pick
-        guard URL(fileURLWithPath: selected.path).standardizedFileURL == folder.standardizedFileURL else { return }
+        guard URL(fileURLWithPath: selected.path).standardizedFileURL.path == destination.standardizedFileURL.path else { return }
         modelSwitchError = nil
         onModelSettingsChange()
         onNeedsMenuRefresh()

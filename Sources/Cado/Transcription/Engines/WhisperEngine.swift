@@ -1,8 +1,9 @@
 import Foundation
 
-/// whisper.cpp as an `EngineDescriptor`: the existing catalog, auto-pick,
-/// checksums and `make model` hints, unchanged. Runs on every Mac (Metal on
-/// Apple Silicon, CPU on Intel) and every language, so it's the fallback.
+/// whisper.cpp as an `EngineDescriptor`: the catalog, auto-pick and
+/// checksums. A catalog model downloads in Settings (one file,
+/// `inAppDownload`) or by `make model`. Runs on every Mac (Metal on Apple
+/// Silicon, CPU on Intel) and every language, so it's the fallback.
 struct WhisperEngine: EngineDescriptor {
     let kind = EngineKind.whisper
 
@@ -23,8 +24,19 @@ struct WhisperEngine: EngineDescriptor {
         Set(ModelCatalog.models.filter { context.presentFilenames.contains($0.filename) }.map(\.id))
     }
 
+    /// Settings' Download, or `make model`, for a catalog file in the
+    /// models folder; nil for a custom file (nothing to fetch).
     func downloadHint(for spec: ModelSpec) -> ModelDownloadHint? {
-        ModelSelection.downloadCommand(for: spec).map(ModelDownloadHint.command)
+        ModelSelection.downloadCommand(for: spec).map { .inApp(command: $0) }
+    }
+
+    /// A catalog model's file, from where `make model` fetches it, into the
+    /// file `resolve` names: `<models>/ggml-<id>.bin`.
+    func inAppDownload(of id: String, in modelsDir: URL) -> ModelDownload? {
+        ModelCatalog.model(id: id).map { model in
+            .file(modelID: id, model.pinnedFile,
+                  destination: modelsDir.appendingPathComponent(model.filename, isDirectory: false))
+        }
     }
 
     /// Verified against the catalog checksum when it's a catalog file.

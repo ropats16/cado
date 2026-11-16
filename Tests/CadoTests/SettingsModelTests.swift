@@ -172,7 +172,7 @@ final class SettingsModelTests: XCTestCase {
     func testStatusHints() {
         let vm = makeVM(present: [])
         vm.modelStatusChanged(.missing)
-        XCTAssertEqual(vm.modelStatusHint, "Not downloaded. Run: make model MODEL=small.en-q5_1")
+        XCTAssertEqual(vm.modelStatusHint, "Not downloaded. Click Download below, or run: make model MODEL=small.en-q5_1")
 
         vm.modelStatusChanged(.verifying)
         XCTAssertEqual(vm.modelStatusHint, "Verifying the model's checksum (first use)…")

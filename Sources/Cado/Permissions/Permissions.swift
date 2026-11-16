@@ -8,7 +8,8 @@ import ApplicationServices
 /// - **Accessibility** (`AXIsProcessTrusted`) — for the global event tap,
 ///   the focused-field check, and synthetic ⌘V paste.
 final class Permissions {
-    private var hasPromptedForAccessibility = false
+    /// The system Accessibility prompt was shown this run (`requestAccessibility`).
+    private(set) var hasPromptedForAccessibility = false
 
     var microphone: MicrophonePermission {
         MicrophonePermission(AVCaptureDevice.authorizationStatus(for: .audio))

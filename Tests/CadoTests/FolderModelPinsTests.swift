@@ -48,8 +48,30 @@ final class FolderModelPinsTests: XCTestCase {
         XCTAssertEqual(parakeet.destination.path, "/tmp/vt/models/parakeet/parakeet-tdt-0.6b-v3")
 
         XCTAssertNil(WhisperKitEngine().inAppDownload(of: "my-finetune", in: dir), "nothing pinned to fetch")
-        XCTAssertNil(WhisperEngine().inAppDownload(of: "small.en-q5_1", in: dir), "whisper uses make model")
         XCTAssertNil(AppleSpeechEngine().inAppDownload(of: "en", in: dir), "the OS downloads its own")
+    }
+
+    /// whisper.cpp's catalog models download in-app as one file, from where
+    /// `make model` fetches them, into the file `resolve` names.
+    func testCatalogWhisperModelsDownloadInAppAsOneFile() throws {
+        let dir = URL(fileURLWithPath: "/tmp/vt/models")
+        let model = try XCTUnwrap(ModelCatalog.model(id: "small.en-q5_1"))
+        let download = try XCTUnwrap(WhisperEngine().inAppDownload(of: "small.en-q5_1", in: dir))
+
+        XCTAssertEqual(download.modelID, "small.en-q5_1")
+        XCTAssertEqual(download.layout, .file)
+        XCTAssertEqual(download.destination.path, "/tmp/vt/models/ggml-small.en-q5_1.bin")
+        XCTAssertEqual(download.destination.path,
+                       WhisperEngine().resolve(.named("small.en-q5_1"),
+                                               in: ModelContext(language: "en", hardware: .current, modelsDir: dir,
+                                                                presentFilenames: [])).path)
+        XCTAssertEqual(download.partFolder.path, "/tmp/vt/models/ggml-small.en-q5_1.bin.part", "the script's part name")
+        XCTAssertEqual(download.files, [PinnedFile(source: "ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin",
+                                                   path: "ggml-small.en-q5_1.bin", bytes: model.bytes, sha256: model.sha256)])
+        XCTAssertEqual(FolderModelDownloader.live.baseURL.appendingPathComponent(download.files[0].source).absoluteString,
+                       "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin")
+
+        XCTAssertNil(WhisperEngine().inAppDownload(of: "large-v1", in: dir), "not in the catalog: nothing pinned")
     }
 
     /// `shasum -a 256` lines sorted bytewise by path, as `scripts/lib/folder_model.sh` writes.

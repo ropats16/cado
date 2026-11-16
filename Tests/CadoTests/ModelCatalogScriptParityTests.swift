@@ -25,6 +25,15 @@ final class ModelCatalogScriptParityTests: XCTestCase {
         }
     }
 
+    /// Settings' Download fetches the file from where `make model` does.
+    func testTheInAppDownloadUsesTheScriptsSource() throws {
+        let source = try String(contentsOf: scripts.appendingPathComponent("download_model.sh"), encoding: .utf8)
+        let line = try XCTUnwrap(source.split(separator: "\n").first { $0.hasPrefix("BASE_URL=") })
+        let download = try XCTUnwrap(WhisperEngine().inAppDownload(of: "tiny.en", in: URL(fileURLWithPath: "/m")))
+        let url = FolderModelDownloader.live.baseURL.appendingPathComponent(download.files[0].source).absoluteString
+        XCTAssertEqual(line, "BASE_URL=\"${WHISPER_MODEL_BASE_URL:-\(url.dropLast("/ggml-tiny.en.bin".count))}\"")
+    }
+
     func testDetectHardwarePicksWhatTheAppPicks() throws {
         for (arch, appleSilicon) in [("arm64", true), ("x86_64", false)] {
             for gib: UInt64 in [4, 7, 8, 12, 15, 16, 24, 31, 32, 64] {

@@ -60,8 +60,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menu: StatusMenu!
     private var hotkeys: HotkeyManager?
     private var settingsWindowController: SettingsWindowController?
-    private weak var settingsViewModel: SettingsViewModel?
+    /// One for Settings and onboarding (made on first need by either), so a
+    /// download started in one window shows in the other.
+    private var settingsViewModel: SettingsViewModel?
     private var acknowledgementsWindowController: AcknowledgementsWindowController?
+    private var onboardingWindowController: OnboardingWindowController?
+    private var onboardingModel: OnboardingViewModel?
+    /// Launch opened onboarding instead of firing the system prompts; what's
+    /// still needed fires when it closes (once).
+    private var launchPromptsDeferred = false
 
     private var configIssues: [ConfigIssue] = []
     private var isMicWarm = false
@@ -79,8 +86,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startEngine()
         overlay = makeOverlay()
         dictation = makeDictationSession()
-        requestPermissionsIfNeeded()
+        // Start before deciding on onboarding: the first poll reads the real
+        // permissions (until then the monitor assumes none).
         monitor.start()
+        startOnboardingOrPrompt()
+    }
+
+    /// Returning from System Settings: show a permission change at once.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if MainActor.assumeIsolated({ isOnboardingVisible }) { monitor.recheck() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -93,6 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMenu() {
         menu = StatusMenu()
         menu.onAction = { [weak self] action in self?.perform(action) }
+        menu.onOpenOnboarding = { [weak self] in
+            MainActor.assumeIsolated { self?.openOnboarding(isFirstShow: false) }   // menu actions run on main
+        }
         menu.onOpenSettings = { [weak self] in self?.openSettings() }
         menu.onOpenAcknowledgements = { [weak self] in self?.openAcknowledgements() }
         menu.onOpenConfig = { [weak self] in self?.openConfig() }
@@ -110,6 +127,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.render(StatusMenuContent(status: monitor.status, inputs: monitor.inputs,
                                       hold: "\(config.hold)", toggle: "\(config.toggle)",
                                       configIssues: configIssues))
+        // Hotkeys rebound, models downloaded or the language changed.
+        MainActor.assumeIsolated {
+            if isOnboardingVisible { onboardingModel?.refresh() }
+        }
     }
 
     /// Logs each invalid/conflicting binding (errors via `Log.error`, warnings
@@ -128,6 +149,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func wireMonitor() {
         monitor.onInputsChange = { [weak self] inputs in
+            MainActor.assumeIsolated {   // the monitor runs on main
+                if self?.isOnboardingVisible == true { self?.onboardingModel?.inputsChanged(inputs) }
+            }
             self?.refreshMenu()
             if inputs.microphone == .authorized { self?.keepMicWarmIfConfigured() }
         }
@@ -144,6 +168,100 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func requestPermissionsIfNeeded() {
         permissions.requestMicrophone { [weak self] _ in self?.monitor.recheck() }
         if !permissions.isAccessibilityTrusted() {
+            Log.info("Accessibility not yet granted; prompting user.")
+            permissions.requestAccessibility()
+        }
+    }
+
+    // MARK: - Onboarding (#22)
+
+    /// Launch: onboarding the first time (instead of the system prompts, so
+    /// none fires behind it); an already-set-up install (an upgrade) is
+    /// recorded as done without it; otherwise the prompts, as before.
+    /// Whether a model is installed never blocks: where Apple Speech could be
+    /// the model, its state is asked in the background first.
+    private func startOnboardingOrPrompt() {
+        let config = configStore.config
+        guard !config.onboardingDone else { requestPermissionsIfNeeded(); return }   // before any Apple Speech wait
+        let asksAppleSpeech = automaticAsksAppleSpeech || engine.model.engine == .appleSpeech
+        if asksAppleSpeech, !speechPresence.isKnown(language: config.language) {
+            speechPresence.refresh(language: config.language) { [weak self] _ in self?.startOnboardingOrPrompt() }
+            return
+        }
+        switch OnboardingLaunch.decide(done: config.onboardingDone, inputs: monitor.inputs, modelInstalled: isModelInstalled) {
+        case .show:
+            launchPromptsDeferred = true
+            MainActor.assumeIsolated { openOnboarding(isFirstShow: true) }   // launch and the refresh callback run on main
+        case .markDone:
+            configStore.update { $0.onboardingDone = true }
+            requestPermissionsIfNeeded()
+        case .nothing:
+            requestPermissionsIfNeeded()
+        }
+    }
+
+    /// A model the config would load is installed (`engineFacts`: no blocking).
+    private var isModelInstalled: Bool {
+        let facts = engineFacts
+        let spec = ModelSelection.select(configStore.config, presentFilenames: ModelSelection.presentFilenames(),
+                                         facts: facts).spec
+        return facts.isPresent(spec)
+    }
+
+    @MainActor private var isOnboardingVisible: Bool { onboardingWindowController?.isVisible == true }
+
+    /// Opens onboarding, or brings it forward. Reopened (from the menu), it
+    /// lands where setup stands.
+    @MainActor private func openOnboarding(isFirstShow: Bool) {
+        if let model = onboardingModel {
+            if !isOnboardingVisible {
+                model.refresh()
+                model.inputsChanged(monitor.inputs)
+                model.reopened()
+            }
+        } else {
+            let model = OnboardingViewModel(
+                config: { [configStore] in configStore.config },
+                inputs: monitor.inputs,
+                downloads: sharedSettingsViewModel(),
+                options: { [weak self] in self?.onboardingOptions() ?? [] },
+                isFirstShow: isFirstShow,
+                perform: { [weak self] in self?.perform($0) },
+                onFinish: { [weak self] in self?.finishOnboarding() })
+            let controller = OnboardingWindowController(viewModel: model)
+            controller.onClose = { [weak self] in self?.onboardingClosed() }
+            onboardingModel = model
+            onboardingWindowController = controller
+        }
+        onboardingWindowController?.show()
+    }
+
+    private func onboardingOptions() -> [OnboardingModelOption] {
+        OnboardingModels.options(configStore.config, environment: .current, engines: .shared,
+                                 modelsDir: Paths.modelsDir, presentFilenames: ModelSelection.presentFilenames(),
+                                 facts: engineFacts)
+    }
+
+    /// Done / Finish later: the user has seen it, so it doesn't open by
+    /// itself again — also with something still missing (a microphone an
+    /// administrator blocks can never be finished); the menu reopens it.
+    /// Only the close button leaves it for the next launch.
+    @MainActor private func finishOnboarding() {
+        configStore.update { $0.onboardingDone = true }
+        if isOnboardingVisible { onboardingWindowController?.close() }
+    }
+
+    /// Closed (either way) while launch's prompts waited on it: fire what's
+    /// still needed, once — the microphone only if never asked, the
+    /// Accessibility prompt only if not already shown this run — so skipping
+    /// setup still asks, as launch did before onboarding.
+    private func onboardingClosed() {
+        guard launchPromptsDeferred else { return }
+        launchPromptsDeferred = false
+        if permissions.microphone == .notDetermined {
+            permissions.requestMicrophone { [weak self] _ in self?.monitor.recheck() }
+        }
+        if !permissions.hasPromptedForAccessibility, !permissions.isAccessibilityTrusted() {
             Log.info("Accessibility not yet granted; prompting user.")
             permissions.requestAccessibility()
         }
@@ -335,36 +453,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // actor so we can create @MainActor-isolated types synchronously.
         MainActor.assumeIsolated {
             if settingsWindowController == nil {
-                let vm = SettingsViewModel(
-                    configStore: configStore,
-                    loginItem: loginItem,
-                    availableMics: { AudioDevices.inputDevices() },
-                    presentModelFilenames: { ModelSelection.presentFilenames() },
-                    onNeedsMenuRefresh: { [weak self] in self?.refreshMenu() },
-                    // Suspends the tap during live hotkey capture so it doesn't
-                    // swallow the chosen key; resuming reinstalls it from the
-                    // (possibly rebound) config.
-                    pauseHotkeys: { [weak self] in self?.pauseHotkeys() },
-                    reloadHotkeys: { [weak self] in self?.monitor.resumeHotkeys() },
-                    hardware: .current,
-                    currentModel: { [engine] in engine.model },
-                    modelStatus: engine.status,
-                    onModelSettingsChange: { [weak self] in
-                        self?.failedAutomaticEngines = []   // a settings change retries them
-                        self?.applyModelSettings()
-                    },
-                    onMascotSettingsChange: { [weak self] in
-                        guard let self else { return }
-                        overlay?.apply(MascotOverlay.Settings(configStore.config))
-                    },
-                    isFirstLoad: { [loadHistory] in EngineRegistry.shared.isFirstLoad($0, history: loadHistory) },
-                    engineFacts: { [weak self] in self?.engineFacts }
-                )
-                settingsViewModel = vm
-                settingsWindowController = SettingsWindowController(viewModel: vm)
+                settingsWindowController = SettingsWindowController(viewModel: sharedSettingsViewModel())
             }
             settingsWindowController?.show()
         }
+    }
+
+    /// The one `SettingsViewModel`, made on first need.
+    @MainActor private func sharedSettingsViewModel() -> SettingsViewModel {
+        if let settingsViewModel { return settingsViewModel }
+        let vm = SettingsViewModel(
+            configStore: configStore,
+            loginItem: loginItem,
+            availableMics: { AudioDevices.inputDevices() },
+            presentModelFilenames: { ModelSelection.presentFilenames() },
+            onNeedsMenuRefresh: { [weak self] in self?.refreshMenu() },
+            // Suspends the tap during live hotkey capture so it doesn't
+            // swallow the chosen key; resuming reinstalls it from the
+            // (possibly rebound) config.
+            pauseHotkeys: { [weak self] in self?.pauseHotkeys() },
+            reloadHotkeys: { [weak self] in self?.monitor.resumeHotkeys() },
+            hardware: .current,
+            currentModel: { [engine] in engine.model },
+            modelStatus: engine.status,
+            // Also how a finished download is loaded (it re-resolves the model).
+            onModelSettingsChange: { [weak self] in
+                self?.failedAutomaticEngines = []   // a settings change retries them
+                self?.applyModelSettings()
+            },
+            onMascotSettingsChange: { [weak self] in
+                guard let self else { return }
+                overlay?.apply(MascotOverlay.Settings(configStore.config))
+            },
+            isFirstLoad: { [loadHistory] in EngineRegistry.shared.isFirstLoad($0, history: loadHistory) },
+            engineFacts: { [weak self] in self?.engineFacts }
+        )
+        settingsViewModel = vm
+        return vm
     }
 
     private func openAcknowledgements() {
