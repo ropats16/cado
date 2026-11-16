@@ -37,45 +37,63 @@ enum MeetingApps {
     }
 }
 
-/// Which Core Audio processes are an app's: how a tap follows one app.
+/// Which Core Audio processes are an app's: how a tap follows one app, and
+/// only that app — "Them" is never another app's audio.
 ///
-/// A process belongs to the app (`bundleID`, main `pid`) when any of:
-/// 1. it is the app's process;
-/// 2. its bundle ID is the app's, or starts with it plus "." —
+/// A process belongs to the app (`bundleID`, main `pid`) when:
+/// 1. it is the app's process, or the app's pid comes first in its chain of
+///    ancestors (helpers the app launched: Chrome/Electron/Brave helpers are
+///    its children) — and never when another running app's does (its own
+///    process, or a helper it launched, whatever its bundle ID);
+/// 2. otherwise (a launchd child, or a helper that outlived or predates the
+///    pid), its bundle ID is the app's, or starts with it plus "." —
 ///    case-insensitive (`com.brave.Browser.helper`; Arc's helpers are
-///    `company.thebrowser.browser.helper`);
-/// 3. the app's pid is among its ancestors (helpers the app launched itself:
-///    Chrome/Electron/Brave helpers are its children);
-/// 4. its bundle ID is in the app's `MeetingApps` `alsoTaps`.
-/// 2 also catches helpers that outlive or predate the pid (a relaunch); 3
-/// catches helpers with unrelated bundle IDs. XPC services launched by
-/// launchd (WebKit's GPU process) match neither: that's what 4 is for.
+///    `company.thebrowser.browser.helper`) — unless a running app with a
+///    longer such ID claims it (Chrome Canary's `com.google.Chrome.canary…`
+///    isn't Chrome's, nor Edge Beta's Edge's);
+/// 3. or its bundle ID is in the app's `MeetingApps` `alsoTaps`: XPC
+///    services launched by launchd. WebKit's GPU process is shared by every
+///    WebKit app and can't be told apart by public API, so Safari's tap
+///    hears other WebKit apps' media too (a known limitation).
 enum AudioProcessMatcher {
     /// Ancestors checked before giving up; helpers sit one or two levels down.
     static let maxDepth = 8
 
+    /// `otherApps`: the running regular apps (the app itself may be among
+    /// them), whose processes are never the app's.
     static func processes(of bundleID: String, pid: pid_t, in processes: [AudioProcess],
-                          parentPID: (pid_t) -> pid_t?) -> [AudioProcess] {
+                          otherApps: [RunningApp], parentPID: (pid_t) -> pid_t?) -> [AudioProcess] {
         let also = Set((MeetingApps.entry(for: bundleID)?.alsoTaps ?? []).map { $0.lowercased() })
         let prefix = bundleID.lowercased()
+        let others = otherApps.filter { $0.pid != pid && $0.bundleID.lowercased() != prefix }
+        let otherPIDs = Set(others.map(\.pid))
+        let longerIDs = others.map { $0.bundleID.lowercased() }.filter { $0.hasPrefix(prefix + ".") }
         return processes.filter { process in
-            if process.pid == pid { return true }
-            if let id = process.bundleID?.lowercased() {
-                if id == prefix || id.hasPrefix(prefix + ".") || also.contains(id) { return true }
+            switch owner(of: process.pid, app: pid, others: otherPIDs, parentPID: parentPID) {
+            case .app: return true
+            case .other: return false
+            case .unknown:
+                guard let id = process.bundleID?.lowercased() else { return false }
+                if also.contains(id) { return true }
+                guard id == prefix || id.hasPrefix(prefix + ".") else { return false }
+                return !longerIDs.contains { id == $0 || id.hasPrefix($0 + ".") }
             }
-            return descends(process.pid, from: pid, parentPID: parentPID)
         }
     }
 
-    private static func descends(_ child: pid_t, from ancestor: pid_t, parentPID: (pid_t) -> pid_t?) -> Bool {
-        guard ancestor > 1 else { return false }
+    private enum Owner { case app, other, unknown }
+
+    /// Whose process `child` is, by the first app pid in its ancestry.
+    private static func owner(of child: pid_t, app: pid_t, others: Set<pid_t>,
+                              parentPID: (pid_t) -> pid_t?) -> Owner {
         var current = child
-        for _ in 0..<maxDepth {
-            guard let parent = parentPID(current), parent > 1, parent != current else { return false }
-            if parent == ancestor { return true }
+        for _ in 0...maxDepth {
+            if current == app && app > 1 { return .app }
+            if others.contains(current) { return .other }
+            guard let parent = parentPID(current), parent > 1, parent != current else { return .unknown }
             current = parent
         }
-        return false
+        return .unknown
     }
 }
 
@@ -116,7 +134,7 @@ enum RecordableApps {
             let key = app.bundleID.lowercased()
             guard key != ownBundleID.lowercased(), seen.insert(key).inserted else { return nil }
             let count = AudioProcessMatcher.processes(of: app.bundleID, pid: app.pid, in: processes,
-                                                      parentPID: parentPID).count
+                                                      otherApps: running, parentPID: parentPID).count
             let known = MeetingApps.entry(for: app.bundleID) != nil
             guard count > 0 || known else { return nil }
             return RecordableApp(name: app.name, bundleID: app.bundleID, pid: app.pid,

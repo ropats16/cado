@@ -16,12 +16,11 @@ struct AudioProcess: Equatable, Hashable {
     let bundleID: String?
 }
 
-/// Which processes a tap mixes (always to mono).
+/// Which processes a tap mixes (always to mono). Never a global tap: Cado
+/// records one app's audio, not everything the Mac plays.
 enum TapScope: Equatable {
     /// Just these process objects; empty is valid (the tap delivers silence).
     case processes([AudioObjectID])
-    /// Every process's output except these.
-    case allExcept([AudioObjectID])
 }
 
 /// A running IOProc's registration, handed back to `destroyIOProc`.
@@ -109,7 +108,6 @@ final class CoreAudioProcessTapHAL: ProcessTapHAL {
         let description: CATapDescription
         switch scope {
         case .processes(let objects): description = CATapDescription(monoMixdownOfProcesses: objects)
-        case .allExcept(let objects): description = CATapDescription(monoGlobalTapButExcludeProcesses: objects)
         }
         description.name = "Cado system audio"
         description.isPrivate = true

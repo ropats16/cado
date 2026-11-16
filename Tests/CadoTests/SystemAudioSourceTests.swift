@@ -153,9 +153,20 @@ final class SystemAudioSourceTests: XCTestCase {
         super.tearDown()
     }
 
+    /// The running apps the source sees (read on the capture's queue).
+    private final class Running: @unchecked Sendable {
+        private let lock = NSLock()
+        private var apps = [RunningApp(name: "zoom.us", bundleID: "us.zoom.xos", pid: 100),
+                            RunningApp(name: "Spotify", bundleID: "com.spotify.client", pid: 200)]
+        var list: [RunningApp] { lock.withLock { apps } }
+        func launch(_ app: RunningApp) { lock.withLock { apps.append(app) } }
+    }
+    private let running = Running()
+
     private func source(_ target: SystemAudioTarget? = nil, observations: SystemAudioObservations = SystemAudioObservations(),
                         settle: TimeInterval = 0.05) -> SystemAudioSource {
-        SystemAudioSource(target: target ?? zoom, hal: hal, observations: observations, settleDelay: settle)
+        SystemAudioSource(target: target ?? zoom, hal: hal, runningApps: { [running] in running.list },
+                          observations: observations, settleDelay: settle)
     }
 
     private var input: CaptureInput { CaptureInput(ring: ring, flush: {}) }
@@ -176,13 +187,6 @@ final class SystemAudioSourceTests: XCTestCase {
         let source = source(.app(bundleID: "com.apple.Safari", pid: 300))
         _ = try source.start(input)
         XCTAssertEqual(hal.scopes, [.processes([])], "Silence until its first audio process appears")
-        source.stop()
-    }
-
-    func testTheGlobalFallbackExcludesOnlyCado() throws {
-        let source = source(.everythingExceptCado)
-        _ = try source.start(input)
-        XCTAssertEqual(hal.scopes, [.allExcept([30])])
         source.stop()
     }
 
@@ -264,6 +268,10 @@ final class SystemAudioSourceTests: XCTestCase {
 
         hal.processes.append(AudioProcess(object: 21, pid: 201, bundleID: "com.spotify.client.helper"))
         XCTAssertFalse(source.needsRestart, "Another app's helper isn't Zoom's business")
+
+        running.launch(RunningApp(name: "Zoom Beta", bundleID: "us.zoom.xos.beta", pid: 300))
+        hal.processes.append(AudioProcess(object: 31, pid: 300, bundleID: "us.zoom.xos.beta"))
+        XCTAssertFalse(source.needsRestart, "Another app whose id starts with Zoom's isn't Zoom")
 
         hal.processes.append(AudioProcess(object: 12, pid: 102, bundleID: "us.zoom.CptHost"))
         hal.parents[102] = 100
@@ -397,6 +405,37 @@ final class SystemAudioSourceTests: XCTestCase {
         XCTAssertTrue(source!.hasHeardSound, "Kept across stop/restart")
         source = nil
         XCTAssertTrue(observations.hasHeardSound, "Kept after the source is gone")
+    }
+
+    /// Stands in for a source whose last strong reference goes while its
+    /// evidence is being read.
+    private final class VanishingEvidence: HeardSoundEvidence {
+        static var holder: VanishingEvidence?
+        let observations: SystemAudioObservations
+        init(_ observations: SystemAudioObservations) { self.observations = observations }
+        deinit { observations.forget(self) }
+        var hasHeardSound: Bool {
+            Self.holder = nil   // e.g. the capture released on another thread
+            return true
+        }
+    }
+
+    func testReadingTheEvidenceWhileASourceGoesAwayDoesntDeadlock() {
+        let observations = SystemAudioObservations()
+        var evidence: VanishingEvidence? = VanishingEvidence(observations)
+        VanishingEvidence.holder = evidence
+        observations.watch(evidence!)
+        evidence = nil   // only `holder` keeps it now
+
+        let done = DispatchSemaphore(value: 0)
+        var heard = false
+        Thread.detachNewThread {
+            heard = observations.hasHeardSound
+            done.signal()
+        }
+
+        XCTAssertEqual(done.wait(timeout: .now() + 2), .success, "The source's deinit took the lock the read held")
+        XCTAssertTrue(heard)
     }
 
     func testTheCallbackDropsWhatTheRingCantHoldAndCountsWhatItWrote() {

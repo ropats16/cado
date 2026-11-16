@@ -18,15 +18,13 @@ enum SystemAudioSourceError: LocalizedError, Equatable {
     }
 }
 
-/// Whose audio a `SystemAudioSource` records.
+/// Whose audio a `SystemAudioSource` records: only ever one app, never the
+/// whole Mac's.
 enum SystemAudioTarget: Equatable {
     /// One app — the meeting app — through its own and its helper processes
-    /// (`AudioProcessMatcher`). `pid` is its main process. From
-    /// `RecordableApp.target`.
+    /// (`AudioProcessMatcher`), never another running app's. `pid` is its
+    /// main process. From `RecordableApp.target`.
     case app(bundleID: String, pid: pid_t)
-    /// Everything the Mac plays except Cado. A diagnostic fallback
-    /// (`--system-audio-test --all`), never a meeting's default.
-    case everythingExceptCado
 }
 
 /// System-audio adapter: what an app plays (the other side of a call),
@@ -74,6 +72,7 @@ final class SystemAudioSource: AudioSource {
 
     let target: SystemAudioTarget
     private let hal: ProcessTapHAL?
+    private let runningApps: () -> [RunningApp]
     private let observations: SystemAudioObservations
     private let settleDelay: TimeInterval
 
@@ -83,7 +82,7 @@ final class SystemAudioSource: AudioSource {
     private var ioProc: IOProcToken?
     private var deviceStarted = false
     private var openedFormat: AudioStreamBasicDescription?
-    /// The process objects the running tap mixes (`.app` targets).
+    /// The process objects the running tap mixes.
     private var tappedProcesses: Set<AudioObjectID> = []
     private var listeners: [ListenerToken] = []
 
@@ -100,12 +99,15 @@ final class SystemAudioSource: AudioSource {
     private var heardInEarlierRun = false
 
     /// `hal` nil = unsupported OS: `start` throws `.unsupportedOS`.
-    /// `settleDelay`: how long the app's process list must be quiet before
-    /// the tap is rebuilt around it.
+    /// `runningApps`: the other apps whose processes must never be tapped
+    /// (read on the capture's queue). `settleDelay`: how long the app's
+    /// process list must be quiet before the tap is rebuilt around it.
     init(target: SystemAudioTarget, hal: ProcessTapHAL? = SystemAudioSource.liveHAL(),
+         runningApps: @escaping () -> [RunningApp] = RecordableApps.runningApps,
          observations: SystemAudioObservations = .shared, settleDelay: TimeInterval = 1.0) {
         self.target = target
         self.hal = hal
+        self.runningApps = runningApps
         self.observations = observations
         self.settleDelay = settleDelay
     }
@@ -134,12 +136,7 @@ final class SystemAudioSource: AudioSource {
         return !hal.isRunning(device)
             || current?.mSampleRate != openedFormat?.mSampleRate
             || current?.mChannelsPerFrame != openedFormat?.mChannelsPerFrame
-            || targetProcesses(hal).map(Set.init) != tappedProcessesIfApp
-    }
-
-    private var tappedProcessesIfApp: Set<AudioObjectID>? {
-        if case .app = target { return tappedProcesses }
-        return nil
+            || Set(targetProcesses(hal)) != tappedProcesses
     }
 
     /// The tap's device keeps calling back with zeros while nothing plays
@@ -156,29 +153,24 @@ final class SystemAudioSource: AudioSource {
         }
     }
 
-    /// The target app's process objects now; nil for a global tap.
-    private func targetProcesses(_ hal: ProcessTapHAL) -> [AudioObjectID]? {
-        guard case .app(let bundleID, let pid) = target else { return nil }
-        return AudioProcessMatcher.processes(of: bundleID, pid: pid, in: hal.audioProcesses(),
-                                             parentPID: hal.parentPID(of:)).map(\.object)
+    /// The target app's process objects now.
+    private func targetProcesses(_ hal: ProcessTapHAL) -> [AudioObjectID] {
+        switch target {
+        case .app(let bundleID, let pid):
+            return AudioProcessMatcher.processes(of: bundleID, pid: pid, in: hal.audioProcesses(),
+                                                 otherApps: runningApps(), parentPID: hal.parentPID(of:)).map(\.object)
+        }
     }
 
     /// Builds and starts tap → aggregate device → IOProc, leaving whatever it
     /// got to for `stop`.
     private func open(_ input: CaptureInput, _ hal: ProcessTapHAL) throws -> Double {
         // Listen first, so a helper appearing during start is caught.
-        if case .app = target {
-            listen(hal, to: AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyProcessObjectList,
-                   settling: true)
-        }
-        let scope: TapScope
-        if let processes = targetProcesses(hal) {
-            scope = .processes(processes)
-            tappedProcesses = Set(processes)
-        } else {
-            let own = hal.audioProcesses().filter { $0.pid == getpid() }.map(\.object)
-            scope = .allExcept(own)
-        }
+        listen(hal, to: AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyProcessObjectList,
+               settling: true)
+        let processes = targetProcesses(hal)
+        tappedProcesses = Set(processes)
+        let scope = TapScope.processes(processes)
         let created = try step("creating the system-audio tap") { try hal.createTap(scope) }
         tap = created.tap
         listen(hal, to: created.tap, kAudioTapPropertyFormat)
@@ -258,7 +250,6 @@ final class SystemAudioSource: AudioSource {
     private func describe(_ scope: TapScope) -> String {
         switch (target, scope) {
         case (.app(let bundleID, _), .processes(let processes)): return "\(bundleID) (\(processes.count) process(es))"
-        default: return "all system audio except Cado"
         }
     }
 
@@ -292,10 +283,20 @@ final class SystemAudioSource: AudioSource {
     }
 }
 
+/// A live source of permission evidence (`SystemAudioSource`).
+protocol HeardSoundEvidence: AnyObject {
+    var hasHeardSound: Bool { get }
+}
+
+extension SystemAudioSource: HeardSoundEvidence {}
+
 /// What this run has seen of the system-audio permission, for readiness.
 /// No public API reads the permission, so the only evidence is a running
 /// tap delivering sound. Kept in memory only: the grant is tied to the code
 /// signature and can be revoked at any time, so an old observation could lie.
+///
+/// A watched source is only ever made strong outside `lock`: its last
+/// release can run its deinit, which calls `forget` and takes the lock.
 final class SystemAudioObservations {
     static let shared = SystemAudioObservations()
 
@@ -303,14 +304,16 @@ final class SystemAudioObservations {
     private var confirmed = false
     private var sources: [ObjectIdentifier: WeakSource] = [:]
 
-    private struct WeakSource { weak var source: SystemAudioSource? }
+    private struct WeakSource { weak var source: HeardSoundEvidence? }
 
     /// Whether any system-audio capture this run has delivered sound.
     var hasHeardSound: Bool {
-        lock.withLock {
-            if !confirmed && sources.values.contains(where: { $0.source?.hasHeardSound == true }) { confirmed = true }
-            return confirmed
-        }
+        // Copying the weak references takes no strong ones.
+        let (known, watched) = lock.withLock { (confirmed, Array(sources.values)) }
+        if known { return true }
+        guard watched.contains(where: { $0.source?.hasHeardSound == true }) else { return false }
+        noteHeardSound()
+        return true
     }
 
     /// Records a sound heard by a source that's going away.
@@ -318,11 +321,11 @@ final class SystemAudioObservations {
         lock.withLock { confirmed = true }
     }
 
-    func watch(_ source: SystemAudioSource) {
+    func watch(_ source: HeardSoundEvidence) {
         lock.withLock { sources[ObjectIdentifier(source)] = WeakSource(source: source) }
     }
 
-    func forget(_ source: SystemAudioSource) {
+    func forget(_ source: HeardSoundEvidence) {
         lock.withLock { _ = sources.removeValue(forKey: ObjectIdentifier(source)) }
     }
 }

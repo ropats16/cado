@@ -15,8 +15,10 @@ final class RecordableAppsTests: XCTestCase {
     ]
     private var parents: [pid_t: pid_t] = [14461: 1286, 14462: 1286]
 
-    private func matches(_ bundleID: String, pid: pid_t, in processes: [AudioProcess]) -> [AudioObjectID] {
-        AudioProcessMatcher.processes(of: bundleID, pid: pid, in: processes, parentPID: { [parents] in parents[$0] })
+    private func matches(_ bundleID: String, pid: pid_t, in processes: [AudioProcess],
+                         running: [RunningApp] = []) -> [AudioObjectID] {
+        AudioProcessMatcher.processes(of: bundleID, pid: pid, in: processes, otherApps: running,
+                                      parentPID: { [parents] in parents[$0] })
             .map(\.object)
     }
 
@@ -46,6 +48,48 @@ final class RecordableAppsTests: XCTestCase {
         parents[5283] = 1
         XCTAssertEqual(matches("com.spotify.client", pid: 900, in: processes), [6])
         XCTAssertFalse(matches("com.brave.Browser", pid: 1286, in: processes).contains(5))
+    }
+
+    // MARK: Only the chosen app (Them is never another app)
+
+    /// Chrome and Chrome Canary side by side: Canary's ids start with Chrome's.
+    private let chromes = [
+        AudioProcess(object: 1, pid: 10, bundleID: "com.google.Chrome"),
+        AudioProcess(object: 2, pid: 11, bundleID: "com.google.Chrome.helper"),
+        AudioProcess(object: 3, pid: 20, bundleID: "com.google.Chrome.canary"),
+        AudioProcess(object: 4, pid: 21, bundleID: "com.google.Chrome.canary.helper"),
+        AudioProcess(object: 5, pid: 22, bundleID: "com.google.Chrome.canary.helper"),   // launchd child
+    ]
+    private let chromeApps = [RunningApp(name: "Google Chrome", bundleID: "com.google.Chrome", pid: 10),
+                              RunningApp(name: "Google Chrome Canary", bundleID: "com.google.Chrome.canary", pid: 20)]
+
+    func testAnotherRunningAppWhoseIDStartsWithTheChosenOnesIsNotTapped() {
+        parents = [11: 10, 21: 20, 22: 1]
+        XCTAssertEqual(matches("com.google.Chrome", pid: 10, in: chromes, running: chromeApps), [1, 2],
+                       "Canary, its child helper and its own-id helper belong to Canary")
+        XCTAssertEqual(matches("com.google.Chrome.canary", pid: 20, in: chromes, running: chromeApps), [3, 4, 5],
+                       "…and choosing Canary taps all of Canary's")
+    }
+
+    func testEdgeBetaIsNotEdge() {
+        let processes = [AudioProcess(object: 1, pid: 30, bundleID: "com.microsoft.edgemac"),
+                         AudioProcess(object: 2, pid: 31, bundleID: "com.microsoft.edgemac.helper"),
+                         AudioProcess(object: 3, pid: 40, bundleID: "com.microsoft.edgemac.Beta"),
+                         AudioProcess(object: 4, pid: 41, bundleID: "com.microsoft.edgemac.Beta.helper")]
+        parents = [31: 30, 41: 40]
+        let running = [RunningApp(name: "Microsoft Edge", bundleID: "com.microsoft.edgemac", pid: 30),
+                       RunningApp(name: "Microsoft Edge Beta", bundleID: "com.microsoft.edgemac.Beta", pid: 40)]
+        XCTAssertEqual(matches("com.microsoft.edgemac", pid: 30, in: processes, running: running), [1, 2])
+    }
+
+    func testAProcessDescendedFromAnotherAppIsThatAppsWhateverItsBundleID() {
+        let processes = [AudioProcess(object: 1, pid: 10, bundleID: "com.google.Chrome"),
+                         AudioProcess(object: 2, pid: 51, bundleID: "com.google.Chrome.helper")]
+        parents = [51: 50]
+        let running = [RunningApp(name: "Google Chrome", bundleID: "com.google.Chrome", pid: 10),
+                       RunningApp(name: "Some IDE", bundleID: "com.example.ide", pid: 50)]
+        XCTAssertEqual(matches("com.google.Chrome", pid: 10, in: processes, running: running), [1],
+                       "A Chrome-named helper another app launched plays that app's audio")
     }
 
     func testSafariAlsoTapsWebKitsGPUProcess() {

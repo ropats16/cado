@@ -23,7 +23,13 @@ cat /tmp/cado-sat.log
 - [ ] Play a call or video in Chrome/Edge/Brave/Arc, then `--list` again: its
       helper processes (`….helper`) appear under the browser.
 - [ ] Safari: play a video; Safari's entry includes `com.apple.WebKit.GPU`
-      processes (all WebKit apps' — expected).
+      processes. Known limitation: that process is shared by every WebKit app
+      (Mail, apps with web views) and can't be told apart by public API, so a
+      Safari meeting's "Them" can include their sound too (README, Meeting
+      notes). Every other app's tap is that app alone.
+- [ ] Chrome and Chrome Canary (or Edge and Edge Beta) both running and
+      playing: Chrome's entry lists none of Canary's processes, and Canary's
+      none of Chrome's.
 
 ## Recording one app
 
@@ -52,5 +58,6 @@ cat /tmp/cado-sat.log; afplay /tmp/cado-sat.wav
       "tapping … (N process(es))"), then start a video: the log shows a
       restart ("Audio route changed; restarting capture.") and the WAV has the
       video from shortly after it began.
-- [ ] Switch output (speakers ↔ AirPods) during a run: the WAV continues
-      (small gap at the switch).
+- [ ] Switch output (speakers ↔ AirPods) during a run: the WAV continues,
+      with a short silence at the switch (kept, not cut: the WAV stays as long
+      as the run, as a meeting's stream does).

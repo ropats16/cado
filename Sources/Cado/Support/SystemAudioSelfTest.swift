@@ -1,15 +1,14 @@
 import AVFoundation
 import Foundation
 
-/// `Cado --system-audio-test [--list] [--app <bundle id> | --all] [--seconds <n>] [--out <file.wav>]`
+/// `Cado --system-audio-test [--list] [--app <bundle id>] [--seconds <n>] [--out <file.wav>]`
 ///
 /// `--list` prints the apps a meeting could record (`RecordableApps`) and
 /// the Core Audio processes each one's tap would mix, then exits.
 ///
 /// Otherwise records `n` seconds (default 5) of one app's audio (`--app`;
-/// with neither flag, the one running known meeting app) — or, with
-/// `--all`, everything the Mac plays except Cado — through the same capture
-/// path a meeting uses (`SystemAudioSource` in an `AudioCapture`), writes it
+/// without it, the one running known meeting app) — never everything the
+/// Mac plays — through the same capture path a meeting uses (`SystemAudioSource` in an `AudioCapture`), writes it
 /// as a 16 kHz mono WAV (default: the temp folder's
 /// `cado-system-audio-test.wav`), and reports whether any sound arrived.
 /// Play something in that app while it runs.
@@ -29,7 +28,7 @@ enum SystemAudioSelfTest {
         let out = URL(fileURLWithPath: CommandLineSupport.value("--out", in: arguments)
                       ?? NSTemporaryDirectory() + "cado-system-audio-test.wav")
         guard seconds > 0 else {
-            err("usage: Cado --system-audio-test [--list] [--app <bundle id> | --all] [--seconds <n>] [--out <file.wav>]")
+            err("usage: Cado --system-audio-test [--list] [--app <bundle id>] [--seconds <n>] [--out <file.wav>]")
             return 2
         }
         guard SystemAudioSource.isSupported, let hal = SystemAudioSource.liveHAL() else {
@@ -43,9 +42,7 @@ enum SystemAudioSelfTest {
         }
 
         let target: SystemAudioTarget
-        if arguments.contains("--all") {
-            target = .everythingExceptCado
-        } else if let bundleID = CommandLineSupport.value("--app", in: arguments) {
+        if let bundleID = CommandLineSupport.value("--app", in: arguments) {
             guard let app = RecordableApps.runningApps().first(where: {
                 $0.bundleID.caseInsensitiveCompare(bundleID) == .orderedSame
             }) else {
@@ -56,7 +53,7 @@ enum SystemAudioSelfTest {
         } else {
             let meetingApps = apps.filter(\.isKnownMeetingApp)
             guard meetingApps.count == 1 else {
-                err("\(meetingApps.count) known meeting apps are running: pass --app <bundle id> (or --all).")
+                err("\(meetingApps.count) known meeting apps are running: pass --app <bundle id>.")
                 list(apps, hal)
                 return 2
             }
@@ -64,7 +61,7 @@ enum SystemAudioSelfTest {
         }
 
         let source = SystemAudioSource(target: target, hal: hal)
-        let capture = AudioCapture(source: source, maxSeconds: { seconds + 1 })
+        let capture = AudioCapture(source: source, maxSeconds: { seconds + 1 }, keepsTime: true)
         var startError: Error?
         var started = false
         capture.begin { error in startError = error; started = true }
@@ -106,10 +103,11 @@ enum SystemAudioSelfTest {
 
     private static func list(_ apps: [RecordableApp], _ hal: ProcessTapHAL) {
         let processes = hal.audioProcesses()
+        let running = RecordableApps.runningApps()
         for app in apps {
             print("\(app.name) [\(app.bundleID)] pid \(app.pid)\(app.isKnownMeetingApp ? " (meeting app)" : "")")
             for process in AudioProcessMatcher.processes(of: app.bundleID, pid: app.pid, in: processes,
-                                                         parentPID: hal.parentPID(of:)) {
+                                                         otherApps: running, parentPID: hal.parentPID(of:)) {
                 print("    process object \(process.object): pid \(process.pid) \(process.bundleID ?? "(no bundle ID)")")
             }
         }

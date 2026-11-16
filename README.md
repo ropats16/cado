@@ -286,6 +286,12 @@ and says why).
   Cado mid-meeting saves the audio (in Cado's support folder, `Meeting
   Audio`) and a note saying it wasn't transcribed. Without headphones the
   mic also hears the other side, so their words can appear under "Me" too.
+- **Safari:** Safari plays web audio through WebKit's shared media process,
+  which every WebKit-based app uses (Mail, and apps with web views) and which
+  macOS gives no public way to tell apart. So with Safari as the meeting app,
+  "Them" can also pick up sound those apps play during the meeting. Every
+  other app is recorded on its own (Chrome never includes Chrome Canary, Edge
+  never Edge Beta); for a clean "Them", use a meeting app or another browser.
 
 ---
 
