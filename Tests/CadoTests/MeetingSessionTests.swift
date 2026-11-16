@@ -271,6 +271,17 @@ final class MeetingSessionTests: XCTestCase {
         permission = .confirmed
         record(them: audio(10, []))
         XCTAssertFalse(notes.saved[0].body.contains(">"))
+        XCTAssertFalse(session.lastThemWasSilent)
+    }
+
+    func testTheMenuLearnsWhetherTheLastMeetingsThemWasSilent() {
+        XCTAssertFalse(session.lastThemWasSilent)
+        record(them: audio(10, []))
+        XCTAssertTrue(session.lastThemWasSilent, "So the menu can offer the Settings pane")
+        record()
+        XCTAssertFalse(session.lastThemWasSilent, "The next meeting heard Them")
+        record(me: audio(10, []), them: audio(10, []))
+        XCTAssertTrue(session.lastThemWasSilent, "Also when nothing was said and no note was written")
     }
 
     func testThemDyingMidMeetingKeepsMeAndSaysWhere() {

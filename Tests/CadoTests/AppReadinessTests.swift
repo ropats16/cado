@@ -377,6 +377,13 @@ final class AppReadinessTests: XCTestCase {
         XCTAssertNil(SystemAudioReadiness.issue(afterCaptureHeardSound: true, permission: .confirmed))
     }
 
+    func testTheMeetingMenusIssueTurnsToSilenceAfterASilentThem() {
+        XCTAssertEqual(SystemAudioReadiness.issue(for: .unconfirmed, lastMeetingThemSilent: false), .permissionUnconfirmed)
+        XCTAssertEqual(SystemAudioReadiness.issue(for: .unconfirmed, lastMeetingThemSilent: true), .heardOnlySilence)
+        XCTAssertNil(SystemAudioReadiness.issue(for: .confirmed, lastMeetingThemSilent: true), "Proven since: no hint")
+        XCTAssertEqual(SystemAudioReadiness.issue(for: .unsupported, lastMeetingThemSilent: true), .unsupportedOS)
+    }
+
     func testMonitorReportsSystemAudioWithoutChangingStatus() {
         startMonitor()
         XCTAssertEqual(monitor.inputs.systemAudio, .unconfirmed)

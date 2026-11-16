@@ -63,11 +63,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     /// What the app is doing, for the overlay (#19); the session reports into it.
     private let activity = AppActivityFeed()
+    /// The notes library (#29, #30), one for the Library window and meeting
+    /// notes. Its folder is resolved from the config on every call, on main
+    /// (library reads also run off main).
+    private lazy var notesLibrary = NotesLibrary(folder: { [configStore] in
+        let resolve = { NotesFolder.resolve(configStore.config) }
+        return Thread.isMainThread ? resolve() : DispatchQueue.main.sync(execute: resolve)
+    })
     /// Meeting recording from the menu (#30): mic + one app's audio → a note.
     private lazy var meetings = MeetingController(
         engine: engine, activity: activity,
         microphoneUID: { [configStore] in configStore.config.microphoneUID },
-        notesFolder: { [configStore] in NotesFolder.resolve(configStore.config) })
+        notes: notesLibrary,
+        systemAudio: { [permissions] in permissions.systemAudio })
     /// The mascot, watching `activity`. Attached at launch; builds its panel
     /// on first show (at launch with "always visible" on).
     private var overlay: MascotOverlay?
@@ -151,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.onOpenConfig = { [weak self] in self?.openConfig() }
         menu.onCopyAgain = { SystemClipboard().write($0) }
         menu.meeting.onAction = { [weak self] in self?.meetings.perform($0) }
+        menu.meeting.onOpenSystemAudioSettings = { [weak self] in self?.permissions.openSystemAudioSettings() }
         meetings.render = { [weak self] in self?.menu.renderMeeting($0) }
         // Re-read permissions on open: a mic change while Accessibility is
         // denied leaves the status alone but changes a row.
@@ -562,13 +571,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openLibrary() {
         MainActor.assumeIsolated {   // menu actions run on the main thread
             if libraryWindowController == nil {
-                // The folder closure also runs off main (library reads): read the config on main.
-                let library = NotesLibrary(folder: { [weak self] in
-                    let resolve = { self.map { NotesFolder.resolve($0.configStore.config) } ?? NotesFolder.defaultURL }
-                    return Thread.isMainThread ? resolve() : DispatchQueue.main.sync(execute: resolve)
-                })
                 libraryWindowController = LibraryWindowController(
-                    viewModel: LibraryViewModel(library: library), dock: DockPresence())
+                    viewModel: LibraryViewModel(library: notesLibrary), dock: DockPresence())
             }
             libraryWindowController?.show()
         }

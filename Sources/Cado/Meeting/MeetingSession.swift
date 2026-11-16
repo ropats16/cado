@@ -26,7 +26,8 @@ import Foundation
 ///   recording, the meeting stops.
 /// - A Them stream that was silent throughout gets the readiness module's
 ///   hint (the permission may not be granted) in the note and the notice,
-///   unless this run already proved the grant.
+///   unless this run already proved the grant; `lastThemWasSilent` lets the
+///   menu offer the Settings pane afterwards.
 /// - Chunks go to the engine one at a time, so a dictation waits for at most
 ///   one chunk. Dictation is refused while recording (`blocksDictation`).
 /// - A meeting where no speech was transcribed writes no note; a notice says
@@ -119,6 +120,10 @@ final class MeetingSession {
     private var timer: ClockTimer?
     private var meetingCount = 0
     private(set) var status: MeetingStatus = .idle
+    /// The last finished meeting's Them stream was silent while the grant
+    /// was unproven: the menu offers the Settings pane
+    /// (`SystemAudioReadiness.issue(for:lastMeetingThemSilent:)`).
+    private(set) var lastThemWasSilent = false
 
     /// `systemAudioPermission` is read when a meeting ends, to tell a
     /// silent Them apart from an unconfirmed permission.
@@ -332,6 +337,7 @@ final class MeetingSession {
     // MARK: - Writing the note
 
     private func complete(_ meeting: Meeting) {
+        lastThemWasSilent = themSilence(meeting) != nil
         let turns = MeetingTranscript.turns(meeting.pieces)
         var caveats = caveats(meeting)
         if turns.isEmpty && meeting.failures.isEmpty {
@@ -358,6 +364,7 @@ final class MeetingSession {
     /// Quitting: keep the audio, note what's transcribed so far, call back.
     private func wrapUpForQuit(_ meeting: Meeting) {
         guard let done = meeting.quit else { return }
+        lastThemWasSilent = themSilence(meeting) != nil
         var caveats = caveats(meeting)
         caveats.append(.quitBeforeTranscribing)
         if let folder = keep(meeting, note: nil) { caveats.append(.audioKept(folder)) }

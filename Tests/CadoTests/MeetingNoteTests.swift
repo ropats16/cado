@@ -130,8 +130,45 @@ final class MeetingNoteTests: XCTestCase {
 
     private func menu(_ choice: MeetingAppChoice) -> MeetingMenuContent { menu(.idle, choice) }
 
-    private func menu(_ status: MeetingStatus, _ choice: MeetingAppChoice, now: TimeInterval = 0) -> MeetingMenuContent {
-        MeetingMenuContent(status: status, choice: choice, now: now)
+    private func menu(_ status: MeetingStatus, _ choice: MeetingAppChoice, now: TimeInterval = 0,
+                      systemAudio: SystemAudioIssue? = nil) -> MeetingMenuContent {
+        MeetingMenuContent(status: status, choice: choice, now: now, systemAudio: systemAudio)
+    }
+
+    // MARK: - Menu: system-audio readiness
+
+    func testAnUnconfirmedPermissionSaysInOneQuietLineThatMacOSWillAsk() {
+        let zoom = app("Zoom", meeting: true)
+        for choice in [MeetingAppChoice.one(zoom), .several([zoom]), .noMeetingApp(others: [zoom])] {
+            let content = menu(.idle, choice, systemAudio: .permissionUnconfirmed)
+            XCTAssertEqual(content.detail, SystemAudioIssue.permissionUnconfirmed.menuLine, "\(choice)")
+            XCTAssertTrue(content.isEnabled, "It doesn't block: the first meeting shows the prompt")
+            XCTAssertNil(content.systemAudioSettings)
+        }
+        XCTAssertEqual(SystemAudioIssue.permissionUnconfirmed.menuLine,
+                       "macOS will ask to allow system audio recording the first time.")
+        XCTAssertNil(menu(.idle, .one(zoom), systemAudio: nil).detail, "Confirmed: nothing to say")
+    }
+
+    func testAfterAMeetingWithThemSilentTheMenuOffersTheSettingsPane() {
+        let zoom = app("Zoom", meeting: true)
+        for choice in [MeetingAppChoice.one(zoom), .nothing] {
+            let content = menu(.idle, choice, systemAudio: .heardOnlySilence)
+            XCTAssertEqual(content.systemAudioSettings, MeetingMenuContent.systemAudioSettingsTitle, "\(choice)")
+        }
+        XCTAssertEqual(menu(.idle, .one(zoom), systemAudio: .heardOnlySilence).detail,
+                       SystemAudioIssue.heardOnlySilence.menuLine)
+        XCTAssertEqual(menu(.idle, .nothing, systemAudio: .heardOnlySilence).detail, "No meeting app is running")
+    }
+
+    func testOldMacOSKeepsItsDisabledExplanationAndRecordingShowsNoHint() {
+        let old = menu(.idle, .unsupported, systemAudio: .unsupportedOS)
+        XCTAssertFalse(old.isEnabled)
+        XCTAssertEqual(old.detail, "Recording meetings needs macOS 14.2 or later.")
+        XCTAssertNil(old.systemAudioSettings)
+        let recording = menu(.recording(app: "Zoom", startedAt: 0, lost: []), .nothing, systemAudio: .heardOnlySilence)
+        XCTAssertEqual(recording.detail, "Recording Zoom and your microphone")
+        XCTAssertNil(recording.systemAudioSettings)
     }
 
     func testIdleWithOneMeetingAppStartsItInOneClick() {

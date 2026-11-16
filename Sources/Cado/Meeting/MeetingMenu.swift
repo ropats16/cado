@@ -72,6 +72,9 @@ struct MeetingMenuContent: Equatable {
     /// A submenu of apps to record.
     var choices: [Row]?
     var detail: String?
+    /// Title of an item that opens Privacy & Security › Screen & System
+    /// Audio Recording; nil = no such item.
+    var systemAudioSettings: String?
     /// The status item shows recording (glyph + `elapsed`).
     var isRecording: Bool
     /// Elapsed time while recording, for the menu bar ("12:34").
@@ -79,15 +82,20 @@ struct MeetingMenuContent: Equatable {
 
     var isEnabled: Bool { action != nil || choices != nil }
 
-    static let unsupportedDetail = "Recording meetings needs macOS 14.2 or later."
+    static let unsupportedDetail = SystemAudioIssue.unsupportedOS.menuLine
     static let noMeetingAppTitle = "No meeting app found — record another app:"
+    static let systemAudioSettingsTitle = "Open System Audio Recording Settings…"
 
-    init(status: MeetingStatus, choice: MeetingAppChoice, now: TimeInterval) {
+    /// `systemAudio`: the readiness module's issue for the meeting menu
+    /// (`SystemAudioReadiness.issue(for:lastMeetingThemSilent:)`), shown
+    /// while idle.
+    init(status: MeetingStatus, choice: MeetingAppChoice, now: TimeInterval, systemAudio: SystemAudioIssue? = nil) {
         isRecording = false
         elapsed = nil
         action = nil
         choices = nil
         detail = nil
+        systemAudioSettings = nil
         switch status {
         case .recording(let app, let startedAt, let lost):
             let time = MeetingNote.clock(now - startedAt)
@@ -106,6 +114,10 @@ struct MeetingMenuContent: Equatable {
             detail = "Meeting with \(app)"
         case .idle:
             title = "Record Meeting"
+            if choice != .unsupported, let systemAudio, systemAudio != .unsupportedOS {
+                detail = systemAudio.menuLine
+                if systemAudio == .heardOnlySilence { systemAudioSettings = Self.systemAudioSettingsTitle }
+            }
             switch choice {
             case .unsupported:
                 detail = Self.unsupportedDetail

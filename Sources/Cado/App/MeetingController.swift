@@ -18,23 +18,25 @@ final class MeetingController: MeetingActivity {
     private lazy var session = MeetingSession(
         recorder: recorder, engine: engine, notes: notes, archive: FolderMeetingArchive(),
         feedback: NotifierMeetingFeedback(), activity: self, clock: clock,
-        systemAudioPermission: {
-            SystemAudioPermission(supported: SystemAudioSource.isSupported,
-                                  heardSound: SystemAudioObservations.shared.hasHeardSound)
-        })
+        systemAudioPermission: systemAudio)
     private let recorder: MeetingRecorder
     private let engine: MeetingEngine
     private let notes: MeetingNoteStore
+    private let systemAudio: () -> SystemAudioPermission
 
-    /// `activity`: the app-wide feed (the overlay). `notesFolder` is read at
-    /// each save, on main.
+    /// `activity`: the app-wide feed (the overlay). `notes`: the notes
+    /// library meeting notes are saved to. `systemAudio`: the permission as
+    /// observed (`Permissions.systemAudio`), read when the menu renders and
+    /// when a meeting ends.
     init(engine: TranscriptionEngine, activity: MeetingActivity, microphoneUID: @escaping () -> String?,
-         notesFolder: @escaping () -> URL, clock: Clock = SystemClock()) {
+         notes: MeetingNoteStore, systemAudio: @escaping () -> SystemAudioPermission,
+         clock: Clock = SystemClock()) {
         self.activity = activity
         self.clock = clock
         recorder = LiveMeetingRecorder(microphoneUID: microphoneUID)
         self.engine = EngineMeetingAdapter(engine)
-        notes = NotesLibrary(folder: notesFolder)
+        self.notes = notes
+        self.systemAudio = systemAudio
     }
 
     /// For `DictationSession`'s `busy`.
@@ -45,7 +47,8 @@ final class MeetingController: MeetingActivity {
     /// The menu is opening: which apps could be recorded right now.
     func refreshApps() {
         if session.status == .idle {
-            choice = MeetingAppChoice.decide(supported: SystemAudioSource.isSupported, apps: RecordableApps.current())
+            choice = MeetingAppChoice.decide(supported: SystemAudioReadiness.canRecord(systemAudio()),
+                                             apps: RecordableApps.current())
         }
         renderNow()
     }
@@ -81,6 +84,7 @@ final class MeetingController: MeetingActivity {
     }
 
     private func renderNow() {
-        render?(MeetingMenuContent(status: session.status, choice: choice, now: clock.now))
+        let issue = SystemAudioReadiness.issue(for: systemAudio(), lastMeetingThemSilent: session.lastThemWasSilent)
+        render?(MeetingMenuContent(status: session.status, choice: choice, now: clock.now, systemAudio: issue))
     }
 }

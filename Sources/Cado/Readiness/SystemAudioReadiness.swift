@@ -28,6 +28,15 @@ enum SystemAudioIssue: Equatable {
         }
     }
 
+    /// One quiet line for the meeting menu while idle.
+    var menuLine: String {
+        switch self {
+        case .unsupportedOS: return "Recording meetings needs macOS 14.2 or later."
+        case .permissionUnconfirmed: return "macOS will ask to allow system audio recording the first time."
+        case .heardOnlySilence: return "No sound came from the app in the last meeting."
+        }
+    }
+
     var detail: String {
         switch self {
         case .unsupportedOS:
@@ -56,6 +65,14 @@ enum SystemAudioReadiness {
         case .unconfirmed: return .permissionUnconfirmed
         case .confirmed: return nil
         }
+    }
+
+    /// For the meeting menu: `issue(for:)`, except that after a meeting
+    /// whose Them was silent (`MeetingSession.lastThemWasSilent`) an
+    /// unconfirmed permission is `heardOnlySilence`, which offers Settings.
+    static func issue(for permission: SystemAudioPermission, lastMeetingThemSilent: Bool) -> SystemAudioIssue? {
+        let issue = issue(for: permission)
+        return issue == .permissionUnconfirmed && lastMeetingThemSilent ? .heardOnlySilence : issue
     }
 
     /// After a system-audio capture (`SystemAudioSource.hasHeardSound`):
