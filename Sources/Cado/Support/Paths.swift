@@ -55,6 +55,12 @@ enum Paths {
         appSupportDir.appendingPathComponent("usage-ping-id", isDirectory: false)
     }
 
+    /// `.../Cado/recent-dictations.json` — the last few dictations, when the
+    /// user keeps them (see `RecentDictationsStore`).
+    static var recentDictationsFile: URL {
+        appSupportDir.appendingPathComponent("recent-dictations.json", isDirectory: false)
+    }
+
     /// Create the support + models directories if they do not yet exist.
     @discardableResult
     static func ensureDirectories() -> Bool {

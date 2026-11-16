@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Microphone capture under Hardened Runtime. Without it AVAudioEngine gets
+         silence and macOS never shows the mic prompt. The only entitlement Cado needs:
+         - not sandboxed, so no app-sandbox / network entitlements;
+         - paste (CGEvent) and AX are TCC permissions, not entitlements;
+         - every linked library is a system framework (otool -L), nothing is dlopen'd,
+           so no disable-library-validation;
+         - Metal shaders are embedded source compiled by the system driver and Core ML
+           compiles models out of process, so no allow-jit / allow-unsigned-executable-memory. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+</dict>
+</plist>
