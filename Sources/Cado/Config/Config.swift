@@ -54,10 +54,10 @@ struct Config: Codable {
     /// Base64 bookmark of the chosen notes folder, so it survives being
     /// renamed or moved. nil = never chosen (or hand-edited away).
     var notesFolderBookmark: String?
-    /// Save each delivered dictation to the notes folder (#28).
+    /// Keep the last few delivered dictations (`RecentDictationsStore`, in the
+    /// support folder, not the notes folder) for the menu's copy-again (#28).
+    /// Off by default.
     var dictationHistory: Bool
-    /// Delete dictation history older than this many days; <= 0 = keep forever.
-    var historyPruneDays: Int
 
     static var defaults: Config {
         Config(
@@ -81,8 +81,7 @@ struct Config: Codable {
             onboardingDone: false,
             notesFolder: "",
             notesFolderBookmark: nil,
-            dictationHistory: true,
-            historyPruneDays: 30
+            dictationHistory: false
         )
     }
 
@@ -94,7 +93,7 @@ struct Config: Codable {
          mascotAlwaysVisible: Bool = false, mascotInScreenShares: Bool = false,
          mascotPositions: [String: MascotPosition] = [:], onboardingDone: Bool = false,
          notesFolder: String = "", notesFolderBookmark: String? = nil,
-         dictationHistory: Bool = true, historyPruneDays: Int = 30) {
+         dictationHistory: Bool = false) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -118,7 +117,6 @@ struct Config: Codable {
         self.notesFolder = notesFolder
         self.notesFolderBookmark = notesFolderBookmark
         self.dictationHistory = dictationHistory
-        self.historyPruneDays = historyPruneDays
     }
 
     init(from decoder: Decoder) throws {
@@ -152,7 +150,6 @@ struct Config: Codable {
         notesFolder = try c.decodeIfPresent(String.self, forKey: .notesFolder) ?? d.notesFolder
         notesFolderBookmark = try c.decodeIfPresent(String.self, forKey: .notesFolderBookmark)
         dictationHistory = try c.decodeIfPresent(Bool.self, forKey: .dictationHistory) ?? d.dictationHistory
-        historyPruneDays = try c.decodeIfPresent(Int.self, forKey: .historyPruneDays) ?? d.historyPruneDays
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this
@@ -216,15 +213,6 @@ enum EngineChoice: Hashable {
         case .automatic: return Self.automaticID
         case .engine(let kind): return kind.rawValue
         }
-    }
-}
-
-/// The dictation-history prune windows offered in Settings, in days (0 = keep forever).
-enum HistoryPrune {
-    static let choices: [Int] = [7, 30, 90, 0]
-
-    static func label(_ days: Int) -> String {
-        days > 0 ? "After \(days) days" : "Never"
     }
 }
 

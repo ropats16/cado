@@ -227,6 +227,25 @@ Cado was called VoiceType. If you had VoiceType installed, quit it first
   step that still needs you (a permission revoked, a model missing).
 - Quit anytime from the avocado menu (**Quit Cado**).
 
+### Recent dictations
+
+Lost a dictation, or want it somewhere else too? Cado can keep your last 10 so
+you can copy one again. It's off by default.
+
+- Turn it on in **Settings → Notes → Keep recent dictations**.
+- **Recent Dictations** then appears in the avocado menu. Click one to copy it.
+- Only the last 10 are kept, in a small file in Cado's own support folder on
+  your Mac. Turn the setting off and they're deleted.
+
+Everyday dictations are never written to your notes folder.
+
+### Notes folder
+
+**Settings → Notes** also sets the folder where Cado saves notes as plain
+Markdown (default `~/Documents/Cado`). Point it at an Obsidian vault, or a folder
+inside one, to see them there. Cado uploads none of it; if you sync Documents
+with iCloud, that folder syncs too.
+
 ---
 
 ## Changing the model or hotkey
@@ -345,6 +364,8 @@ logs the problem at startup and the menu shows a **Config issue** warning.
 | `mascotAlwaysVisible` | Keep a small resting Cado on screen; click it to start/stop dictating (default off). |
 | `mascotInScreenShares`| Let screen shares, recordings and screenshots capture Cado (default off: hidden). |
 | `mascotPositions`     | Where you dragged Cado, per display (written when you drag it). |
+| `notesFolder`         | Folder where notes are saved as Markdown (`""` = default `~/Documents/Cado`). |
+| `dictationHistory`    | Keep the last 10 dictations for **Recent Dictations** in the menu (default `false`). |
 
 ---
 
@@ -411,6 +432,10 @@ Everything runs on your Mac. No accounts, no telemetry, and no audio or text
 ever leaves your machine. The only things that touch the network are model
 downloads, which happen when you run setup or click **Download** — see
 [Network activity](#network-activity) for the full list.
+
+Dictated text isn't kept after it's pasted, unless you turn on
+[Recent dictations](#recent-dictations): then the last 10 stay in a file on your
+Mac until you turn it off.
 
 ---
 

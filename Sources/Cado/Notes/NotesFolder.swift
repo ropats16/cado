@@ -3,7 +3,8 @@ import Foundation
 /// Where the notes library lives (#28): a user-chosen folder, kept in the
 /// config as a path plus a bookmark so it survives being renamed or moved.
 /// Point it at an Obsidian vault (or a folder inside one) and the notes are
-/// just Markdown there.
+/// just Markdown there. Everyday dictations never go here (see
+/// `RecentDictationsStore`).
 ///
 /// The app isn't sandboxed, so the bookmark is a plain one (no security scope).
 enum NotesFolder {
@@ -37,7 +38,7 @@ enum NotesFolder {
     }
 }
 
-/// One saved dictation, as the history gives it back.
+/// One recent dictation, as `RecentDictationsStore` gives it back.
 struct DictationHistoryEntry: Equatable {
     /// When it was delivered.
     let date: Date

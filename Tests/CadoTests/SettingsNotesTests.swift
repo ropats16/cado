@@ -59,40 +59,22 @@ final class SettingsNotesTests: XCTestCase {
     }
 
     func testInitialStateFromConfig() {
-        store.update { $0.dictationHistory = false; $0.historyPruneDays = 90 }
-        let vm = makeVM()
-        XCTAssertFalse(vm.dictationHistory)
-        XCTAssertEqual(vm.historyPruneDays, 90)
+        store.update { $0.dictationHistory = true }
+        XCTAssertTrue(makeVM().dictationHistory)
     }
 
-    func testDefaultFolderShownWhenUnset() {
+    func testDefaults() {
         let vm = makeVM()
         XCTAssertEqual(vm.notesFolderPath, SettingsViewModel.displayPath(NotesFolder.defaultURL))
-        XCTAssertTrue(vm.dictationHistory)
-        XCTAssertEqual(vm.historyPruneDays, 30)
+        XCTAssertFalse(vm.dictationHistory)
     }
 
     func testSetDictationHistoryPersistsAndNotifies() {
         let vm = makeVM()
-        vm.setDictationHistory(false)
-        XCTAssertFalse(vm.dictationHistory)
-        XCTAssertFalse(ConfigStore(url: configURL).config.dictationHistory)
+        vm.setDictationHistory(true)
+        XCTAssertTrue(vm.dictationHistory)
+        XCTAssertTrue(ConfigStore(url: configURL).config.dictationHistory)
         XCTAssertEqual(changes, 1)
-    }
-
-    func testSetHistoryPruneDaysPersistsAndNotifies() {
-        let vm = makeVM()
-        vm.setHistoryPruneDays(7)
-        XCTAssertEqual(vm.historyPruneDays, 7)
-        XCTAssertEqual(ConfigStore(url: configURL).config.historyPruneDays, 7)
-        XCTAssertEqual(changes, 1)
-    }
-
-    func testCustomPruneValueGetsLabelledRow() {
-        store.update { $0.historyPruneDays = 45 }
-        let choices = makeVM().historyPruneChoices
-        XCTAssertEqual(choices.map(\.days), [7, 30, 45, 90, 0])
-        XCTAssertEqual(choices[2].label, "After 45 days (custom)")
     }
 
     func testPickerCancelIsNoOp() {

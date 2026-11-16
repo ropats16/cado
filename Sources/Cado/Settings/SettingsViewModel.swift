@@ -58,7 +58,7 @@ final class SettingsViewModel: ObservableObject {
     let pickNotesFolder: () -> URL?
     /// Shows a folder in Finder (creating it first if missing).
     let revealFolder: (URL) -> Void
-    /// A notes setting changed (saved first): the app re-prunes and refreshes the menu.
+    /// A notes setting changed (saved first): the app refreshes the menu (and forgets the recents when turned off).
     let onNotesSettingsChange: () -> Void
 
     // MARK: - Published display state
@@ -74,8 +74,6 @@ final class SettingsViewModel: ObservableObject {
     /// The notes folder, `~`-abbreviated for display (SettingsViewModel+Notes.swift).
     @Published private(set) var notesFolderPath: String
     @Published private(set) var dictationHistory: Bool
-    /// The picker selection: days to keep history (<= 0 = forever).
-    @Published private(set) var historyPruneDays: Int
 
     // MARK: - Model display state
 
@@ -182,7 +180,6 @@ final class SettingsViewModel: ObservableObject {
         self.maxDictationSeconds = max(0, cfg.maxRecordingSeconds)
         self.notesFolderPath = Self.displayPath(NotesFolder.resolve(cfg))
         self.dictationHistory = cfg.dictationHistory
-        self.historyPruneDays = max(0, cfg.historyPruneDays)
         let selected = ModelSelection.select(cfg, environment: self.environment, engines: engines,
                                              modelsDir: modelsDir, presentFilenames: presentModelFilenames(), facts: engineFacts())
         let engine = selected.spec.engine
@@ -243,13 +240,6 @@ final class SettingsViewModel: ObservableObject {
     func setDictationHistory(_ on: Bool) {
         configStore.update { $0.dictationHistory = on }
         dictationHistory = on
-        onNotesSettingsChange()
-    }
-
-    /// Persists how long history is kept (<= 0 = forever), and tells the app.
-    func setHistoryPruneDays(_ days: Int) {
-        configStore.update { $0.historyPruneDays = days }
-        historyPruneDays = days
         onNotesSettingsChange()
     }
 
