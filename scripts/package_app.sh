@@ -13,6 +13,11 @@
 # LuxTts G2P data for FluidAudio's TTS, which the app never calls (Parakeet ASR
 # never reads it). The folder-model pins are compiled in (FolderModelPins+Tables),
 # as is the Acknowledgements screen's text (Acknowledgements+Text).
+#
+# Release hooks (used by scripts/release.sh; unset = unchanged dev behaviour):
+#   CADO_VERSION / CADO_BUILD   stamp CFBundleShortVersionString / CFBundleVersion
+#   CADO_ASSEMBLE_ONLY=1        stop after assembling the unsigned .app (the
+#                               release script does its own signing)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -46,6 +51,15 @@ cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+if [[ -n "${CADO_VERSION:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $CADO_VERSION" \
+    -c "Set :CFBundleVersion ${CADO_BUILD:?CADO_BUILD required with CADO_VERSION}" \
+    "$APP/Contents/Info.plist"
+fi
+if [[ "${CADO_ASSEMBLE_ONLY:-0}" == "1" ]]; then
+  echo "✓ Assembled (unsigned): $APP"
+  exit 0
+fi
 
 echo "==> Ensuring a stable signing identity"
 bash "$ROOT/scripts/create_signing_cert.sh" || true

@@ -19,7 +19,9 @@
 #   make acknowledgements  regenerate the checked-in Acknowledgements screen text
 #                  (Sources/Cado/Acknowledgements/Acknowledgements+Text.swift)
 #                  from ACKNOWLEDGEMENTS.md and LICENSE
-#   make clean     remove build artifacts
+#   make release VERSION=x.y.z  Developer ID-signed, notarized, stapled dist/Cado-x.y.z.dmg
+#                  (docs/RELEASING.md; SKIP_NOTARIZE=1 for a local rehearsal)
+#   make clean    remove build artifacts
 
 APP   := Cado
 # Empty = the model the app auto-picks for this Mac (scripts/model_catalog.sh).
@@ -29,7 +31,7 @@ PARAKEET ?=
 # Empty = scripts/download_whisperkit_model.sh's default (the app's English Automatic pick).
 WHISPERKIT ?=
 
-.PHONY: setup embed brand acknowledgements model vad-model parakeet-model whisperkit-model build run package install clean
+.PHONY: setup embed brand acknowledgements model vad-model parakeet-model whisperkit-model build run package install release clean
 
 # `make setup` auto-detects the model from this Mac's arch + RAM. Pass MODEL= to
 # override, e.g. `make setup MODEL=small.en-q5_1` — only a command-line MODEL is
@@ -83,6 +85,11 @@ package:
 
 install:
 	bash scripts/package_app.sh --install
+
+# VERSION is required; credentials come from the environment (docs/RELEASING.md).
+release:
+	@test -n "$(VERSION)" || { echo "usage: make release VERSION=x.y.z" >&2; exit 2; }
+	bash scripts/release.sh "$(VERSION)"
 
 clean:
 	swift package clean || true

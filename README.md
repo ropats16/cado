@@ -456,6 +456,7 @@ make build        # compile only
 make package      # assemble dist/Cado.app
 make install      # build + package + copy to /Applications
 make clean        # remove build artifacts
+make release VERSION=x.y.z  # signed, notarized DMG (maintainer; see docs/RELEASING.md)
 make brand        # regenerate the app icon + embedded mascot art from plans/mascot (needs rsvg-convert)
 make acknowledgements  # regenerate the in-app Acknowledgements text from ACKNOWLEDGEMENTS.md + LICENSE
 ```
