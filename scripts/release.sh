@@ -233,6 +233,13 @@ stage_publish_hint() {
   echo "    --target $(git -C "$ROOT" rev-parse HEAD) --title 'Cado $VERSION' --generate-notes"
 }
 
+stage_homebrew() {
+  if [[ "$SKIP_NOTARIZE" == "1" ]]; then echo "Homebrew cask: skipped (rehearsal DMG must not reach the tap)"; return; fi
+  if [[ -z "${CADO_TAP_DIR:-}" ]]; then echo "Homebrew cask: skipped (set CADO_TAP_DIR=<tap checkout> to bump it; docs/RELEASING.md)"; return; fi
+  say "Homebrew cask bump ($CADO_TAP_DIR)"
+  bash "$ROOT/scripts/bump_homebrew_cask.sh" "$VERSION" "$DMG_SHA256" "$CADO_TAP_DIR"
+}
+
 stage_summary() {
   echo
   echo "✓ Release $VERSION (build $BUILD)$([[ "$SKIP_NOTARIZE" == "1" ]] && echo ' [REHEARSAL, NOT NOTARIZED]')"
@@ -248,6 +255,6 @@ stage_dmg
 stage_notarize
 stage_verify
 stage_appcast
-# Hook point: #25 (Homebrew cask) goes here.
+stage_homebrew
 stage_summary
 stage_publish_hint

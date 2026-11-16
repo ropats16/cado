@@ -137,6 +137,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var onAction: ((ReadinessAction) -> Void)?
     var onOpenOnboarding: (() -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onOpenLibrary: (() -> Void)?
     var onOpenAcknowledgements: (() -> Void)?
     var onCheckForUpdates: (() -> Void)?
     var onOpenConfig: (() -> Void)?
@@ -180,6 +181,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             hold, toggle, recentsSeparator,
             recents,
             item("Set Up Cado…", #selector(openOnboarding)),
+            item("Library…", #selector(openLibrary), key: "l"),
             item("Settings…", #selector(openSettings), key: ","),
             item("Acknowledgements…", #selector(openAcknowledgements)),
             checkForUpdates,
@@ -273,6 +275,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
     @objc private func openOnboarding() { onOpenOnboarding?() }
     @objc private func openSettings() { onOpenSettings?() }
+    @objc private func openLibrary() { onOpenLibrary?() }
     @objc private func openAcknowledgements() { onOpenAcknowledgements?() }
     @objc private func checkForUpdatesClicked() { onCheckForUpdates?() }
     @objc private func openConfig() { onOpenConfig?() }

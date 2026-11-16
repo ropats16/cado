@@ -7,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let configStore = ConfigStore()
     private let permissions = Permissions()
     private let loginItem = LoginItem()
+    /// Opt-in anonymous launch ping (#26); inert unless the user turned it on.
+    private let launchPing = LaunchPing.live()
 
     /// The engine and model come from the config (the configured engine if it
     /// can run here, else whisper; an explicit pick, else auto-picked for this
@@ -74,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Sparkle auto-update (#24); made and started at launch (it stays off
     /// outside a release .app: `UpdaterAvailability`).
     private var updater: SparkleUpdater?
+    private var libraryWindowController: LibraryWindowController?
     private var onboardingWindowController: OnboardingWindowController?
     private var onboardingModel: OnboardingViewModel?
     /// Launch opened onboarding instead of firing the system prompts; what's
@@ -103,6 +106,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // permissions (until then the monitor assumes none).
         monitor.start()
         startOnboardingOrPrompt()
+        // Off the main thread, last: a slow or failing request can't touch launch.
+        let ping = launchPing, optedIn = configStore.config.usagePing
+        Task.detached(priority: .utility) { await ping.sendLaunch(enabled: optedIn) }
     }
 
     /// Returning from System Settings: show a permission change at once.
@@ -124,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.openOnboarding(isFirstShow: false) }   // menu actions run on main
         }
         menu.onOpenSettings = { [weak self] in self?.openSettings() }
+        menu.onOpenLibrary = { [weak self] in self?.openLibrary() }
         menu.onOpenAcknowledgements = { [weak self] in self?.openAcknowledgements() }
         menu.onCheckForUpdates = { [weak self] in
             MainActor.assumeIsolated { self?.updater?.checkForUpdates() }   // menu actions run on main
@@ -257,7 +264,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 options: { [weak self] in self?.onboardingOptions() ?? [] },
                 isFirstShow: isFirstShow,
                 perform: { [weak self] in self?.perform($0) },
-                onFinish: { [weak self] in self?.finishOnboarding() })
+                onFinish: { [weak self] in self?.finishOnboarding() },
+                setUsagePing: { [weak self] on in
+                    MainActor.assumeIsolated { self?.sharedSettingsViewModel().setUsagePing(on) }
+                })
             let controller = OnboardingWindowController(viewModel: model)
             controller.onClose = { [weak self] in self?.onboardingClosed() }
             onboardingModel = model
@@ -516,6 +526,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 overlay?.apply(MascotOverlay.Settings(configStore.config))
             },
+            onUsagePingChange: { [launchPing] in launchPing.setEnabled($0) },
             isFirstLoad: { [loadHistory] in EngineRegistry.shared.isFirstLoad($0, history: loadHistory) },
             engineFacts: { [weak self] in self?.engineFacts },
             onDictationHistoryChange: { [weak self] in
@@ -528,6 +539,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settingsViewModel = vm
         return vm
+    }
+
+    private func openLibrary() {
+        MainActor.assumeIsolated {   // menu actions run on the main thread
+            if libraryWindowController == nil {
+                // The folder closure also runs off main (library reads): read the config on main.
+                let library = NotesLibrary(folder: { [weak self] in
+                    let resolve = { self.map { NotesFolder.resolve($0.configStore.config) } ?? NotesFolder.defaultURL }
+                    return Thread.isMainThread ? resolve() : DispatchQueue.main.sync(execute: resolve)
+                })
+                libraryWindowController = LibraryWindowController(
+                    viewModel: LibraryViewModel(library: library), dock: DockPresence())
+            }
+            libraryWindowController?.show()
+        }
     }
 
     private func openAcknowledgements() {

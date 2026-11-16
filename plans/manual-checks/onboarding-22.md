@@ -82,3 +82,14 @@ by itself, a revoke never pulls you back.
       unfinished step, or Ready when all is set; while it's open it just comes
       to the front.
 - [ ] Light and dark mode: nothing clipped or low-contrast on any step.
+
+## Launch ping choice (#26)
+
+- [ ] Ready shows "Help count Cado's users (optional)", switch **off**, with
+      the one-line explanation; Done without touching it leaves
+      `"usagePing" : false` and no `usage-ping-id` file.
+- [ ] Switch on → `config.json` has `"usagePing" : true` and
+      `~/Library/Application Support/Cado/usage-ping-id` exists; Settings ›
+      Usage Count shows it on. Switch off in Settings → file deleted.
+- [ ] With `CadoTelemetryAppID` empty (as shipped), no request is made even
+      when on (check with Little Snitch / `nettop`).

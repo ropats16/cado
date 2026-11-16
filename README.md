@@ -11,6 +11,9 @@ off (see [Privacy](#privacy)).
 > **Status:** v1. You install it by building it on your own Mac (steps below).
 > A ready-made download will come later. Models (whisper.cpp, WhisperKit,
 > Parakeet) download from Settings › Model (only when you click Download).
+>
+> **Homebrew** (available once the first release is published; not yet):
+> `brew install --cask ropats16/tap/cado`
 
 ---
 
@@ -429,10 +432,11 @@ the engine's Automatic pick (add `--engine parakeet`, `whisperkit` or
 
 ## Privacy
 
-Everything runs on your Mac. No accounts, no telemetry, and no audio or text
+Everything runs on your Mac. No accounts, no tracking, and no audio or text
 ever leaves your machine. The only things that touch the network are model
-downloads, which happen when you run setup or click **Download**, and the
-update check (once a day; off in Settings › Updates) — see
+downloads (when you run setup or click **Download**), the update check (once
+a day; off in Settings › Updates) and an optional, off-by-default anonymous
+launch count you can switch on — see
 [Network activity](#network-activity) for the full list.
 
 Dictated text isn't kept after it's pasted, unless you turn on
@@ -453,6 +457,7 @@ file.
 | `huggingface.co` | In the app, only when you click **Download** in Settings › Model | Downloads whisper.cpp model files (from the same place as `make model`, pinned by SHA-256 only, like the script) and WhisperKit/Parakeet model files (pinned by commit and SHA-256), each verified before use. A plain file request: no cookies, no account. | Yes, per click |
 | Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
 | `github.com` | Release builds of the app: about once a day while Cado runs, and when you choose **Check for Updates…** in the menu (or **Check Now** in Settings › Updates) | Fetches the update feed, `github.com/ropats16/cado/releases/latest/download/appcast.xml` ([Sparkle](https://sparkle-project.org)). If there's a newer version, Cado asks before installing it (unless you tick "Automatically download and install updates" in that prompt), then downloads its DMG from the same GitHub release (served via GitHub's `objects.githubusercontent.com`); the download must match the release's Ed25519 signature and Cado's code signature, or it's discarded. No system profile or identifier is sent (just a normal HTTPS request, with Cado's version in the User-Agent). Builds made with `make install`/`make package` never check. | On by default; turn off **Automatically check for updates** in Settings › Updates |
+| `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Help count Cado's users** (onboarding, or Settings › Usage Count) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. | Yes, **off by default** |
 
 Downloads from `huggingface.co` may be redirected to Hugging Face's CDN. The
 speech libraries Cado uses (WhisperKit, FluidAudio) are set up never to
@@ -470,8 +475,7 @@ download anything on their own; they only load model folders already on disk.
   never contacts it.
 
 **Not in the app yet.** These are planned and will be listed in the table above
-when they land: an anonymous launch ping (issue #26, off by default); and
-meeting summaries through
+when they land: meeting summaries through
 `openrouter.ai` (issue #35, off by default, sends a transcript only if you turn it on).
 
 ---

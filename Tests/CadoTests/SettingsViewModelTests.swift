@@ -152,6 +152,23 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertFalse(vm.mascotInScreenShares)
     }
 
+    func testUsagePingIsOffByDefaultAndPersistsAndNotifies() {
+        var calls: [Bool] = []
+        let vm = SettingsViewModel(
+            configStore: configStore, loginItem: LoginItem(service: fakeLogin),
+            availableMics: { [] }, presentModelFilenames: { Set() },
+            onNeedsMenuRefresh: {}, pauseHotkeys: {}, reloadHotkeys: {}, hardware: .current,
+            currentModel: { ModelSpec.file("/m/ggml-tiny.en.bin") }, modelStatus: .ready,
+            onModelSettingsChange: {}, onUsagePingChange: { calls.append($0) })
+        XCTAssertFalse(vm.usagePing)
+        vm.setUsagePing(true)
+        XCTAssertTrue(configStore.config.usagePing)
+        XCTAssertTrue(vm.usagePing)
+        vm.setUsagePing(false)
+        XCTAssertFalse(configStore.config.usagePing)
+        XCTAssertEqual(calls, [true, false])
+    }
+
     func testMascotTogglesDontTouchOtherSettings() {
         configStore.update { $0.soundCues = true }
         let vm = makeVM()

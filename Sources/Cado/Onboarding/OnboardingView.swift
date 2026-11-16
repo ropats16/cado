@@ -45,6 +45,7 @@ struct OnboardingView: View {
                 .accessibilityAddTraits(.isHeader)
             if step.id == .ready {
                 readyLines(step)
+                usagePingChoice
             } else {
                 Text(step.detail)
                     .font(Brand.Typography.font(.body))
@@ -73,6 +74,22 @@ struct OnboardingView: View {
                     .settingsRowPadding()
             }
         }
+    }
+
+    /// Ready's optional, unchecked-by-default launch-count choice (#26).
+    private var usagePingChoice: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(UsagePingCopy.title, isOn: Binding(
+                get: { viewModel.usagePing },
+                set: { viewModel.setUsagePing($0) }))
+                .foregroundStyle(Brand.Palette.ink)
+            Text(UsagePingCopy.onboardingDetail)
+                .font(Brand.Typography.caption)
+                .foregroundStyle(Brand.Palette.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 4)
     }
 
     /// A download's progress beside its button (Cancel); what's happening

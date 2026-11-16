@@ -21,6 +21,9 @@
     <string>0.1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <!-- TelemetryDeck app ID for the opt-in launch ping (#26). Empty = the ping never sends. -->
+    <key>CadoTelemetryAppID</key>
+    <string></string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <!-- Menu-bar-only agent: no Dock icon, no default window. -->
@@ -47,5 +50,9 @@
     <false/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Cado records your voice locally to transcribe it into text. Audio is processed on-device and never leaves your Mac.</string>
+    <!-- System audio (Core Audio process taps, macOS 14.2+) for meeting notes. Without
+         this key a tap records silence and macOS never shows the prompt. -->
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Cado records your Mac's audio during a meeting you start, so the other participants are transcribed alongside you. Audio is processed on-device and never leaves your Mac.</string>
 </dict>
 </plist>

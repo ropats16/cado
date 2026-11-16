@@ -161,6 +161,37 @@ the code's designated requirement, so macOS treats the release as a different
 app: Microphone and Accessibility grants reset once for anyone moving from a dev
 install, and persist across later releases signed with the same Developer ID.
 
+## Homebrew tap
+
+The cask lives in `packaging/homebrew/Casks/cado.rb` (template, `sha256 :no_check`).
+It is published from a separate tap repo, `ropats16/homebrew-tap`.
+
+One-time (you do this by hand):
+
+```sh
+gh repo create ropats16/homebrew-tap --public --description "Homebrew tap"
+gh repo clone ropats16/homebrew-tap ~/src/homebrew-tap
+export CADO_TAP_DIR="$HOME/src/homebrew-tap"   # shell profile
+```
+
+Each release: `make release VERSION=x.y.z` runs a final stage that, when
+`CADO_TAP_DIR` is set, runs `scripts/bump_homebrew_cask.sh x.y.z <sha256> $CADO_TAP_DIR`.
+That rewrites `version` and `sha256` in the tap's `Casks/cado.rb` (copying the
+template in on first use) and commits `cado x.y.z` in the tap. It never pushes.
+Skipped in rehearsal (`SKIP_NOTARIZE=1`), so a rehearsal DMG's sha never reaches the tap.
+
+Then publish the GitHub Release (tag `vX.Y.Z`, attach `dist/Cado-X.Y.Z.dmg`) and push the tap:
+
+```sh
+git -C "$CADO_TAP_DIR" push
+```
+
+Users install with:
+
+```sh
+brew install --cask ropats16/tap/cado
+```
+
 ## Extending
 
 `scripts/release.sh` is a list of stage functions. Sparkle's appcast (#24) is

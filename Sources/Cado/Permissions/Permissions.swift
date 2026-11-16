@@ -7,12 +7,22 @@ import ApplicationServices
 /// - **Microphone** (`AVCaptureDevice` / TCC) — to record audio.
 /// - **Accessibility** (`AXIsProcessTrusted`) — for the global event tap,
 ///   the focused-field check, and synthetic ⌘V paste.
+///
+/// Plus, for meetings only, **system-audio recording** (`systemAudio`), which
+/// can only be observed, never read or requested.
 final class Permissions {
     /// The system Accessibility prompt was shown this run (`requestAccessibility`).
     private(set) var hasPromptedForAccessibility = false
 
     var microphone: MicrophonePermission {
         MicrophonePermission(AVCaptureDevice.authorizationStatus(for: .audio))
+    }
+
+    /// System-audio recording, for meetings: what this run has observed
+    /// (`SystemAudioPermission`); there's no API to read it.
+    var systemAudio: SystemAudioPermission {
+        SystemAudioPermission(supported: SystemAudioSource.isSupported,
+                              heardSound: SystemAudioObservations.shared.hasHeardSound)
     }
 
     /// Whether the process is trusted for Accessibility. Pass `prompt: true`
@@ -62,6 +72,13 @@ final class Permissions {
 
     func openAccessibilitySettings() {
         open("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    }
+
+    /// Privacy & Security › Screen & System Audio Recording (its pane's
+    /// anchor is still Screen Capture's). There's no prompt to request it
+    /// with: the system asks when the first system-audio capture starts.
+    func openSystemAudioSettings() {
+        open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
     }
 
     private func open(_ urlString: String) {
