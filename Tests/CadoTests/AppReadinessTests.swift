@@ -8,6 +8,7 @@ final class AppReadinessTests: XCTestCase {
     private final class FakeProbe: PermissionProbe {
         var accessibility: AccessibilityPermission = .granted
         var microphone: MicrophonePermission = .authorized
+        var systemAudio: SystemAudioPermission = .unconfirmed
     }
 
     /// Stands in for `HotkeyManager`: each install attempt reports `result`.
@@ -329,6 +330,61 @@ final class AppReadinessTests: XCTestCase {
 
         clock.advance(by: 2)
         XCTAssertEqual(inputChanges.count, 2, "Identical inputs aren't re-reported")
+    }
+
+    // MARK: - System audio (meetings only)
+
+    func testSystemAudioNeverBlocksDictation() {
+        for permission in [SystemAudioPermission.unsupported, .unconfirmed, .confirmed] {
+            var ready = inputs()
+            ready.systemAudio = permission
+            XCTAssertEqual(AppReadiness.status(for: ready), .ready, "\(permission): dictation doesn't need system audio")
+            XCTAssertTrue(AppReadiness.status(for: ready).allowsDictation)
+        }
+    }
+
+    func testSystemAudioPermissionIsOnlyWhatCanBeObserved() {
+        XCTAssertEqual(SystemAudioPermission(supported: false, heardSound: false), .unsupported)
+        XCTAssertEqual(SystemAudioPermission(supported: false, heardSound: true), .unsupported)
+        XCTAssertEqual(SystemAudioPermission(supported: true, heardSound: false), .unconfirmed,
+                       "Silence can't tell denied from nothing playing")
+        XCTAssertEqual(SystemAudioPermission(supported: true, heardSound: true), .confirmed,
+                       "Only a granted tap delivers sound")
+    }
+
+    func testMeetingSystemAudioIssues() {
+        XCTAssertFalse(SystemAudioReadiness.canRecord(.unsupported))
+        XCTAssertTrue(SystemAudioReadiness.canRecord(.unconfirmed), "The first recording shows the prompt")
+        XCTAssertTrue(SystemAudioReadiness.canRecord(.confirmed))
+
+        XCTAssertEqual(SystemAudioReadiness.issue(for: .unsupported), .unsupportedOS)
+        XCTAssertEqual(SystemAudioReadiness.issue(for: .unconfirmed), .permissionUnconfirmed)
+        XCTAssertNil(SystemAudioReadiness.issue(for: .confirmed))
+
+        XCTAssertTrue(SystemAudioIssue.unsupportedOS.blocksRecording)
+        XCTAssertFalse(SystemAudioIssue.unsupportedOS.opensSettings)
+        for issue in [SystemAudioIssue.permissionUnconfirmed, .heardOnlySilence] {
+            XCTAssertFalse(issue.blocksRecording)
+            XCTAssertTrue(issue.opensSettings)
+            XCTAssertTrue(issue.detail.contains("Screen & System Audio Recording"), "\(issue) names the pane")
+        }
+    }
+
+    func testSilenceAfterACaptureIsAHintOnlyWhileUnconfirmed() {
+        XCTAssertEqual(SystemAudioReadiness.issue(afterCaptureHeardSound: false, permission: .unconfirmed), .heardOnlySilence)
+        XCTAssertNil(SystemAudioReadiness.issue(afterCaptureHeardSound: false, permission: .confirmed),
+                     "Granted before: silence means nobody else spoke")
+        XCTAssertNil(SystemAudioReadiness.issue(afterCaptureHeardSound: true, permission: .confirmed))
+    }
+
+    func testMonitorReportsSystemAudioWithoutChangingStatus() {
+        startMonitor()
+        XCTAssertEqual(monitor.inputs.systemAudio, .unconfirmed)
+
+        probe.systemAudio = .confirmed   // a meeting's tap delivered sound
+        clock.advance(by: 10)
+        XCTAssertEqual(inputChanges.last?.systemAudio, .confirmed)
+        XCTAssertEqual(changes, [.ready], "Dictation status is untouched")
     }
 
     // MARK: - Monitor: polling policy

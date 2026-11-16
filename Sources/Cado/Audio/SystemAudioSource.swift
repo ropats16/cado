@@ -18,9 +18,20 @@ enum SystemAudioSourceError: LocalizedError, Equatable {
     }
 }
 
-/// System-audio adapter: what the Mac plays (the other side of a call),
-/// through a Core Audio process tap. A mono global tap of every process
-/// except Cado, in a private aggregate device whose IOProc
+/// Whose audio a `SystemAudioSource` records.
+enum SystemAudioTarget: Equatable {
+    /// One app — the meeting app — through its own and its helper processes
+    /// (`AudioProcessMatcher`). `pid` is its main process. From
+    /// `RecordableApp.target`.
+    case app(bundleID: String, pid: pid_t)
+    /// Everything the Mac plays except Cado. A diagnostic fallback
+    /// (`--system-audio-test --all`), never a meeting's default.
+    case everythingExceptCado
+}
+
+/// System-audio adapter: what an app plays (the other side of a call),
+/// through a Core Audio process tap. A mono mixdown of the target app's
+/// audio processes, in a private aggregate device whose IOProc
 /// (`vt_tap_io_proc`, C) downmixes into the capture's ring — no allocation,
 /// locks, Swift or ObjC on the audio thread. The tap's native rate (usually
 /// the output device's, e.g. 48 kHz) is returned to the capture, which
@@ -28,6 +39,18 @@ enum SystemAudioSourceError: LocalizedError, Equatable {
 ///
 /// Wrap it in its own `AudioCapture` to record it next to the mic: the two
 /// captures are independent streams.
+///
+/// The app's audio processes change as it runs: a browser or Electron app
+/// spawns an audio helper when a call starts and may replace it when the
+/// call reconnects. The source watches Core Audio's process list; once it
+/// has settled (`settleDelay`) and the app's set differs from the tapped
+/// one, it reports a route change and `needsRestart` says yes, so the
+/// capture rebuilds the tap around the new set and keeps the recording.
+/// What the app plays during the rebuild (well under a second) is lost.
+/// (Retargeting the live tap through `kAudioTapPropertyDescription` was
+/// refused on hardware, `'!hog'`, so the tap is rebuilt instead.) An app
+/// with no audio processes yet gets an empty tap — silence — until its
+/// first one appears.
 ///
 /// Permission: there's no public API to read or request it. The system asks
 /// the first time a tap's device starts; without the grant (or without
@@ -49,8 +72,10 @@ final class SystemAudioSource: AudioSource {
         return nil
     }
 
+    let target: SystemAudioTarget
     private let hal: ProcessTapHAL?
     private let observations: SystemAudioObservations
+    private let settleDelay: TimeInterval
 
     // Touched only on the capture's queue.
     private var tap: AudioObjectID?
@@ -58,7 +83,15 @@ final class SystemAudioSource: AudioSource {
     private var ioProc: IOProcToken?
     private var deviceStarted = false
     private var openedFormat: AudioStreamBasicDescription?
+    /// The process objects the running tap mixes (`.app` targets).
+    private var tappedProcesses: Set<AudioObjectID> = []
     private var listeners: [ListenerToken] = []
+
+    /// Coalesces process-list notifications (a call start spawns several
+    /// helpers at once), so the tap is rebuilt once, not per helper — and
+    /// the capture's restart-loop guard isn't tripped.
+    private let settleLock = NSLock()
+    private var settleGeneration = 0
 
     /// The IOProc's state (`vt_tap *`). Also read by `hasHeardSound` from
     /// any thread, so guarded.
@@ -67,10 +100,14 @@ final class SystemAudioSource: AudioSource {
     private var heardInEarlierRun = false
 
     /// `hal` nil = unsupported OS: `start` throws `.unsupportedOS`.
-    init(hal: ProcessTapHAL? = SystemAudioSource.liveHAL(),
-         observations: SystemAudioObservations = .shared) {
+    /// `settleDelay`: how long the app's process list must be quiet before
+    /// the tap is rebuilt around it.
+    init(target: SystemAudioTarget, hal: ProcessTapHAL? = SystemAudioSource.liveHAL(),
+         observations: SystemAudioObservations = .shared, settleDelay: TimeInterval = 1.0) {
+        self.target = target
         self.hal = hal
         self.observations = observations
+        self.settleDelay = settleDelay
     }
 
     /// Nothing else holds the source by now, so stopping here (off the
@@ -87,20 +124,27 @@ final class SystemAudioSource: AudioSource {
         stateLock.withLock { heardInEarlierRun || (state.map { vt_tap_heard_sound($0) != 0 } ?? false) }
     }
 
-    /// True when the device stopped or the tap's format changed (e.g. the
-    /// output switched from 48 kHz speakers to AirPods). Property
-    /// notifications also arrive for no-op changes, so the capture asks
-    /// before restarting.
+    /// True when the device stopped, the tap's format changed (e.g. the
+    /// output switched from 48 kHz speakers to AirPods), or the app's audio
+    /// processes are no longer the tapped ones. Property notifications also
+    /// arrive for no-op changes, so the capture asks before restarting.
     var needsRestart: Bool {
         guard let hal, let tap, let device, deviceStarted else { return false }
         let current = hal.tapFormat(tap)
         return !hal.isRunning(device)
             || current?.mSampleRate != openedFormat?.mSampleRate
             || current?.mChannelsPerFrame != openedFormat?.mChannelsPerFrame
+            || targetProcesses(hal).map(Set.init) != tappedProcessesIfApp
     }
 
-    /// The tap's device keeps calling back with zeros while nothing plays,
-    /// so a few seconds of nothing means it died (e.g. under a format change).
+    private var tappedProcessesIfApp: Set<AudioObjectID>? {
+        if case .app = target { return tappedProcesses }
+        return nil
+    }
+
+    /// The tap's device keeps calling back with zeros while nothing plays
+    /// (even with no processes tapped), so a few seconds of nothing means it
+    /// died (e.g. under a format change).
     let stallTimeout: TimeInterval? = 3.0
 
     func start(_ input: CaptureInput) throws -> Double {
@@ -112,14 +156,31 @@ final class SystemAudioSource: AudioSource {
         }
     }
 
+    /// The target app's process objects now; nil for a global tap.
+    private func targetProcesses(_ hal: ProcessTapHAL) -> [AudioObjectID]? {
+        guard case .app(let bundleID, let pid) = target else { return nil }
+        return AudioProcessMatcher.processes(of: bundleID, pid: pid, in: hal.audioProcesses(),
+                                             parentPID: hal.parentPID(of:)).map(\.object)
+    }
+
     /// Builds and starts tap → aggregate device → IOProc, leaving whatever it
     /// got to for `stop`.
     private func open(_ input: CaptureInput, _ hal: ProcessTapHAL) throws -> Double {
-        let excluded = hal.ownProcessObject().map { [$0] } ?? []
-        let created = try step("creating the system-audio tap") { try hal.createTap(excluding: excluded) }
+        // Listen first, so a helper appearing during start is caught.
+        if case .app = target {
+            listen(hal, to: AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyProcessObjectList,
+                   settling: true)
+        }
+        let scope: TapScope
+        if let processes = targetProcesses(hal) {
+            scope = .processes(processes)
+            tappedProcesses = Set(processes)
+        } else {
+            let own = hal.audioProcesses().filter { $0.pid == getpid() }.map(\.object)
+            scope = .allExcept(own)
+        }
+        let created = try step("creating the system-audio tap") { try hal.createTap(scope) }
         tap = created.tap
-
-        // Listen before reading the format, so a change during start is caught.
         listen(hal, to: created.tap, kAudioTapPropertyFormat)
 
         guard let format = hal.tapFormat(created.tap) else {
@@ -127,7 +188,7 @@ final class SystemAudioSource: AudioSource {
         }
         try Self.validate(format)
         openedFormat = format
-        Log.info("System audio: tap delivers \(format.mChannelsPerFrame) ch @ \(Int(format.mSampleRate)) Hz.")
+        Log.info("System audio: tapping \(describe(scope)); \(format.mChannelsPerFrame) ch @ \(Int(format.mSampleRate)) Hz.")
 
         let device = try step("creating the system-audio device") { try hal.createAggregateDevice(tapUID: created.uid) }
         self.device = device
@@ -152,6 +213,7 @@ final class SystemAudioSource: AudioSource {
         guard let hal else { return }
         for listener in listeners { hal.removeListener(listener) }
         listeners = []
+        settleLock.withLock { settleGeneration += 1 }   // drops a pending settled notice
         if let ioProc {
             if deviceStarted { hal.stopDevice(ioProc) }
             hal.destroyIOProc(ioProc)
@@ -163,6 +225,7 @@ final class SystemAudioSource: AudioSource {
         if let tap { hal.destroyTap(tap) }
         tap = nil
         openedFormat = nil
+        tappedProcesses = []
         stateLock.withLock {
             if let state {
                 if vt_tap_heard_sound(state) != 0 { heardInEarlierRun = true }
@@ -192,11 +255,34 @@ final class SystemAudioSource: AudioSource {
         return String(bytes: bytes, encoding: .ascii) ?? "\(code)"
     }
 
+    private func describe(_ scope: TapScope) -> String {
+        switch (target, scope) {
+        case (.app(let bundleID, _), .processes(let processes)): return "\(bundleID) (\(processes.count) process(es))"
+        default: return "all system audio except Cado"
+        }
+    }
+
     /// Reports any change to the property as a possible route change; the
-    /// capture checks `needsRestart`.
-    private func listen(_ hal: ProcessTapHAL, to object: AudioObjectID, _ selector: AudioObjectPropertySelector) {
-        let token = hal.addListener(object, selector) { [weak self] in self?.onEvent?(.routeChanged) }
+    /// capture checks `needsRestart`. `settling` waits for `settleDelay` of
+    /// quiet first.
+    private func listen(_ hal: ProcessTapHAL, to object: AudioObjectID, _ selector: AudioObjectPropertySelector,
+                        settling: Bool = false) {
+        let token = hal.addListener(object, selector) { [weak self] in
+            guard let self else { return }
+            if settling { settleThenReport() } else { onEvent?(.routeChanged) }
+        }
         if let token { listeners.append(token) }
+    }
+
+    private func settleThenReport() {
+        let generation = settleLock.withLock {
+            settleGeneration += 1
+            return settleGeneration
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + settleDelay) { [weak self] in
+            guard let self, settleLock.withLock({ generation == self.settleGeneration }) else { return }
+            onEvent?(.routeChanged)
+        }
     }
 
     private func step<T>(_ name: String, _ body: () throws -> T) throws -> T {
@@ -227,8 +313,7 @@ final class SystemAudioObservations {
         }
     }
 
-    /// Records a sound heard outside a `SystemAudioSource` (tests, or a source
-    /// already gone).
+    /// Records a sound heard by a source that's going away.
     func noteHeardSound() {
         lock.withLock { confirmed = true }
     }

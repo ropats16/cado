@@ -1,34 +1,69 @@
 import AVFoundation
 import Foundation
 
-/// `Cado --system-audio-test [--seconds <n>] [--out <file.wav>]`
+/// `Cado --system-audio-test [--list] [--app <bundle id> | --all] [--seconds <n>] [--out <file.wav>]`
 ///
-/// Records `n` seconds (default 5) of system audio — what the Mac plays —
-/// through the same capture path a meeting uses (`SystemAudioSource` in an
-/// `AudioCapture`), writes it as a 16 kHz mono WAV, and reports whether any
-/// sound arrived. Play something while it runs.
+/// `--list` prints the apps a meeting could record (`RecordableApps`) and
+/// the Core Audio processes each one's tap would mix, then exits.
+///
+/// Otherwise records `n` seconds (default 5) of one app's audio (`--app`;
+/// with neither flag, the one running known meeting app) — or, with
+/// `--all`, everything the Mac plays except Cado — through the same capture
+/// path a meeting uses (`SystemAudioSource` in an `AudioCapture`), writes it
+/// as a 16 kHz mono WAV (default: the temp folder's
+/// `cado-system-audio-test.wav`), and reports whether any sound arrived.
+/// Play something in that app while it runs.
 ///
 /// The system-audio permission belongs to the app the process is attributed
-/// to: run from the packaged app (`dist/Cado.app/Contents/MacOS/Cado
-/// --system-audio-test`) to exercise Cado's own grant and usage string. From
-/// a terminal (`swift run`) the terminal app is asked instead.
+/// to. To exercise Cado's own grant and usage string, launch the packaged app
+/// through LaunchServices, so it's responsible for itself:
+/// `open -W --stderr /tmp/cado-sat.log dist/Cado.app --args --system-audio-test --out /tmp/cado-sat.wav`.
+/// Run straight from a terminal (`swift run`, or the bundle's binary), the
+/// terminal app is asked instead.
 ///
 /// Exit status: 0 sound captured; 3 only silence (permission not granted, or
 /// nothing played); 1 the capture failed; 2 bad usage or macOS < 14.2.
 enum SystemAudioSelfTest {
     static func run(arguments: [String]) -> Int32 {
         let seconds = CommandLineSupport.value("--seconds", in: arguments).flatMap(Double.init) ?? 5
-        let out = URL(fileURLWithPath: CommandLineSupport.value("--out", in: arguments) ?? "system-audio-test.wav")
+        let out = URL(fileURLWithPath: CommandLineSupport.value("--out", in: arguments)
+                      ?? NSTemporaryDirectory() + "cado-system-audio-test.wav")
         guard seconds > 0 else {
-            err("usage: Cado --system-audio-test [--seconds <n>] [--out <file.wav>]")
+            err("usage: Cado --system-audio-test [--list] [--app <bundle id> | --all] [--seconds <n>] [--out <file.wav>]")
             return 2
         }
-        guard SystemAudioSource.isSupported else {
+        guard SystemAudioSource.isSupported, let hal = SystemAudioSource.liveHAL() else {
             err("failed: \(SystemAudioSourceError.unsupportedOS.localizedDescription)")
             return 2
         }
+        let apps = RecordableApps.current(hal: hal)
+        if arguments.contains("--list") {
+            list(apps, hal)
+            return 0
+        }
 
-        let source = SystemAudioSource()
+        let target: SystemAudioTarget
+        if arguments.contains("--all") {
+            target = .everythingExceptCado
+        } else if let bundleID = CommandLineSupport.value("--app", in: arguments) {
+            guard let app = RecordableApps.runningApps().first(where: {
+                $0.bundleID.caseInsensitiveCompare(bundleID) == .orderedSame
+            }) else {
+                err("failed: \(bundleID) isn't running")
+                return 2
+            }
+            target = .app(bundleID: app.bundleID, pid: app.pid)
+        } else {
+            let meetingApps = apps.filter(\.isKnownMeetingApp)
+            guard meetingApps.count == 1 else {
+                err("\(meetingApps.count) known meeting apps are running: pass --app <bundle id> (or --all).")
+                list(apps, hal)
+                return 2
+            }
+            target = meetingApps[0].target
+        }
+
+        let source = SystemAudioSource(target: target, hal: hal)
         let capture = AudioCapture(source: source, maxSeconds: { seconds + 1 })
         var startError: Error?
         var started = false
@@ -67,6 +102,17 @@ enum SystemAudioSelfTest {
         err("Only silence. Either nothing played, or system-audio recording isn't allowed: "
             + "check System Settings › Privacy & Security › Screen & System Audio Recording.")
         return 3
+    }
+
+    private static func list(_ apps: [RecordableApp], _ hal: ProcessTapHAL) {
+        let processes = hal.audioProcesses()
+        for app in apps {
+            print("\(app.name) [\(app.bundleID)] pid \(app.pid)\(app.isKnownMeetingApp ? " (meeting app)" : "")")
+            for process in AudioProcessMatcher.processes(of: app.bundleID, pid: app.pid, in: processes,
+                                                         parentPID: hal.parentPID(of:)) {
+                print("    process object \(process.object): pid \(process.pid) \(process.bundleID ?? "(no bundle ID)")")
+            }
+        }
     }
 
     private static func spin(until done: () -> Bool, timeout: TimeInterval) {

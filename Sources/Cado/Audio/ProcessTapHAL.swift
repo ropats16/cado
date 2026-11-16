@@ -1,10 +1,27 @@
 import CAudioRing
 import CoreAudio
+import Darwin
 import Foundation
 
 /// A failed Core Audio call.
 struct HALStatusError: Error, Equatable {
     let status: OSStatus
+}
+
+/// A Core Audio process object: a process that is (or was) a Core Audio
+/// client. Apps often play from helper processes, each with its own.
+struct AudioProcess: Equatable, Hashable {
+    let object: AudioObjectID
+    let pid: pid_t
+    let bundleID: String?
+}
+
+/// Which processes a tap mixes (always to mono).
+enum TapScope: Equatable {
+    /// Just these process objects; empty is valid (the tap delivers silence).
+    case processes([AudioObjectID])
+    /// Every process's output except these.
+    case allExcept([AudioObjectID])
 }
 
 /// A running IOProc's registration, handed back to `destroyIOProc`.
@@ -20,16 +37,17 @@ struct ListenerToken {
     let block: AudioObjectPropertyListenerBlock
 }
 
-/// The Core Audio calls `SystemAudioSource` makes, so tests can fake the
-/// boundary (and count what's created and destroyed). The live one is
-/// `CoreAudioProcessTapHAL`, available on macOS 14.2+ only.
+/// The system calls `SystemAudioSource` and `RecordableApps` make, so tests
+/// can fake the boundary (and count what's created and destroyed). The live
+/// one is `CoreAudioProcessTapHAL`, available on macOS 14.2+ only.
 protocol ProcessTapHAL: AnyObject {
-    /// This process's Core Audio process object, to exclude from the tap
-    /// (Cado's own sound cues); nil when it has none.
-    func ownProcessObject() -> AudioObjectID?
-    /// Creates a private, unmuted, mono global tap of every process's output
-    /// except `excluded`. Returns the tap and its UID.
-    func createTap(excluding excluded: [AudioObjectID]) throws -> (tap: AudioObjectID, uid: String)
+    /// Every Core Audio process object (`kAudioHardwarePropertyProcessObjectList`)
+    /// with its pid and bundle ID.
+    func audioProcesses() -> [AudioProcess]
+    /// The parent of a running process (libproc); nil when it's gone.
+    func parentPID(of pid: pid_t) -> pid_t?
+    /// Creates a private, unmuted, mono tap. Returns the tap and its UID.
+    func createTap(_ scope: TapScope) throws -> (tap: AudioObjectID, uid: String)
     func destroyTap(_ tap: AudioObjectID)
     /// The format the tap delivers into an aggregate device.
     func tapFormat(_ tap: AudioObjectID) -> AudioStreamBasicDescription?
@@ -54,19 +72,45 @@ protocol ProcessTapHAL: AnyObject {
 @available(macOS 14.2, *)
 final class CoreAudioProcessTapHAL: ProcessTapHAL {
     private static let listenerQueue = DispatchQueue(label: "com.ropats16.Cado.system-audio-listeners")
+    private static let system = AudioObjectID(kAudioObjectSystemObject)
 
-    func ownProcessObject() -> AudioObjectID? {
-        var pid = getpid()
-        var address = Self.address(kAudioHardwarePropertyTranslatePIDToProcessObject)
-        var object = AudioObjectID(kAudioObjectUnknown)
-        var size = UInt32(MemoryLayout<AudioObjectID>.size)
-        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address,
-                                                UInt32(MemoryLayout<pid_t>.size), &pid, &size, &object)
-        return status == noErr && object != kAudioObjectUnknown ? object : nil
+    func audioProcesses() -> [AudioProcess] {
+        var address = Self.address(kAudioHardwarePropertyProcessObjectList)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(Self.system, &address, 0, nil, &size) == noErr, size > 0 else { return [] }
+        var objects = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(Self.system, &address, 0, nil, &size, &objects) == noErr else { return [] }
+        return objects.prefix(Int(size) / MemoryLayout<AudioObjectID>.size).compactMap { object in
+            var pidAddress = Self.address(kAudioProcessPropertyPID)
+            var pid: pid_t = -1
+            var pidSize = UInt32(MemoryLayout<pid_t>.size)
+            guard AudioObjectGetPropertyData(object, &pidAddress, 0, nil, &pidSize, &pid) == noErr, pid > 0 else { return nil }
+            return AudioProcess(object: object, pid: pid, bundleID: Self.bundleID(of: object))
+        }
     }
 
-    func createTap(excluding excluded: [AudioObjectID]) throws -> (tap: AudioObjectID, uid: String) {
-        let description = CATapDescription(monoGlobalTapButExcludeProcesses: excluded)
+    private static func bundleID(of object: AudioObjectID) -> String? {
+        var address = address(kAudioProcessPropertyBundleID)
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value) == noErr,
+              let string = value?.takeRetainedValue() as String?, !string.isEmpty else { return nil }
+        return string
+    }
+
+    func parentPID(of pid: pid_t) -> pid_t? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return pid_t(info.pbi_ppid)
+    }
+
+    func createTap(_ scope: TapScope) throws -> (tap: AudioObjectID, uid: String) {
+        let description: CATapDescription
+        switch scope {
+        case .processes(let objects): description = CATapDescription(monoMixdownOfProcesses: objects)
+        case .allExcept(let objects): description = CATapDescription(monoGlobalTapButExcludeProcesses: objects)
+        }
         description.name = "Cado system audio"
         description.isPrivate = true
         description.muteBehavior = .unmuted
@@ -91,6 +135,7 @@ final class CoreAudioProcessTapHAL: ProcessTapHAL {
     func createAggregateDevice(tapUID: String) throws -> AudioObjectID {
         // Tap only, no sub-device: an output device with inputs of its own
         // (a USB headset) would otherwise mix its mic into the IOProc's input.
+        // The tap clocks the device by itself (checked on hardware).
         let description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "Cado System Audio",
             kAudioAggregateDeviceUIDKey: "com.ropats16.Cado.system-audio.\(UUID().uuidString)",

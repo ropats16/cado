@@ -30,5 +30,9 @@
     <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Cado records your voice locally to transcribe it into text. Audio is processed on-device and never leaves your Mac.</string>
+    <!-- System audio (Core Audio process taps, macOS 14.2+) for meeting notes. Without
+         this key a tap records silence and macOS never shows the prompt. -->
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Cado records your Mac's audio during a meeting you start, so the other participants are transcribed alongside you. Audio is processed on-device and never leaves your Mac.</string>
 </dict>
 </plist>
