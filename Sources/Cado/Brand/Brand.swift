@@ -13,12 +13,14 @@ enum Brand {
     /// Semantic UI colours. Each adapts to light/dark itself, so use them
     /// as-is. SwiftUI `Color`s here; the same names as `NSColor`s in `NS`.
     enum Palette {
-        /// Avocado-skin green: tint/accent for controls, links, selection.
+        /// Apple's bright system green (owner's call, over the duller
+        /// avocado-skin green): tint/accent for controls, links, selection.
         static let accent = Color(nsColor: NS.accent)
         /// The system window background: Settings looks like a stock Mac
         /// window (owner's call), with the brand in the accent, type and art.
         static let background = Color(nsColor: NS.background)
-        /// A raised surface on `background`: grouped boxes, cards, fields.
+        /// A grouped box on `background`, filled like System Settings' own
+        /// (a faint system fill, not a white card): cards, fields.
         static let surface = Color(nsColor: NS.surface)
         /// The system label colour: primary text.
         static let ink = Color(nsColor: NS.ink)
@@ -32,9 +34,9 @@ enum Brand {
 
         /// `Palette` as `NSColor`s, for AppKit.
         enum NS {
-            static let accent = themed("accent", light: 0x4f8a3c, dark: 0x8fc76f)
+            static let accent = NSColor.systemGreen
             static let background = NSColor.windowBackgroundColor
-            static let surface = NSColor.controlBackgroundColor
+            static let surface = NSColor.quaternarySystemFill
             static let ink = NSColor.labelColor
             static let inkSecondary = NSColor.secondaryLabelColor
             static let cheek = rgb(0xff8fa3)
