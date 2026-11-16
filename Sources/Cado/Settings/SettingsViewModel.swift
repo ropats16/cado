@@ -37,6 +37,9 @@ final class SettingsViewModel: ObservableObject {
     /// A mascot toggle changed (saved first): the overlay re-reads
     /// `mascotAlwaysVisible` / `mascotInScreenShares` and applies them live.
     let onMascotSettingsChange: () -> Void
+    /// The launch-ping choice changed (saved first); the app makes or deletes
+    /// its anonymous id (`LaunchPing.setEnabled`).
+    let onUsagePingChange: (Bool) -> Void
     /// The engines this build has, and the Mac they're gated on.
     let engines: EngineRegistry
     let environment: EngineEnvironment
@@ -59,6 +62,7 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var soundCues: Bool
     @Published private(set) var mascotAlwaysVisible: Bool
     @Published private(set) var mascotInScreenShares: Bool
+    @Published private(set) var usagePing: Bool
     @Published private(set) var launchAtLogin: Bool
     @Published private(set) var selectedMicUID: String?     // nil = System Default
     /// The picker selection: the configured max dictation length (0 = no limit).
@@ -124,6 +128,7 @@ final class SettingsViewModel: ObservableObject {
          modelStatus: TranscriptionStatus,
          onModelSettingsChange: @escaping () -> Void,
          onMascotSettingsChange: @escaping () -> Void = {},
+         onUsagePingChange: @escaping (Bool) -> Void = { _ in },
          engines: EngineRegistry = .shared,
          environment: EngineEnvironment? = nil,
          speechAssets: SpeechModelAssets = LiveSpeechModelAssets(),
@@ -148,6 +153,7 @@ final class SettingsViewModel: ObservableObject {
         self.isFirstLoad = isFirstLoad
         self.modelsDir = modelsDir
         self.engineFacts = engineFacts
+        self.onUsagePingChange = onUsagePingChange
         // This Mac's OS, with the injected hardware (so tests control both).
         self.environment = environment ?? EngineEnvironment(macOSMajor: EngineEnvironment.current.macOSMajor,
                                                             macOSMinor: EngineEnvironment.current.macOSMinor,
@@ -157,6 +163,7 @@ final class SettingsViewModel: ObservableObject {
         self.soundCues = cfg.soundCues
         self.mascotAlwaysVisible = cfg.mascotAlwaysVisible
         self.mascotInScreenShares = cfg.mascotInScreenShares
+        self.usagePing = cfg.usagePing
         self.launchAtLogin = loginItem.isEnabled
         self.selectedMicUID = cfg.microphoneUID
         self.maxDictationSeconds = max(0, cfg.maxRecordingSeconds)
@@ -194,6 +201,14 @@ final class SettingsViewModel: ObservableObject {
         configStore.update { $0.mascotInScreenShares = on }
         mascotInScreenShares = on
         onMascotSettingsChange()
+    }
+
+    /// Persists the opt-in anonymous launch ping (#26) and tells the app, which
+    /// makes (on) or deletes (off) the anonymous id.
+    func setUsagePing(_ on: Bool) {
+        configStore.update { $0.usagePing = on }
+        usagePing = on
+        onUsagePingChange(on)
     }
 
     /// Registers or unregisters the login item. On failure the toggle is reverted

@@ -59,6 +59,19 @@ struct SettingsView: View {
                         .padding(.bottom, 8)
                 }
 
+                // MARK: Usage count (#26)
+                SettingsSection(title: "Usage Count", systemImage: "chart.bar") {
+                    SettingsRow("Send an anonymous launch count") {
+                        Toggle("Send an anonymous launch count",
+                               isOn: Binding(
+                                   get: { viewModel.usagePing },
+                                   set: { viewModel.setUsagePing($0) }
+                               ))
+                    }
+                    StatusLine(text: UsagePingCopy.settingsNote)
+                        .padding(.bottom, 8)
+                }
+
                 // MARK: Startup
                 SettingsSection(title: "Startup", systemImage: "power") {
                     SettingsRow("Launch Cado at login") {

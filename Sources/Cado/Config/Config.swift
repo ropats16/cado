@@ -48,6 +48,9 @@ struct Config: Codable {
     /// Missing (older configs) = false; launch then marks a Mac that's
     /// already set up as done (`OnboardingLaunch`), so upgraders never see it.
     var onboardingDone: Bool
+    /// Opt-in anonymous launch ping (#26). Off unless the user switches it on
+    /// (onboarding, Settings); missing in older configs = off.
+    var usagePing: Bool
 
     static var defaults: Config {
         Config(
@@ -68,7 +71,8 @@ struct Config: Codable {
             mascotAlwaysVisible: false,
             mascotInScreenShares: false,
             mascotPositions: [:],
-            onboardingDone: false
+            onboardingDone: false,
+            usagePing: false
         )
     }
 
@@ -78,7 +82,8 @@ struct Config: Codable {
          soundCues: Bool, language: String, threads: Int, keepMicWarm: Bool,
          keepModelWarm: Bool? = nil, modelIdleMinutes: Double = 5,
          mascotAlwaysVisible: Bool = false, mascotInScreenShares: Bool = false,
-         mascotPositions: [String: MascotPosition] = [:], onboardingDone: Bool = false) {
+         mascotPositions: [String: MascotPosition] = [:], onboardingDone: Bool = false,
+         usagePing: Bool = false) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -99,6 +104,7 @@ struct Config: Codable {
         self.mascotInScreenShares = mascotInScreenShares
         self.mascotPositions = mascotPositions
         self.onboardingDone = onboardingDone
+        self.usagePing = usagePing
     }
 
     init(from decoder: Decoder) throws {
@@ -129,6 +135,7 @@ struct Config: Codable {
         mascotInScreenShares = try c.decodeIfPresent(Bool.self, forKey: .mascotInScreenShares) ?? d.mascotInScreenShares
         mascotPositions = try c.decodeIfPresent([String: MascotPosition].self, forKey: .mascotPositions) ?? d.mascotPositions
         onboardingDone = try c.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? d.onboardingDone
+        usagePing = try c.decodeIfPresent(Bool.self, forKey: .usagePing) ?? d.usagePing
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this

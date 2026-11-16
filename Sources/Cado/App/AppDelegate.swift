@@ -7,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let configStore = ConfigStore()
     private let permissions = Permissions()
     private let loginItem = LoginItem()
+    /// Opt-in anonymous launch ping (#26); inert unless the user turned it on.
+    private let launchPing = LaunchPing.live()
 
     /// The engine and model come from the config (the configured engine if it
     /// can run here, else whisper; an explicit pick, else auto-picked for this
@@ -90,6 +92,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // permissions (until then the monitor assumes none).
         monitor.start()
         startOnboardingOrPrompt()
+        // Off the main thread, last: a slow or failing request can't touch launch.
+        let ping = launchPing, optedIn = configStore.config.usagePing
+        Task.detached(priority: .utility) { await ping.sendLaunch(enabled: optedIn) }
     }
 
     /// Returning from System Settings: show a permission change at once.
@@ -227,7 +232,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 options: { [weak self] in self?.onboardingOptions() ?? [] },
                 isFirstShow: isFirstShow,
                 perform: { [weak self] in self?.perform($0) },
-                onFinish: { [weak self] in self?.finishOnboarding() })
+                onFinish: { [weak self] in self?.finishOnboarding() },
+                setUsagePing: { [weak self] on in
+                    MainActor.assumeIsolated { self?.sharedSettingsViewModel().setUsagePing(on) }
+                })
             let controller = OnboardingWindowController(viewModel: model)
             controller.onClose = { [weak self] in self?.onboardingClosed() }
             onboardingModel = model
@@ -485,6 +493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 overlay?.apply(MascotOverlay.Settings(configStore.config))
             },
+            onUsagePingChange: { [launchPing] in launchPing.setEnabled($0) },
             isFirstLoad: { [loadHistory] in EngineRegistry.shared.isFirstLoad($0, history: loadHistory) },
             engineFacts: { [weak self] in self?.engineFacts }
         )

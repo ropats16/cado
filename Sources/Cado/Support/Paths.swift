@@ -50,6 +50,11 @@ enum Paths {
         appSupportDir.appendingPathComponent("model-loads.json", isDirectory: false)
     }
 
+    /// `.../Cado/usage-ping-id` — the random anonymous id of the opt-in launch ping (see `LaunchPing`).
+    static var pingIdentityFile: URL {
+        appSupportDir.appendingPathComponent("usage-ping-id", isDirectory: false)
+    }
+
     /// Create the support + models directories if they do not yet exist.
     @discardableResult
     static func ensureDirectories() -> Bool {
