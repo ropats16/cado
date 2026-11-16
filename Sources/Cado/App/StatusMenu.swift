@@ -132,6 +132,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var onAction: ((ReadinessAction) -> Void)?
     var onOpenOnboarding: (() -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onOpenLibrary: (() -> Void)?
     var onOpenAcknowledgements: (() -> Void)?
     var onOpenConfig: (() -> Void)?
     /// A Recent Dictations row was clicked: the full text to copy again.
@@ -171,6 +172,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             hold, toggle, recentsSeparator,
             recents,
             item("Set Up Cado…", #selector(openOnboarding)),
+            item("Library…", #selector(openLibrary), key: "l"),
             item("Settings…", #selector(openSettings), key: ","),
             item("Acknowledgements…", #selector(openAcknowledgements)),
             item("Open Config File…", #selector(openConfig)),
@@ -260,6 +262,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
     @objc private func openOnboarding() { onOpenOnboarding?() }
     @objc private func openSettings() { onOpenSettings?() }
+    @objc private func openLibrary() { onOpenLibrary?() }
     @objc private func openAcknowledgements() { onOpenAcknowledgements?() }
     @objc private func openConfig() { onOpenConfig?() }
     @objc private func openModelsFolder() { onAction?(.openModelsFolder) }

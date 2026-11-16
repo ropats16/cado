@@ -1,0 +1,383 @@
+import XCTest
+import AppKit
+@testable import Cado
+
+private final class LibraryFakeTrasher: NoteTrashing {
+    var trashed: [URL] = []
+    func trash(_ url: URL) throws {
+        trashed.append(url)
+        try FileManager.default.removeItem(at: url)
+    }
+}
+
+private final class FakeOpener: NoteOpening {
+    var revealed: [URL] = []
+    var opened: [URL] = []
+    func reveal(_ url: URL) { revealed.append(url) }
+    func open(_ url: URL) { opened.append(url) }
+}
+
+/// #29: the Library window's state, over a real temp-folder library with a
+/// fake watcher and trasher.
+@MainActor
+final class LibraryViewModelTests: XCTestCase {
+    private var root: URL!
+    private var dir: URL!
+    private let fm = FileManager.default
+    private let trasher = LibraryFakeTrasher()
+    private let watcher = FakeFolderWatcher()
+    private let opener = FakeOpener()
+    private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    private var library: NotesLibrary!
+    private var vm: LibraryViewModel!
+
+    override func setUpWithError() throws {
+        root = fm.temporaryDirectory.appendingPathComponent("library-\(UUID().uuidString)", isDirectory: true)
+        dir = root.appendingPathComponent("Cado", isDirectory: true)
+        library = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
+                               timeZone: TimeZone(identifier: "UTC")!)
+        vm = LibraryViewModel(library: library, opener: opener)
+    }
+
+    override func tearDownWithError() throws { try? fm.removeItem(at: root) }
+
+    @discardableResult
+    private func add(_ title: String, at offset: TimeInterval = 0, body: String? = nil) throws -> Note {
+        try library.create(NoteDraft(title: title, date: t0 + offset, kind: "meeting", duration: 600, body: body ?? "Body of \(title)"))
+    }
+
+    private func titles() -> [String] { vm.notes.map(\.title) }
+
+    // MARK: load, sort, states
+
+    func testLoadsNewestFirst() async throws {
+        try add("Old", at: 0)
+        try add("New", at: 3600)
+        XCTAssertEqual(vm.listState, .loading)
+        await vm.reload()
+        XCTAssertEqual(titles(), ["New", "Old"])
+        XCTAssertEqual(vm.listState, .notes)
+    }
+
+    func testEmptyFolderIsEmptyState() async {
+        await vm.reload()
+        XCTAssertEqual(vm.listState, .empty)
+    }
+
+    func testSearchFiltersByTitleAndBody() async throws {
+        try add("Weekly sync", body: "budget talk")
+        try add("Standup", at: 60, body: "nothing")
+        await vm.reload()
+        await vm.setQuery("budget")
+        XCTAssertEqual(titles(), ["Weekly sync"])
+        await vm.setQuery("standup")
+        XCTAssertEqual(titles(), ["Standup"])
+    }
+
+    func testNoMatchIsNoResultsAndClearingRestores() async throws {
+        try add("Weekly sync")
+        await vm.reload()
+        await vm.setQuery("zzz")
+        XCTAssertEqual(vm.listState, .noResults)
+        await vm.setQuery("")
+        XCTAssertEqual(vm.listState, .notes)
+    }
+
+    // MARK: selection
+
+    func testSelectLoadsDetail() async throws {
+        let note = try add("Weekly sync", body: "hello there")
+        await vm.reload()
+        await vm.select(note.id)
+        XCTAssertEqual(vm.selection, note.id)
+        XCTAssertEqual(vm.detail?.body, "hello there")
+    }
+
+    func testSelectionSurvivesReloadAndNewNotes() async throws {
+        let a = try add("A", at: 0)
+        await vm.reload()
+        await vm.select(a.id)
+        try add("B", at: 100)
+        await vm.reload()
+        XCTAssertEqual(vm.selection, a.id)
+        XCTAssertEqual(vm.detail?.id, a.id)
+        XCTAssertEqual(titles(), ["B", "A"])
+    }
+
+    func testSelectionClearedWhenSearchHidesIt() async throws {
+        let a = try add("Alpha")
+        try add("Beta", at: 10)
+        await vm.reload()
+        await vm.select(a.id)
+        await vm.setQuery("beta")
+        XCTAssertNil(vm.selection)
+        XCTAssertNil(vm.detail)
+        XCTAssertNil(vm.message)
+    }
+
+    // MARK: rename
+
+    func testRenameKeepsSelectionUnderNewID() async throws {
+        let a = try add("Old name")
+        await vm.reload()
+        await vm.select(a.id)
+        vm.beginRename(a.id)
+        XCTAssertEqual(vm.renameDraft, "Old name")
+        vm.renameDraft = "New name"
+        await vm.commitRename()
+        XCTAssertNotEqual(vm.selection, a.id)
+        XCTAssertEqual(vm.selection, vm.notes.first?.id)
+        XCTAssertEqual(vm.detail?.summary.title, "New name")
+        XCTAssertEqual(titles(), ["New name"])
+        XCTAssertNil(vm.renamingID)
+        XCTAssertNil(vm.message)
+    }
+
+    func testBlankOrUnchangedRenameDoesNothing() async throws {
+        let a = try add("Same")
+        await vm.reload()
+        vm.beginRename(a.id)
+        vm.renameDraft = "   "
+        await vm.commitRename()
+        vm.beginRename(a.id)
+        await vm.commitRename()
+        XCTAssertEqual(vm.notes.map(\.id), [a.id])
+        XCTAssertNil(vm.message)
+    }
+
+    func testRenameOfVanishedNoteShowsQuietMessage() async throws {
+        let a = try add("Gone soon")
+        await vm.reload()
+        await vm.select(a.id)
+        vm.beginRename(a.id)
+        vm.renameDraft = "Other"
+        try fm.removeItem(at: a.summary.url)
+        await vm.commitRename()
+        XCTAssertEqual(vm.message, "That note was deleted or renamed outside Cado.")
+        XCTAssertNil(vm.selection)
+        XCTAssertEqual(vm.listState, .empty)
+    }
+
+    func testRenameCollisionLeavesBothNotes() async throws {
+        let a = try add("One")
+        try add("Two")
+        await vm.reload()
+        await vm.select(a.id)
+        vm.beginRename(a.id)
+        vm.renameDraft = "Two"
+        await vm.commitRename()
+        XCTAssertEqual(Set(titles()), ["Two"])
+        XCTAssertEqual(vm.notes.count, 2)
+        XCTAssertEqual(vm.detail?.summary.title, "Two")
+    }
+
+    // MARK: delete
+
+    func testDeleteNeedsConfirmAndGoesToTrash() async throws {
+        let a = try add("Doomed")
+        await vm.reload()
+        vm.requestDelete(a.id)
+        XCTAssertEqual(vm.pendingDelete?.id, a.id)
+        XCTAssertTrue(trasher.trashed.isEmpty)
+        vm.cancelDelete()
+        XCTAssertNil(vm.pendingDelete)
+        XCTAssertTrue(trasher.trashed.isEmpty)
+
+        vm.requestDelete(a.id)
+        await vm.confirmDelete()
+        XCTAssertEqual(trasher.trashed, [a.summary.url])
+        XCTAssertEqual(vm.listState, .empty)
+        XCTAssertNil(vm.pendingDelete)
+    }
+
+    func testDeletingSelectedSelectsNeighbour() async throws {
+        let a = try add("A", at: 0)
+        let b = try add("B", at: 100)
+        let c = try add("C", at: 200)
+        await vm.reload()                       // C, B, A
+        await vm.select(b.id)
+        vm.requestDelete(b.id)
+        await vm.confirmDelete()
+        XCTAssertEqual(vm.selection, a.id)      // the one after it
+        XCTAssertEqual(titles(), ["C", "A"])
+        XCTAssertEqual(vm.detail?.id, a.id)
+        _ = c
+    }
+
+    func testDeletingOtherNoteKeepsSelection() async throws {
+        let a = try add("A", at: 0)
+        let b = try add("B", at: 100)
+        await vm.reload()
+        await vm.select(a.id)
+        vm.requestDelete(b.id)
+        await vm.confirmDelete()
+        XCTAssertEqual(vm.selection, a.id)
+    }
+
+    // MARK: external changes
+
+    func testWatcherReloadsList() async throws {
+        vm.start()
+        await vm.settled()
+        XCTAssertEqual(vm.listState, .empty)
+        XCTAssertEqual(watcher.watched, dir)
+        try add("Dropped in")
+        watcher.fire()
+        await vm.settled()
+        XCTAssertEqual(titles(), ["Dropped in"])
+        vm.stop()
+        XCTAssertNil(watcher.watched)
+    }
+
+    func testExternalDeleteOfSelectedFallsBack() async throws {
+        let a = try add("A", at: 0)
+        try add("B", at: 100)
+        vm.start()
+        await vm.settled()
+        await vm.select(a.id)
+        try fm.removeItem(at: a.summary.url)
+        watcher.fire()
+        await vm.settled()
+        XCTAssertNil(vm.selection)
+        XCTAssertNil(vm.detail)
+        XCTAssertEqual(titles(), ["B"])
+    }
+
+    func testExternalRenameOfSelectedFallsBack() async throws {
+        let a = try add("A")
+        vm.start()
+        await vm.settled()
+        await vm.select(a.id)
+        try fm.moveItem(at: a.summary.url, to: dir.appendingPathComponent("Elsewhere.md"))
+        watcher.fire()
+        await vm.settled()
+        XCTAssertNil(vm.selection)
+        XCTAssertNil(vm.detail)
+        XCTAssertEqual(vm.notes.map(\.id), ["Elsewhere.md"])
+    }
+
+    func testExternalEditRefreshesDetail() async throws {
+        let a = try add("A", body: "before")
+        vm.start()
+        await vm.settled()
+        await vm.select(a.id)
+        XCTAssertEqual(vm.detail?.body, "before")
+        let raw = try String(contentsOf: a.summary.url, encoding: .utf8)
+        try raw.replacingOccurrences(of: "before", with: "after edit").write(to: a.summary.url, atomically: true, encoding: .utf8)
+        watcher.fire()
+        await vm.settled()
+        XCTAssertEqual(vm.detail?.body, "after edit")
+        XCTAssertEqual(vm.selection, a.id)
+    }
+
+    func testMissingFolderIsEmptyNotACrash() async {
+        await vm.reload()
+        XCTAssertFalse(fm.fileExists(atPath: dir.path))
+        XCTAssertEqual(vm.listState, .empty)
+    }
+
+    // MARK: open elsewhere
+
+    func testRevealAndOpenUseTheFileURL() async throws {
+        let a = try add("A")
+        await vm.reload()
+        vm.reveal(a.id)
+        vm.openExternally(a.id)
+        XCTAssertEqual(opener.revealed.map(\.lastPathComponent), [a.id])
+        XCTAssertEqual(opener.opened.map(\.lastPathComponent), [a.id])
+    }
+
+    // MARK: row text
+
+    func testRowSubtitle() throws {
+        let note = NoteSummary(id: "x.md", title: "x", date: t0, kind: "meeting", duration: 1830, preview: "", url: dir)
+        let calendar = Calendar(identifier: .gregorian)
+        let text = NoteRowText.subtitle(note, calendar: calendar)
+        XCTAssertTrue(text.hasSuffix("· Meeting · 31 min"), text)
+        let plain = NoteSummary(id: "y.md", title: "y", date: t0, kind: "note", duration: nil, preview: "", url: dir)
+        XCTAssertFalse(NoteRowText.subtitle(plain, calendar: calendar).contains("·"))
+    }
+
+    func testPreviewDropsMarkdownMarkers() {
+        XCTAssertEqual(NoteRowText.preview("## Summary Agreed **big** *deal* [spec](https://x.y)"),
+                       "Summary Agreed big deal spec")
+    }
+
+    func testDurationText() {
+        XCTAssertEqual(NoteRowText.durationText(45), "45 s")
+        XCTAssertEqual(NoteRowText.durationText(600), "10 min")
+        XCTAssertEqual(NoteRowText.durationText(3600), "1 h")
+        XCTAssertEqual(NoteRowText.durationText(3900), "1 h 5 min")
+    }
+}
+
+/// The Dock-icon policy seam: `.regular` only while a registered window is open.
+@MainActor
+final class DockPresenceTests: XCTestCase {
+    private var applied: [NSApplication.ActivationPolicy] = []
+    private func make() -> DockPresence { DockPresence { [unowned self] in self.applied.append($0) } }
+
+    func testRegularWhileOpenAccessoryAfter() {
+        let dock = make()
+        dock.opened("library")
+        dock.closed("library")
+        XCTAssertEqual(applied, [.regular, .accessory])
+    }
+
+    func testStaysRegularUntilLastOwnerCloses() {
+        let dock = make()
+        dock.opened("library")
+        dock.opened("other")
+        dock.closed("library")
+        XCTAssertEqual(applied, [.regular])
+        dock.closed("other")
+        XCTAssertEqual(applied, [.regular, .accessory])
+    }
+
+    func testRepeatedCallsAreIdempotent() {
+        let dock = make()
+        dock.opened("library")
+        dock.opened("library")
+        dock.closed("library")
+        dock.closed("library")
+        dock.closed("never-opened")
+        XCTAssertEqual(applied, [.regular, .accessory])
+    }
+}
+
+final class MarkdownBlocksTests: XCTestCase {
+    func testBlocks() {
+        let md = """
+        # Title
+        First line
+        second line
+
+        - one
+          - nested
+        1. step
+        > quoted
+        ---
+        ```
+        code **x**
+        ```
+        **Me:** hi
+        """
+        XCTAssertEqual(MarkdownBlock.parse(md), [
+            .heading(level: 1, text: "Title"),
+            .paragraph("First line\nsecond line"),
+            .bullet("one", depth: 0),
+            .bullet("nested", depth: 1),
+            .numbered("step", marker: "1.", depth: 0),
+            .quote("quoted"),
+            .rule,
+            .code("code **x**"),
+            .paragraph("**Me:** hi"),
+        ])
+    }
+
+    func testHashWithoutSpaceIsText() {
+        XCTAssertEqual(MarkdownBlock.parse("#tag"), [.paragraph("#tag")])
+    }
+
+    func testEmpty() { XCTAssertEqual(MarkdownBlock.parse(""), []) }
+}
