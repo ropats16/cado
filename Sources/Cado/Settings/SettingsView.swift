@@ -89,6 +89,45 @@ struct SettingsView: View {
                     }
                 }
 
+                // MARK: Notes & History (#28)
+                SettingsSection(title: "Notes & History", systemImage: "folder.fill") {
+                    HStack(spacing: 8) {
+                        Text("Notes folder").foregroundStyle(Brand.Palette.ink)
+                        Spacer(minLength: 8)
+                        Text(viewModel.notesFolderPath)
+                            .foregroundStyle(Brand.Palette.inkSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Button("Choose…") { viewModel.chooseNotesFolder() }
+                        Button("Show in Finder") { viewModel.showNotesFolder() }
+                    }
+                    .settingsRowPadding()
+                    StatusLine(text: "Dictation history is saved here as Markdown. Point it at an Obsidian vault to see it there.")
+                        .padding(.bottom, 8)
+                    CardDivider()
+                    SettingsRow("Save dictation history") {
+                        Toggle("Save dictation history",
+                               isOn: Binding(
+                                   get: { viewModel.dictationHistory },
+                                   set: { viewModel.setDictationHistory($0) }
+                               ))
+                    }
+                    CardDivider()
+                    SettingsRow("Delete history") {
+                        Picker("Delete history",
+                               selection: Binding(
+                                   get: { viewModel.historyPruneDays },
+                                   set: { viewModel.setHistoryPruneDays($0) }
+                               )) {
+                            ForEach(viewModel.historyPruneChoices, id: \.days) { choice in
+                                Text(choice.label).tag(choice.days)
+                            }
+                        }
+                        .frame(maxWidth: Self.pickerWidth, alignment: .trailing)
+                        .disabled(!viewModel.dictationHistory)
+                    }
+                }
+
                 // MARK: Microphone
                 SettingsSection(title: "Microphone", systemImage: "mic.fill") {
                     SettingsRow("Microphone") {
