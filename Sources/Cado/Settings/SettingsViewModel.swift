@@ -53,6 +53,13 @@ final class SettingsViewModel: ObservableObject {
     /// What Automatic knows without blocking (Apple Speech's cached asset
     /// state, failed loads); nil = each engine's own `isPresent`.
     let engineFacts: () -> EngineFacts?
+    /// Asks the user for a notes folder (nil = cancelled). Default: an NSOpenPanel
+    /// starting at the current folder.
+    let pickNotesFolder: () -> URL?
+    /// Shows a folder in Finder (creating it first if missing).
+    let revealFolder: (URL) -> Void
+    /// A notes setting changed (saved first): the app re-prunes and refreshes the menu.
+    let onNotesSettingsChange: () -> Void
 
     // MARK: - Published display state
 
@@ -64,6 +71,11 @@ final class SettingsViewModel: ObservableObject {
     /// The picker selection: the configured max dictation length (0 = no limit).
     @Published private(set) var maxDictationSeconds: Double
     @Published private(set) var loginError: String?
+    /// The notes folder, `~`-abbreviated for display (SettingsViewModel+Notes.swift).
+    @Published private(set) var notesFolderPath: String
+    @Published private(set) var dictationHistory: Bool
+    /// The picker selection: days to keep history (<= 0 = forever).
+    @Published private(set) var historyPruneDays: Int
 
     // MARK: - Model display state
 
@@ -130,7 +142,10 @@ final class SettingsViewModel: ObservableObject {
          modelDownloader: ModelDownloading = FolderModelDownloader.live,
          isFirstLoad: @escaping (ModelSpec) -> Bool = { _ in false },
          modelsDir: URL = Paths.modelsDir,
-         engineFacts: @escaping () -> EngineFacts? = { nil }) {
+         engineFacts: @escaping () -> EngineFacts? = { nil },
+         pickNotesFolder: (() -> URL?)? = nil,
+         revealFolder: @escaping (URL) -> Void = SettingsViewModel.revealInFinder,
+         onNotesSettingsChange: @escaping () -> Void = {}) {
         self.configStore = configStore
         self.loginItem = loginItem
         self.availableMics = availableMics
@@ -148,6 +163,11 @@ final class SettingsViewModel: ObservableObject {
         self.isFirstLoad = isFirstLoad
         self.modelsDir = modelsDir
         self.engineFacts = engineFacts
+        self.pickNotesFolder = pickNotesFolder ?? { [weak configStore] in
+            SettingsViewModel.presentNotesFolderPanel(startingAt: configStore.map { NotesFolder.resolve($0.config) })
+        }
+        self.revealFolder = revealFolder
+        self.onNotesSettingsChange = onNotesSettingsChange
         // This Mac's OS, with the injected hardware (so tests control both).
         self.environment = environment ?? EngineEnvironment(macOSMajor: EngineEnvironment.current.macOSMajor,
                                                             macOSMinor: EngineEnvironment.current.macOSMinor,
@@ -160,6 +180,9 @@ final class SettingsViewModel: ObservableObject {
         self.launchAtLogin = loginItem.isEnabled
         self.selectedMicUID = cfg.microphoneUID
         self.maxDictationSeconds = max(0, cfg.maxRecordingSeconds)
+        self.notesFolderPath = Self.displayPath(NotesFolder.resolve(cfg))
+        self.dictationHistory = cfg.dictationHistory
+        self.historyPruneDays = max(0, cfg.historyPruneDays)
         let selected = ModelSelection.select(cfg, environment: self.environment, engines: engines,
                                              modelsDir: modelsDir, presentFilenames: presentModelFilenames(), facts: engineFacts())
         let engine = selected.spec.engine
@@ -214,6 +237,28 @@ final class SettingsViewModel: ObservableObject {
     func setMaxDictationSeconds(_ seconds: Double) {
         configStore.update { $0.maxRecordingSeconds = seconds }
         maxDictationSeconds = seconds
+    }
+
+    /// Persists whether dictation history is saved, and tells the app.
+    func setDictationHistory(_ on: Bool) {
+        configStore.update { $0.dictationHistory = on }
+        dictationHistory = on
+        onNotesSettingsChange()
+    }
+
+    /// Persists how long history is kept (<= 0 = forever), and tells the app.
+    func setHistoryPruneDays(_ days: Int) {
+        configStore.update { $0.historyPruneDays = days }
+        historyPruneDays = days
+        onNotesSettingsChange()
+    }
+
+    /// Lets the user pick the notes folder; cancelling changes nothing.
+    func chooseNotesFolder() {
+        guard let url = pickNotesFolder() else { return }
+        configStore.update { NotesFolder.store(url, in: &$0) }
+        notesFolderPath = Self.displayPath(NotesFolder.resolve(configStore.config))
+        onNotesSettingsChange()
     }
 
     /// Persists the selected microphone UID (nil = system default) and refreshes
