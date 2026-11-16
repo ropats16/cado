@@ -35,3 +35,6 @@ third_party/whisper.cpp/**/*.a
 
 # Benchmark fixtures + results (scripts/fetch_bench_fixtures.sh, Cado --bench)
 /.bench/
+
+# Python
+__pycache__/
