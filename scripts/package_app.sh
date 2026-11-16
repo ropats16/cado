@@ -7,7 +7,8 @@
 # The Metal shader is EMBEDDED in the binary (see scripts/embed_metal_shader.sh),
 # so there is no app data to bundle — the .app is just the binary + Info.plist +
 # the OS-level icon (Contents/Resources/AppIcon.icns, which Finder, System
-# Settings and notifications read from the bundle; the app itself never does).
+# Settings and notifications read from the bundle; the app itself never does),
+# plus Sparkle.framework in Contents/Frameworks for auto-update (#24).
 # The mascot art the app draws is compiled in (Brand/MascotArt+SVG.swift).
 # SwiftPM's FluidAudio_FluidAudio.bundle is deliberately left out: it holds only
 # LuxTts G2P data for FluidAudio's TTS, which the app never calls (Parakeet ASR
@@ -51,10 +52,29 @@ cp "$BIN" "$APP/Contents/MacOS/$APP_NAME"
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+
+# Sparkle (#24). The binary links @rpath/Sparkle.framework and carries an
+# @executable_path/../Frameworks rpath (Package.swift). Cado isn't sandboxed, so
+# Sparkle's XPC services are never used; Sparkle's sandboxing guide says they may
+# be removed ("Removing the XPC Services"). That breaks the framework's seal, so
+# it's re-signed below (dev) or by release.sh (sign_sparkle.sh either way).
+echo "==> Embedding Sparkle.framework"
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+[[ -d "$BIN_DIR/Sparkle.framework" ]] || { echo "error: $BIN_DIR/Sparkle.framework not found" >&2; exit 1; }
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$BIN_DIR/Sparkle.framework" "$SPARKLE"   # ditto keeps the Versions/ symlinks
+rm -rf "$SPARKLE/Versions/B/XPCServices" "$SPARKLE/XPCServices"
+# Build-time only (Xcode's Embed & Sign drops them too).
+for d in Headers PrivateHeaders Modules; do rm -rf "$SPARKLE/Versions/B/$d" "$SPARKLE/$d"; done
+
 if [[ -n "${CADO_VERSION:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $CADO_VERSION" \
     -c "Set :CFBundleVersion ${CADO_BUILD:?CADO_BUILD required with CADO_VERSION}" \
     "$APP/Contents/Info.plist"
+else
+  # A dev build (version 0.1.0, build 1) must not "update" itself to a release:
+  # no feed = the updater stays off (UpdaterAvailability.developmentBuild).
+  /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP/Contents/Info.plist"
 fi
 if [[ "${CADO_ASSEMBLE_ONLY:-0}" == "1" ]]; then
   echo "✓ Assembled (unsigned): $APP"
@@ -74,8 +94,9 @@ if security find-identity -p codesigning 2>/dev/null | grep -q "Cado Self-Signed
 else
   echo "==> Ad-hoc codesigning (identifier $BUNDLE_ID) — grants will NOT survive rebuilds"
 fi
+bash "$ROOT/scripts/sign_sparkle.sh" "$SPARKLE" --sign "$SIGN_ID"
 codesign --force --sign "$SIGN_ID" --identifier "$BUNDLE_ID" "$APP"
-codesign --verify --verbose "$APP"
+codesign --verify --strict --verbose "$APP"
 
 if [[ "$INSTALL" -eq 1 ]]; then
   DEST="/Applications/$APP_NAME.app"

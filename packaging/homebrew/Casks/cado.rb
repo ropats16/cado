@@ -12,6 +12,8 @@ cask "cado" do
     strategy :github_latest
   end
 
+  # Sparkle updates the app in place (#24), so `brew upgrade` leaves it alone.
+  auto_updates true
   depends_on macos: :sonoma
 
   app "Cado.app"

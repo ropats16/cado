@@ -31,6 +31,23 @@
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <!-- Sparkle 2 auto-update (#24; docs/RELEASING.md). Dev builds (make package /
+         make install) delete SUFeedURL, so only release builds check. The key is the
+         PUBLIC half of the Ed25519 key in the maintainer's login keychain (Sparkle
+         generate_keys, account "cado"); the app refuses to start the updater while it
+         is the placeholder SPARKLE_PUBLIC_ED_KEY_PLACEHOLDER. Checks: daily, on by
+         default (no first-run prompt), toggled in Settings > Updates; installs only
+         after the user agrees; no system profile is sent. -->
+    <key>SUFeedURL</key>
+    <string>https://github.com/ropats16/cado/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>rdsAG+/pd7Ht6XqvSHktNN79TMYuWJHVRfzD8PEyOpE=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>SUEnableSystemProfiling</key>
+    <false/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Cado records your voice locally to transcribe it into text. Audio is processed on-device and never leaves your Mac.</string>
     <!-- System audio (Core Audio process taps, macOS 14.2+) for meeting notes. Without

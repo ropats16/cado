@@ -164,6 +164,30 @@ final class StatusMenuContentTests: XCTestCase {
         XCTAssertEqual(rows?[1].time, "15 Nov at 14:32")
     }
 
+    // MARK: - Check for Updates (#24)
+
+    /// No updater running (dev build, `swift run`): no item.
+    func testUpdateItemHiddenByDefault() {
+        XCTAssertNil(content(.ready).update)
+    }
+
+    func testUpdateItemShowsTheUpdatersRow() {
+        let inputs = ReadinessInputs(
+            accessibility: .granted, microphone: .authorized,
+            engine: EngineReadiness(status: .ready, modelPath: "/m.bin", download: .command("make model")),
+            hotkeyTap: .installed)
+        func menu(_ row: UpdateMenuRow?) -> StatusMenuContent {
+            StatusMenuContent(status: .ready, inputs: inputs, hold: "⌃⇧", toggle: "⌃⌥Space",
+                              configIssues: [], update: row)
+        }
+        XCTAssertEqual(menu(UpdateMenuRow(availability: .available, canCheck: true, pendingVersion: nil)).update,
+                       UpdateMenuRow(title: "Check for Updates…", isEnabled: true))
+        XCTAssertEqual(menu(UpdateMenuRow(availability: .available, canCheck: false, pendingVersion: nil)).update?.isEnabled,
+                       false)
+        XCTAssertEqual(menu(UpdateMenuRow(availability: .available, canCheck: false, pendingVersion: "0.3.0")).update,
+                       UpdateMenuRow(title: "Update Available (0.3.0)…", isEnabled: true))
+    }
+
     func testConfigLineOnlyWithErrorsCountsAllIssues() {
         let warning = ConfigIssue(severity: .warning, message: "w")
         let error = ConfigIssue(severity: .error, message: "e")

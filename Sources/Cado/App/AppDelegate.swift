@@ -73,6 +73,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// download started in one window shows in the other.
     private var settingsViewModel: SettingsViewModel?
     private var acknowledgementsWindowController: AcknowledgementsWindowController?
+    /// Sparkle auto-update (#24); made and started at launch (it stays off
+    /// outside a release .app: `UpdaterAvailability`).
+    private var updater: SparkleUpdater?
     private var libraryWindowController: LibraryWindowController?
     private var onboardingWindowController: OnboardingWindowController?
     private var onboardingModel: OnboardingViewModel?
@@ -94,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Off (also by a hand-edited config) = nothing kept.
         if !configStore.config.dictationHistory { recents.clear() }
         setupMenu()
+        startUpdater()
         wireMonitor()
         startEngine()
         overlay = makeOverlay()
@@ -128,6 +132,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.onOpenSettings = { [weak self] in self?.openSettings() }
         menu.onOpenLibrary = { [weak self] in self?.openLibrary() }
         menu.onOpenAcknowledgements = { [weak self] in self?.openAcknowledgements() }
+        menu.onCheckForUpdates = { [weak self] in
+            MainActor.assumeIsolated { self?.updater?.checkForUpdates() }   // menu actions run on main
+        }
         menu.onOpenConfig = { [weak self] in self?.openConfig() }
         menu.onCopyAgain = { SystemClipboard().write($0) }
         // Re-read permissions on open: a mic change while Accessibility is
@@ -139,13 +146,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Sparkle (#24): a found update re-titles the menu item.
+    private func startUpdater() {
+        MainActor.assumeIsolated {   // launch runs on main
+            let updater = SparkleUpdater()
+            updater.onChange = { [weak self] in self?.refreshMenu() }
+            updater.start()
+            self.updater = updater
+        }
+    }
+
     private func refreshMenu() {
         let config = configStore.config
         menu.render(StatusMenuContent(status: monitor.status, inputs: monitor.inputs,
                                       hold: "\(config.hold)", toggle: "\(config.toggle)",
                                       configIssues: configIssues,
                                       recentDictations: recents.recent(),
-                                      historyEnabled: config.dictationHistory))
+                                      historyEnabled: config.dictationHistory,
+                                      update: MainActor.assumeIsolated { updater.flatMap(UpdateMenuRow.init) }))
         // Hotkeys rebound, models downloaded or the language changed.
         MainActor.assumeIsolated {
             if isOnboardingVisible { onboardingModel?.refresh() }
@@ -516,7 +534,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Turned off = forgotten, not just hidden.
                 if !configStore.config.dictationHistory { recents.clear() }
                 refreshMenu()
-            }
+            },
+            updater: updater ?? DisabledUpdater()
         )
         settingsViewModel = vm
         return vm

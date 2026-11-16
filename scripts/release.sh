@@ -11,10 +11,14 @@
 #                        checks. CADO_SIGN_IDENTITY may then be any identity (or "-" ad-hoc);
 #                        the DMG is NOT distributable.
 #   CADO_BUILD           override the build number (default: git commit count).
+#   CADO_SPARKLE_ACCOUNT login-keychain account of the Sparkle EdDSA key (default: cado).
+#                        It signs dist/appcast.xml's entry; its public half must equal
+#                        Resources/Info.plist's SUPublicEDKey. Rehearsals sign too.
 #
 # Stages are functions run in order at the bottom. Later tickets add stages after
 # stage_verify, using VERSION, BUILD, APP, DMG, DMG_SHA256 (all set by then):
-#   #24 Sparkle appcast entry (sign_update on $DMG), #25 Homebrew cask bump ($VERSION, $DMG_SHA256).
+#   #24 Sparkle appcast entry (stage_appcast: sign_update on $DMG -> dist/appcast.xml),
+#   #25 Homebrew cask bump ($VERSION, $DMG_SHA256).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -89,19 +93,17 @@ stage_build() {
   CADO_VERSION="$VERSION" CADO_BUILD="$BUILD" CADO_ASSEMBLE_ONLY=1 bash "$ROOT/scripts/package_app.sh"
 }
 
-# Hardened Runtime + secure timestamp. The bundle has no nested code today (one
-# executable; every dylib is a system one). If any is added (Sparkle.framework,
-# helpers), sign it here BEFORE the app, inside-out, never --deep.
+# Hardened Runtime + secure timestamp. The only nested code is Sparkle.framework
+# (#24): signed BEFORE the app, inside-out, never --deep. Anything else nested
+# fails the release until it gets signed here too.
 stage_sign_app() {
   say "Sign app (Hardened Runtime)"
-  # Nested code, deepest paths first. Empty today.
-  local f
-  while IFS= read -r -d '' f; do
-    echo "signing nested $f"
-    codesign --force --sign "$CADO_SIGN_IDENTITY" "${TS[@]}" --options runtime "$f"
-  done < <(find "$APP/Contents/Frameworks" "$APP/Contents/XPCServices" "$APP/Contents/Helpers" \
-             \( -name "*.dylib" -o -name "*.framework" -o -name "*.xpc" -o -name "*.app" \) \
-             -print0 2>/dev/null | sort -rz)
+  local other
+  other="$(find "$APP/Contents" -mindepth 2 -maxdepth 2 \( -path "*/Frameworks/*" -o -path "*/XPCServices/*" \
+             -o -path "*/Helpers/*" -o -path "*/PlugIns/*" \) ! -path "*/Frameworks/Sparkle.framework")"
+  [[ -z "$other" ]] || die "unexpected nested code, sign it in stage_sign_app first: $other"
+  bash "$ROOT/scripts/sign_sparkle.sh" "$APP/Contents/Frameworks/Sparkle.framework" \
+    --sign "$CADO_SIGN_IDENTITY" "${TS[@]}" --options runtime
   codesign --force --sign "$CADO_SIGN_IDENTITY" "${TS[@]}" --options runtime \
     --entitlements "$ENTITLEMENTS" --identifier "$BUNDLE_ID" "$APP"
   codesign --verify --strict --verbose=2 "$APP"
@@ -156,6 +158,81 @@ stage_verify() {
   DMG_SHA256="$(shasum -a 256 "$DMG" | awk '{print $1}')"
 }
 
+# --- Sparkle appcast (#24) ----------------------------------------------------
+SPARKLE_BIN="$ROOT/.build/artifacts/sparkle/Sparkle/bin"
+SPARKLE_ACCOUNT="${CADO_SPARKLE_ACCOUNT:-cado}"
+APPCAST="$ROOT/dist/appcast.xml"
+REPO="ropats16/cado"
+plist_get() { /usr/libexec/PlistBuddy -c "Print :$1" "$ROOT/Resources/Info.plist"; }
+
+# Fails before the long build if the update key isn't usable: the keychain key's
+# public half must be the one the app ships (else every update is rejected).
+stage_preflight_sparkle() {
+  say "Preflight: Sparkle update key (keychain account '$SPARKLE_ACCOUNT')"
+  swift package --package-path "$ROOT" resolve >/dev/null
+  [[ -x "$SPARKLE_BIN/sign_update" ]] || die "Sparkle tools not found in $SPARKLE_BIN (swift package resolve)"
+  local shipped keychain
+  shipped="$(plist_get SUPublicEDKey)"
+  [[ "$shipped" != "SPARKLE_PUBLIC_ED_KEY_PLACEHOLDER" ]] \
+    || die "Resources/Info.plist SUPublicEDKey is still the placeholder; see docs/RELEASING.md 'Update signing key'"
+  keychain="$("$SPARKLE_BIN/generate_keys" --account "$SPARKLE_ACCOUNT" -p 2>/dev/null)" \
+    || die "no Sparkle key for account '$SPARKLE_ACCOUNT' in the login keychain (docs/RELEASING.md 'Update signing key')"
+  [[ "$keychain" == "$shipped" ]] \
+    || die "keychain public key '$keychain' != Info.plist SUPublicEDKey '$shipped'; updates would be rejected"
+  echo "update key OK ($shipped)"
+  [[ "$CADO_SIGN_IDENTITY" != "-" ]] || echo "note: ad-hoc + Hardened Runtime fails library validation for" \
+    "Sparkle.framework, so this rehearsal app won't launch; use an Apple Development identity for a runnable one"
+}
+
+# dist/appcast.xml = the published appcast (if any) + a signed item for this DMG.
+# The item's sparkle:version is the stamped CFBundleVersion ($BUILD).
+stage_appcast() {
+  say "Sparkle appcast entry"
+  local sig len base url feed code
+  # May raise a one-time keychain prompt for sign_update: choose Always Allow.
+  sig="$("$SPARKLE_BIN/sign_update" --account "$SPARKLE_ACCOUNT" -p "$DMG")" || die "sign_update failed"
+  # Checked against the key the app in this DMG trusts, not the keychain.
+  swift "$ROOT/scripts/verify_update_signature.swift" \
+    "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP/Contents/Info.plist")" "$sig" "$DMG"
+  len="$(stat -f%z "$DMG")"
+  url="https://github.com/$REPO/releases/download/v$VERSION/$(basename "$DMG")"
+  feed="$(plist_get SUFeedURL)"
+  base="$(mktemp)"
+  if [[ -n "${CADO_APPCAST_BASE:-}" ]]; then
+    cp "$CADO_APPCAST_BASE" "$base"
+    echo "base appcast: $CADO_APPCAST_BASE"
+  else
+    code="$(curl -sSL --max-time 30 -o "$base" -w '%{http_code}' "$feed" || true)"
+    case "$code" in
+      200) echo "base appcast: published $feed" ;;
+      404) : >"$base"; echo "no published appcast yet ($feed): starting a new one" ;;
+      *) rm -f "$base"; die "fetching $feed gave HTTP '$code'; retry, or set CADO_APPCAST_BASE=<file> (empty file = new feed)" ;;
+    esac
+  fi
+  python3 "$ROOT/scripts/make_appcast.py" --out "$APPCAST" --base "$base" \
+    --version "$VERSION" --build "$BUILD" --min-os "$(plist_get LSMinimumSystemVersion)" \
+    --url "$url" --length "$len" --signature "$sig" \
+    --notes-url "https://github.com/$REPO/releases/tag/v$VERSION"
+  rm -f "$base"
+  xmllint --noout "$APPCAST"
+  # The item must match the bundle it describes.
+  [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" == "$BUILD" ]] \
+    || die "app CFBundleVersion != $BUILD"
+}
+
+# Never automatic: print the upload, for the maintainer to run after checking.
+stage_publish_hint() {
+  echo
+  if [[ "$SKIP_NOTARIZE" == "1" ]]; then
+    echo "Rehearsal: do NOT publish. A real release would print:"
+  else
+    echo "To publish (creates tag v$VERSION at HEAD; the DMG and appcast.xml become"
+    echo "this release's assets, and 'latest/download/appcast.xml' then serves this feed):"
+  fi
+  echo "  gh release create v$VERSION '$DMG' '$APPCAST' --repo $REPO \\"
+  echo "    --target $(git -C "$ROOT" rev-parse HEAD) --title 'Cado $VERSION' --generate-notes"
+}
+
 stage_homebrew() {
   if [[ "$SKIP_NOTARIZE" == "1" ]]; then echo "Homebrew cask: skipped (rehearsal DMG must not reach the tap)"; return; fi
   if [[ -z "${CADO_TAP_DIR:-}" ]]; then echo "Homebrew cask: skipped (set CADO_TAP_DIR=<tap checkout> to bump it; docs/RELEASING.md)"; return; fi
@@ -171,11 +248,13 @@ stage_summary() {
 }
 
 stage_preflight
+stage_preflight_sparkle
 stage_build
 stage_sign_app
 stage_dmg
 stage_notarize
 stage_verify
-# Hook points: #24 (Sparkle appcast) and #25 (Homebrew cask) go here.
+stage_appcast
 stage_homebrew
 stage_summary
+stage_publish_hint
