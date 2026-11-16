@@ -73,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// download started in one window shows in the other.
     private var settingsViewModel: SettingsViewModel?
     private var acknowledgementsWindowController: AcknowledgementsWindowController?
+    private var libraryWindowController: LibraryWindowController?
     private var onboardingWindowController: OnboardingWindowController?
     private var onboardingModel: OnboardingViewModel?
     /// Launch opened onboarding instead of firing the system prompts; what's
@@ -125,6 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.openOnboarding(isFirstShow: false) }   // menu actions run on main
         }
         menu.onOpenSettings = { [weak self] in self?.openSettings() }
+        menu.onOpenLibrary = { [weak self] in self?.openLibrary() }
         menu.onOpenAcknowledgements = { [weak self] in self?.openAcknowledgements() }
         menu.onOpenConfig = { [weak self] in self?.openConfig() }
         menu.onCopyAgain = { SystemClipboard().write($0) }
@@ -518,6 +520,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settingsViewModel = vm
         return vm
+    }
+
+    private func openLibrary() {
+        MainActor.assumeIsolated {   // menu actions run on the main thread
+            if libraryWindowController == nil {
+                // The folder closure also runs off main (library reads): read the config on main.
+                let library = NotesLibrary(folder: { [weak self] in
+                    let resolve = { self.map { NotesFolder.resolve($0.configStore.config) } ?? NotesFolder.defaultURL }
+                    return Thread.isMainThread ? resolve() : DispatchQueue.main.sync(execute: resolve)
+                })
+                libraryWindowController = LibraryWindowController(
+                    viewModel: LibraryViewModel(library: library), dock: DockPresence())
+            }
+            libraryWindowController?.show()
+        }
     }
 
     private func openAcknowledgements() {
