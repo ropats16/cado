@@ -156,6 +156,13 @@ stage_verify() {
   DMG_SHA256="$(shasum -a 256 "$DMG" | awk '{print $1}')"
 }
 
+stage_homebrew() {
+  if [[ "$SKIP_NOTARIZE" == "1" ]]; then echo "Homebrew cask: skipped (rehearsal DMG must not reach the tap)"; return; fi
+  if [[ -z "${CADO_TAP_DIR:-}" ]]; then echo "Homebrew cask: skipped (set CADO_TAP_DIR=<tap checkout> to bump it; docs/RELEASING.md)"; return; fi
+  say "Homebrew cask bump ($CADO_TAP_DIR)"
+  bash "$ROOT/scripts/bump_homebrew_cask.sh" "$VERSION" "$DMG_SHA256" "$CADO_TAP_DIR"
+}
+
 stage_summary() {
   echo
   echo "✓ Release $VERSION (build $BUILD)$([[ "$SKIP_NOTARIZE" == "1" ]] && echo ' [REHEARSAL, NOT NOTARIZED]')"
@@ -170,4 +177,5 @@ stage_dmg
 stage_notarize
 stage_verify
 # Hook points: #24 (Sparkle appcast) and #25 (Homebrew cask) go here.
+stage_homebrew
 stage_summary

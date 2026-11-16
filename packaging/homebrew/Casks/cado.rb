@@ -1,0 +1,26 @@
+cask "cado" do
+  version "0.1.0"
+  sha256 :no_check # replaced by scripts/bump_homebrew_cask.sh on each release
+
+  url "https://github.com/ropats16/cado/releases/download/v#{version}/Cado-#{version}.dmg"
+  name "Cado"
+  desc "Local, on-device speech-to-text dictation"
+  homepage "https://github.com/ropats16/cado"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  depends_on macos: :sonoma
+
+  app "Cado.app"
+
+  zap trash: [
+    "~/Library/Application Support/Cado",
+    "~/Library/Application Support/VoiceType",
+    "~/Library/Caches/com.ropats16.Cado",
+    "~/Library/Preferences/com.ropats16.Cado.plist",
+    "~/Library/Saved Application State/com.ropats16.Cado.savedState",
+  ]
+end
