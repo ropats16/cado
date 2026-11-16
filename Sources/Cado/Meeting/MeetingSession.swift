@@ -82,6 +82,8 @@ final class MeetingSession {
         var done = 0
         var pieces: [MeetingTranscript.Piece] = []
         var failures: [String] = []
+        /// The archive folder this meeting's audio (and note) went to.
+        var archived: URL?
 
         init(id: Int, app: MeetingApp, startedAt: TimeInterval, startDate: Date, me: MeetingStream, them: MeetingStream) {
             self.id = id
@@ -404,7 +406,8 @@ final class MeetingSession {
         let name = NotesLibrary.sanitise(MeetingNote.title(appName: meeting.app.name, start: meeting.startDate,
                                                            locale: locale, timeZone: timeZone))
         do {
-            let folder = try archive.keep(tracks, note: note, name: name)
+            let folder = try archive.keep(tracks, note: note, name: name, into: meeting.archived)
+            meeting.archived = folder
             Log.info("Meeting audio kept in \(folder.path)")
             return folder
         } catch {

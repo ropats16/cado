@@ -45,9 +45,11 @@ extension NotesLibrary: MeetingNoteStore {
 }
 
 /// Keeps a meeting's audio as 16 kHz mono 16-bit WAVs (`Me.wav`,
-/// `Them.wav`), plus `Note.md` if given, in `<root>/<name>/` — by default
-/// Cado's support folder's `Meeting Audio`, not the notes folder (no
-/// 100 MB files in someone's vault).
+/// `Them.wav`), plus `Note.md` if given, in a folder of its own under
+/// `<root>`: `<name>`, or `<name> 2`, `<name> 3`… when a folder of that name
+/// exists already (another meeting in the same minute), so kept audio is
+/// never overwritten. By default `root` is Cado's support folder's
+/// `Meeting Audio`, not the notes folder (no 100 MB files in someone's vault).
 final class FolderMeetingArchive: MeetingArchive {
     private let root: URL
 
@@ -55,11 +57,10 @@ final class FolderMeetingArchive: MeetingArchive {
         self.root = root
     }
 
-    func keep(_ audio: [MeetingAudio], note: String?, name: String) throws -> URL {
-        let folder = root.appendingPathComponent(name, isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    func keep(_ audio: [MeetingAudio], note: String?, name: String, into existing: URL?) throws -> URL {
+        let folder = try existing ?? newFolder(name)
         for track in audio {
-            try Self.writeWAV(track.samples, to: folder.appendingPathComponent("\(track.speaker.rawValue).wav"))
+            try WAVWriter.write(track.samples, to: folder.appendingPathComponent("\(track.speaker.rawValue).wav"))
         }
         if let note {
             try Data(note.utf8).write(to: folder.appendingPathComponent("Note.md"))
@@ -67,28 +68,20 @@ final class FolderMeetingArchive: MeetingArchive {
         return folder
     }
 
-    static func writeWAV(_ samples: [Float], to url: URL) throws {
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: AudioCapture.sampleRate,
-            AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false,
-        ]
-        try? FileManager.default.removeItem(at: url)
-        let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32,
-                                   interleaved: false)
-        let chunk = 1 << 16
-        var offset = 0
-        while offset < samples.count {
-            let count = min(chunk, samples.count - offset)
-            guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
-                                                frameCapacity: AVAudioFrameCount(count)) else { break }
-            buffer.frameLength = AVAudioFrameCount(count)
-            samples.withUnsafeBufferPointer { src in
-                buffer.floatChannelData![0].update(from: src.baseAddress! + offset, count: count)
+    /// Creates the first free `<name>`, `<name> 2`… (creating the leaf
+    /// without intermediates fails if it exists, so two can't share one).
+    private func newFolder(_ name: String) throws -> URL {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for n in 1... {
+            let folder = root.appendingPathComponent(n == 1 ? name : "\(name) \(n)", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+                return folder
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                continue
             }
-            try file.write(from: buffer)
-            offset += count
         }
+        fatalError("unreachable")
     }
 }
 

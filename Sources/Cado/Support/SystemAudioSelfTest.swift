@@ -1,4 +1,3 @@
-import AVFoundation
 import Foundation
 
 /// `Cado --system-audio-test [--list] [--app <bundle id>] [--seconds <n>] [--out <file.wav>]`
@@ -86,7 +85,7 @@ enum SystemAudioSelfTest {
         let rms = recorded.isEmpty ? 0 : (recorded.reduce(0) { $0 + $1 * $1 } / Float(recorded.count)).squareRoot()
         err("Captured \(recorded.count) samples (\(String(format: "%.2f", Double(recorded.count) / AudioCapture.sampleRate)) s @ 16 kHz), peak \(String(format: "%.4f", peak)), RMS \(String(format: "%.4f", rms))")
         do {
-            try write(recorded, to: out)
+            try WAVWriter.write(recorded, to: out)
             err("Wrote \(out.path)")
         } catch {
             err("Could not write \(out.path): \(error.localizedDescription)")
@@ -118,21 +117,6 @@ enum SystemAudioSelfTest {
         while !done() && Date() < deadline {
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         }
-    }
-
-    private static func write(_ samples: [Float], to url: URL) throws {
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: AudioCapture.sampleRate,
-            AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false,
-        ]
-        let file = try AVAudioFile(forWriting: url, settings: settings)
-        guard !samples.isEmpty,
-              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(samples.count))
-        else { return }
-        samples.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: samples.count) }
-        buffer.frameLength = AVAudioFrameCount(samples.count)
-        try file.write(from: buffer)
     }
 
     private static func err(_ s: String) {

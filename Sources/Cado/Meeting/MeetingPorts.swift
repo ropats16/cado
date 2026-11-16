@@ -49,9 +49,11 @@ struct MeetingAudio {
 }
 
 /// Keeps a meeting's audio (and, when the note couldn't be saved, its
-/// Markdown) in a folder named `name`; returns the folder.
+/// Markdown) in a folder of its own; returns the folder. `folder` nil makes
+/// a new one named after `name` (never one another meeting has); else adds
+/// to that folder, one this archive returned earlier for the same meeting.
 protocol MeetingArchive: AnyObject {
-    func keep(_ audio: [MeetingAudio], note: String?, name: String) throws -> URL
+    func keep(_ audio: [MeetingAudio], note: String?, name: String, into folder: URL?) throws -> URL
 }
 
 /// Notices to the user.

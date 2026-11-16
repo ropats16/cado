@@ -64,10 +64,10 @@ final class MeetingSessionTests: XCTestCase {
     }
 
     final class FakeArchive: MeetingArchive {
-        private(set) var kept: [(audio: [MeetingAudio], note: String?, name: String)] = []
-        func keep(_ audio: [MeetingAudio], note: String?, name: String) throws -> URL {
-            kept.append((audio, note, name))
-            return URL(fileURLWithPath: "/archive/\(name)")
+        private(set) var kept: [(audio: [MeetingAudio], note: String?, name: String, into: URL?)] = []
+        func keep(_ audio: [MeetingAudio], note: String?, name: String, into folder: URL?) throws -> URL {
+            kept.append((audio, note, name, folder))
+            return folder ?? URL(fileURLWithPath: "/archive/\(name)\(kept.count > 1 ? " \(kept.count)" : "")")
         }
     }
 
@@ -359,6 +359,21 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertTrue(body.contains("> 1 of 3 passages couldn't be transcribed: No transcription model is loaded."))
         XCTAssertTrue(body.contains("> The meeting's audio is kept in `/archive/Meeting with Zoom — 16 Nov 2026 at 14 32`."))
         XCTAssertTrue(body.contains("**Me:** Hello from me. Bye now."))
+    }
+
+    func testAMeetingKeepsEverythingInOneFolderOfItsOwn() {
+        engine.failing = [3]
+        notes.error = Failure("The folder is read-only.")
+        record()
+        XCTAssertEqual(archive.kept.count, 2, "The audio, then the note that couldn't be saved")
+        XCTAssertNil(archive.kept[0].into, "A new folder for this meeting")
+        XCTAssertEqual(archive.kept[1].into, URL(fileURLWithPath: "/archive/Meeting with Zoom — 16 Nov 2026 at 14 32"),
+                       "…and the note goes next to its audio")
+        XCTAssertTrue(archive.kept[1].audio.isEmpty)
+
+        engine.failing = [3]
+        record()   // a second meeting in the same minute
+        XCTAssertNil(archive.kept[2].into, "Its own folder, not the first meeting's")
     }
 
     func testEveryPassageFailingStillWritesANote() {
