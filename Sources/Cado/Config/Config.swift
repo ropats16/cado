@@ -48,6 +48,16 @@ struct Config: Codable {
     /// Missing (older configs) = false; launch then marks a Mac that's
     /// already set up as done (`OnboardingLaunch`), so upgraders never see it.
     var onboardingDone: Bool
+    /// The notes folder's path (#28); "" = `NotesFolder.defaultURL`. Read it
+    /// through `NotesFolder.resolve`, which prefers the bookmark.
+    var notesFolder: String
+    /// Base64 bookmark of the chosen notes folder, so it survives being
+    /// renamed or moved. nil = never chosen (or hand-edited away).
+    var notesFolderBookmark: String?
+    /// Save each delivered dictation to the notes folder (#28).
+    var dictationHistory: Bool
+    /// Delete dictation history older than this many days; <= 0 = keep forever.
+    var historyPruneDays: Int
 
     static var defaults: Config {
         Config(
@@ -68,7 +78,11 @@ struct Config: Codable {
             mascotAlwaysVisible: false,
             mascotInScreenShares: false,
             mascotPositions: [:],
-            onboardingDone: false
+            onboardingDone: false,
+            notesFolder: "",
+            notesFolderBookmark: nil,
+            dictationHistory: true,
+            historyPruneDays: 30
         )
     }
 
@@ -78,7 +92,9 @@ struct Config: Codable {
          soundCues: Bool, language: String, threads: Int, keepMicWarm: Bool,
          keepModelWarm: Bool? = nil, modelIdleMinutes: Double = 5,
          mascotAlwaysVisible: Bool = false, mascotInScreenShares: Bool = false,
-         mascotPositions: [String: MascotPosition] = [:], onboardingDone: Bool = false) {
+         mascotPositions: [String: MascotPosition] = [:], onboardingDone: Bool = false,
+         notesFolder: String = "", notesFolderBookmark: String? = nil,
+         dictationHistory: Bool = true, historyPruneDays: Int = 30) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -99,6 +115,10 @@ struct Config: Codable {
         self.mascotInScreenShares = mascotInScreenShares
         self.mascotPositions = mascotPositions
         self.onboardingDone = onboardingDone
+        self.notesFolder = notesFolder
+        self.notesFolderBookmark = notesFolderBookmark
+        self.dictationHistory = dictationHistory
+        self.historyPruneDays = historyPruneDays
     }
 
     init(from decoder: Decoder) throws {
@@ -129,6 +149,10 @@ struct Config: Codable {
         mascotInScreenShares = try c.decodeIfPresent(Bool.self, forKey: .mascotInScreenShares) ?? d.mascotInScreenShares
         mascotPositions = try c.decodeIfPresent([String: MascotPosition].self, forKey: .mascotPositions) ?? d.mascotPositions
         onboardingDone = try c.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? d.onboardingDone
+        notesFolder = try c.decodeIfPresent(String.self, forKey: .notesFolder) ?? d.notesFolder
+        notesFolderBookmark = try c.decodeIfPresent(String.self, forKey: .notesFolderBookmark)
+        dictationHistory = try c.decodeIfPresent(Bool.self, forKey: .dictationHistory) ?? d.dictationHistory
+        historyPruneDays = try c.decodeIfPresent(Int.self, forKey: .historyPruneDays) ?? d.historyPruneDays
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this
@@ -192,6 +216,15 @@ enum EngineChoice: Hashable {
         case .automatic: return Self.automaticID
         case .engine(let kind): return kind.rawValue
         }
+    }
+}
+
+/// The dictation-history prune windows offered in Settings, in days (0 = keep forever).
+enum HistoryPrune {
+    static let choices: [Int] = [7, 30, 90, 0]
+
+    static func label(_ days: Int) -> String {
+        days > 0 ? "After \(days) days" : "Never"
     }
 }
 
