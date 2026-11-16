@@ -330,6 +330,39 @@ final class MascotOverlayPanelTests: XCTestCase {
         XCTAssertEqual(window.frame.origin, CGPoint(x: start.x + 60, y: start.y + 40), "restored on the next show")
     }
 
+    /// Dictation ending mid-drag hides the mascot before the mouse-up: the
+    /// spot it was dragged to still sticks.
+    func testADragCutOffByHidingStillSavesTheSpot() throws {
+        let (left, right) = try halves()
+        let adapter = try makeAdapter(displays: [left, right])
+        mouse = centre(left.frame)
+        adapter.render(.listening)
+        adapter.show()
+        let window = try XCTUnwrap(adapter.window)
+        let start = window.frame.origin
+        let body = try screenPoint(centre(MascotMotion.hitRect(mini: false)), in: window)
+
+        adapter.pointerDown(at: body)
+        adapter.pointerDragged(to: CGPoint(x: body.x + 50, y: body.y + 30))
+        adapter.orderOut()
+        XCTAssertEqual(store.positions, ["left": MascotPosition(x: start.x + 50 - left.visibleFrame.minX,
+                                                                y: start.y + 30 - left.visibleFrame.minY)])
+
+        adapter.show()
+        XCTAssertEqual(window.frame.origin, CGPoint(x: start.x + 50, y: start.y + 30))
+    }
+
+    /// A press that never became a drag saves nothing when hidden.
+    func testAPressCutOffByHidingSavesNothing() throws {
+        let adapter = try makeAdapter()
+        adapter.render(.listening)
+        adapter.show()
+        let window = try XCTUnwrap(adapter.window)
+        adapter.pointerDown(at: try screenPoint(centre(MascotMotion.hitRect(mini: false)), in: window))
+        adapter.orderOut()
+        XCTAssertEqual(store.positions, [:])
+    }
+
     func testDragPastTheEdgeSnapsBackInside() throws {
         let (left, right) = try halves()
         let adapter = try makeAdapter(displays: [left, right])

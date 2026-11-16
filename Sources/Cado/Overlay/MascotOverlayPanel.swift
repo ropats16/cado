@@ -115,7 +115,10 @@ final class MascotOverlayPanel: MascotSurface {
     func orderOut() {
         guard let window else { return }
         stopTrackingPointer()
-        press = nil   // hidden mid-press: that press is over
+        // Hidden mid-press (dictation ended during a drag): that press is
+        // over, but the spot it dragged to still sticks.
+        if let press, window.frame.origin != press.origin { placement.remember(windowFrame: window.frame) }
+        press = nil
         window.orderOut(nil)
         window.contentView = nil
         window.ignoresMouseEvents = true
