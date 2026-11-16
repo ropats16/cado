@@ -43,6 +43,7 @@ final class StatusMenuContentTests: XCTestCase {
     func testGlyphAccessibilityDescription() {
         XCTAssertEqual(StatusGlyph.ready.accessibilityDescription, "Cado")
         XCTAssertEqual(StatusGlyph.notReady.accessibilityDescription, "Cado (not ready)")
+        XCTAssertEqual(StatusGlyph.recording.accessibilityDescription, "Cado (recording a meeting)")
     }
 
     func testUndeterminedMicRowAsksForAccess() {

@@ -42,6 +42,12 @@ final class AudioCapture {
     /// 0...1 RMS level of the recording, for the waveform UI.
     var onLevel: ((Float) -> Void)?
 
+    /// Called on main when the source stops by itself during a recording — it
+    /// ended, or kept failing and the restart guard gave up — so nothing more
+    /// will be recorded until the next `begin`. Not for stops the capture
+    /// makes itself (end, idle). For meetings, whose streams run for hours.
+    var onSourceLost: (() -> Void)?
+
     /// True from `begin` until `end`, `cancel`, or a failed start.
     private(set) var isRecording = false
     /// Counts `begin` calls, so a late start failure can't end a newer
@@ -284,7 +290,9 @@ final class AudioCapture {
     private func handle(_ event: AudioSourceEvent) {
         switch event {
         case .ended:
+            let wasRecording = recording != nil && pendingEnd == nil
             stopSource()
+            if wasRecording { reportSourceLost() }
         case .routeChanged:
             guard isRunning, source.needsRestart else { return }
             restartSource(because: "Audio route changed")
@@ -300,14 +308,21 @@ final class AudioCapture {
         let now = ProcessInfo.processInfo.systemUptime
         recentRestarts = recentRestarts.filter { now - $0 < Self.restartWindowSeconds } + [now]
         guard recentRestarts.count <= Self.maxRestartsPerWindow else {
-            Log.error("\(reason) again; stopping the microphone until the next recording.")
+            Log.error("\(reason) again; stopping the audio source until the next recording.")
             recentRestarts = []
+            if recording != nil { reportSourceLost() }
             return
         }
         Log.info("\(reason); restarting capture.")
         do { try startSource() } catch {
             Log.error("Could not restart audio capture: \(error.localizedDescription)")
+            if recording != nil { reportSourceLost() }
         }
+    }
+
+    /// On queue: the running recording's source is gone.
+    private func reportSourceLost() {
+        DispatchQueue.main.async { [weak self] in self?.onSourceLost?() }
     }
 
     // MARK: - Draining + resampling (on queue)

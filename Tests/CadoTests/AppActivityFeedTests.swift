@@ -65,4 +65,26 @@ final class AppActivityFeedTests: XCTestCase {
         feed.dictationPhaseChanged(.recording)
         XCTAssertEqual(seen, .dictating)
     }
+
+    // MARK: - Meetings (#30)
+
+    func testAMeetingShowsLiveWhileRecordingAndTranscribingAfter() {
+        feed.meetingStatusChanged(.recording(app: "Zoom", startedAt: 0, lost: []))
+        XCTAssertEqual(feed.activity, .meetingLive)
+        feed.meetingStatusChanged(.recording(app: "Zoom", startedAt: 0, lost: [.them]))   // still live
+        feed.meetingStatusChanged(.transcribing(app: "Zoom", done: 0, total: 3))
+        XCTAssertEqual(feed.activity, .transcribing)
+        feed.meetingStatusChanged(.idle)
+        XCTAssertEqual(received, [.activity(.meetingLive), .activity(.transcribing), .activity(.idle)])
+    }
+
+    /// A dictation still transcribing when a meeting starts shows first; the
+    /// meeting shows once it's done.
+    func testADictationShowsOverAMeetingThenTheMeetingReturns() {
+        feed.dictationPhaseChanged(.transcribing)
+        feed.meetingStatusChanged(.recording(app: "Zoom", startedAt: 0, lost: []))
+        XCTAssertEqual(feed.activity, .transcribing)
+        feed.dictationPhaseChanged(.idle)
+        XCTAssertEqual(feed.activity, .meetingLive)
+    }
 }

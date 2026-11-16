@@ -1,15 +1,17 @@
 import AppKit
 
 /// The status item's avocado: plain when Cado can dictate, slashed while it
-/// needs something (`Brand.Art.menuBarGlyph` / `menuBarGlyphSlashed`).
+/// needs something (`Brand.Art.menuBarGlyph` / `menuBarGlyphSlashed`); with
+/// a record dot while a meeting records (`menuBarGlyphRecording`, #30).
 enum StatusGlyph: Equatable {
-    case ready, notReady
+    case ready, notReady, recording
 
     /// VoiceOver's name for the status item.
     var accessibilityDescription: String {
         switch self {
         case .ready: return "Cado"
         case .notReady: return "Cado (not ready)"
+        case .recording: return "Cado (recording a meeting)"
         }
     }
 }
@@ -145,6 +147,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var onCopyAgain: ((String) -> Void)?
     /// The menu is about to open: refresh what it shows.
     var onWillOpen: (() -> Void)?
+    /// The meeting rows (#30); set their `onAction`.
+    let meeting = MeetingMenuItems()
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
@@ -162,6 +166,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private let checkForUpdates = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
     private var shownRecents: [RecentDictations.Row]?
     private var glyph: StatusGlyph?
+    private var readinessGlyph: StatusGlyph = .ready
+    /// While a meeting records: the menu-bar title ("12:34").
+    private var meetingElapsed: String?
 
     override init() {
         super.init()
@@ -177,6 +184,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         recents.submenu = recentsMenu
         menu.items = [
             header, reason, modelHint, .separator(),
+        ] + meeting.items + [
             microphone, accessibility, .separator(),
             hold, toggle, recentsSeparator,
             recents,
@@ -207,13 +215,36 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         checkForUpdates.isHidden = content.update == nil
         checkForUpdates.title = content.update?.title ?? "Check for Updates…"
         checkForUpdates.isEnabled = content.update?.isEnabled ?? false
+        readinessGlyph = content.glyph
+        renderGlyph()
+    }
 
-        if content.glyph != glyph, let button = statusItem.button {
-            glyph = content.glyph
-            let image = content.glyph == .ready ? Brand.Art.menuBarGlyph : Brand.Art.menuBarGlyphSlashed
-            image.accessibilityDescription = content.glyph.accessibilityDescription
+    /// The meeting rows, and the status item while recording: record glyph
+    /// and elapsed time, so the recording shows even with the menu closed.
+    func renderMeeting(_ content: MeetingMenuContent) {
+        meeting.render(content)
+        meetingElapsed = content.elapsed
+        renderGlyph()
+    }
+
+    private func renderGlyph() {
+        guard let button = statusItem.button else { return }
+        let next: StatusGlyph = meetingElapsed != nil ? .recording : readinessGlyph
+        if next != glyph {
+            glyph = next
+            let image: NSImage
+            switch next {
+            case .ready: image = Brand.Art.menuBarGlyph
+            case .notReady: image = Brand.Art.menuBarGlyphSlashed
+            case .recording: image = Brand.Art.menuBarGlyphRecording
+            }
+            image.accessibilityDescription = next.accessibilityDescription
             button.image = image
+            button.imagePosition = .imageLeading
+            button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         }
+        let title = meetingElapsed.map { " " + $0 } ?? ""
+        if button.title != title { button.title = title }
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) { onWillOpen?() }

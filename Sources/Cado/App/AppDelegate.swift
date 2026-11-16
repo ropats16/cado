@@ -63,6 +63,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     /// What the app is doing, for the overlay (#19); the session reports into it.
     private let activity = AppActivityFeed()
+    /// Meeting recording from the menu (#30): mic + one app's audio → a note.
+    private lazy var meetings = MeetingController(
+        engine: engine, activity: activity,
+        microphoneUID: { [configStore] in configStore.config.microphoneUID },
+        notesFolder: { [configStore] in NotesFolder.resolve(configStore.config) })
     /// The mascot, watching `activity`. Attached at launch; builds its panel
     /// on first show (at launch with "always visible" on).
     private var overlay: MascotOverlay?
@@ -116,6 +121,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if MainActor.assumeIsolated({ isOnboardingVisible }) { monitor.recheck() }
     }
 
+    /// Quitting mid-meeting stops it and keeps it (audio + a note saying so)
+    /// before the app goes; see `MeetingSession.quit`.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !meetings.isIdle else { return .terminateNow }
+        meetings.quit { sender.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         monitor.stop()
         hotkeys?.stop()
@@ -137,13 +150,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.onOpenConfig = { [weak self] in self?.openConfig() }
         menu.onCopyAgain = { SystemClipboard().write($0) }
+        menu.meeting.onAction = { [weak self] in self?.meetings.perform($0) }
+        meetings.render = { [weak self] in self?.menu.renderMeeting($0) }
         // Re-read permissions on open: a mic change while Accessibility is
         // denied leaves the status alone but changes a row.
         menu.onWillOpen = { [weak self] in
             self?.monitor.recheck()
             self?.refreshMenu()
+            self?.meetings.refreshApps()
             self?.appleSpeechWatch.check()
         }
+        meetings.refreshApps()
     }
 
     /// Sparkle (#24): a found update re-titles the menu item.
@@ -446,7 +463,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                   ceilingSeconds: AudioCapture.ceilingSeconds,
                                   trailingSpace: configStore.config.trailingSpace)
             },
-            readiness: monitor.currentStatus
+            readiness: monitor.currentStatus,
+            busy: { [weak self] in self?.meetings.dictationBusy }
         )
     }
 

@@ -117,7 +117,7 @@ struct SettingsView: View {
                         Button("Show in Finder") { viewModel.showNotesFolder() }
                     }
                     .settingsRowPadding()
-                    StatusLine(text: "For meeting notes, once meeting recording arrives: plain Markdown, so you can point this at an Obsidian vault. Nothing is saved here yet.")
+                    StatusLine(text: "Meeting notes (Record Meeting in the menu) are saved here as plain Markdown, so you can point this at an Obsidian vault.")
                         .padding(.bottom, 8)
                     CardDivider()
                     SettingsRow("Keep recent dictations") {

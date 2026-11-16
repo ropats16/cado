@@ -110,6 +110,34 @@ final class AudioCaptureTests: XCTestCase {
         return (samples.reduce(0) { $0 + $1 * $1 } / Float(samples.count)).squareRoot()
     }
 
+    // MARK: - Source lost (meetings, #30)
+
+    func testASourceEndingMidRecordingIsReportedOnceAndKeepsWhatWasRecorded() async throws {
+        let source = try WavFileSource(url: try makeWav(rate: 48_000, seconds: 1, sine(440)))
+        let capture = AudioCapture(source: source)
+        var lost = 0
+        let reported = expectation(description: "source lost")
+        capture.onSourceLost = { lost += 1; reported.fulfill() }
+        await begin(capture)
+        source.push()   // to its end, while recording
+        await fulfillment(of: [reported], timeout: 5)
+        let samples = await end(capture)
+        XCTAssertEqual(lost, 1)
+        XCTAssertEqual(samples.count, 16_000, accuracy: 1)
+    }
+
+    func testASourceEndingInThePostRollIsNotLost() async throws {
+        let source = try WavFileSource(url: try makeWav(rate: 48_000, seconds: 1, sine(440)))
+        let capture = AudioCapture(source: source)
+        var lost = 0
+        capture.onSourceLost = { lost += 1 }
+        await begin(capture)
+        source.push(seconds: 0.9)
+        _ = await end(capture, source, thenPush: 1)   // the file ends after the stop
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(lost, 0)
+    }
+
     // MARK: - Resampling
 
     func testResamplesCommonRatesTo16kWithLengthAndFrequencyPreserved() async throws {

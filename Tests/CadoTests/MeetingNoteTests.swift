@@ -1,0 +1,195 @@
+import XCTest
+@testable import Cado
+
+/// The meeting's pure pieces: Me/Them turns, the note's text, which app
+/// "Record Meeting" picks, and the menu's meeting rows.
+final class MeetingNoteTests: XCTestCase {
+    private typealias Piece = MeetingTranscript.Piece
+    private typealias Turn = MeetingTranscript.Turn
+
+    // MARK: - Turns
+
+    func testPiecesInterleaveByStartAndConsecutiveOnesMerge() {
+        let turns = MeetingTranscript.turns([
+            Piece(speaker: .me, start: 0.5, text: " Hi all."),
+            Piece(speaker: .me, start: 9, text: " Bye."),
+            Piece(speaker: .them, start: 3, text: " Hello,"),
+            Piece(speaker: .them, start: 4.2, text: "  can you\nhear us? "),
+            Piece(speaker: .me, start: 6, text: " Yes."),
+            Piece(speaker: .me, start: 7, text: " Loud and clear."),
+        ])
+        XCTAssertEqual(turns, [
+            Turn(speaker: .me, text: "Hi all."),
+            Turn(speaker: .them, text: "Hello, can you hear us?"),
+            Turn(speaker: .me, text: "Yes. Loud and clear. Bye."),
+        ])
+    }
+
+    func testEmptyPiecesAreDroppedAndDoNotSplitATurn() {
+        let turns = MeetingTranscript.turns([
+            Piece(speaker: .them, start: 1, text: " One"),
+            Piece(speaker: .me, start: 2, text: "   "),
+            Piece(speaker: .them, start: 3, text: " two"),
+        ])
+        XCTAssertEqual(turns, [Turn(speaker: .them, text: "One two")])
+    }
+
+    func testATieGoesToMeAndKeepsEachSidesOrder() {
+        let turns = MeetingTranscript.turns([
+            Piece(speaker: .them, start: 1, text: "them"),
+            Piece(speaker: .me, start: 1, text: "me"),
+        ])
+        XCTAssertEqual(turns.map(\.speaker), [.me, .them])
+    }
+
+    // MARK: - Note
+
+    private let utc = TimeZone(identifier: "UTC")!
+    private let gb = Locale(identifier: "en_GB")
+    /// 2026-11-16 14:32 UTC.
+    private let start = Date(timeIntervalSince1970: 1_794_839_520)
+
+    func testTitleNamesTheAppAndTheStart() {
+        XCTAssertEqual(MeetingNote.title(appName: "Zoom", start: start, locale: gb, timeZone: utc),
+                       "Meeting with Zoom — 16 Nov 2026 at 14:32")
+    }
+
+    func testDraftIsAMeetingWithDurationAndMeThemParagraphs() {
+        let note = MeetingNote(appName: "Zoom", start: start, duration: 1830,
+                               turns: [Turn(speaker: .me, text: "Hi."), Turn(speaker: .them, text: "Hello.")])
+        let draft = note.draft(locale: gb, timeZone: utc)
+        XCTAssertEqual(draft.kind, "meeting")
+        XCTAssertEqual(draft.duration, 1830)
+        XCTAssertEqual(draft.date, start)
+        XCTAssertEqual(draft.body, """
+            Recorded from Zoom (Them) and your microphone (Me).
+
+            **Me:** Hi.
+
+            **Them:** Hello.
+
+            """)
+    }
+
+    func testCaveatsAreAQuoteUnderTheHeader() {
+        let note = MeetingNote(appName: "Zoom", start: start, duration: 60,
+                               turns: [Turn(speaker: .me, text: "Hi.")],
+                               caveats: [.themSilent(.heardOnlySilence), .stopped(.them, at: 754),
+                                         .capReached(7200), .transcriptionFailed(failed: 2, of: 9, reason: "No model."),
+                                         .audioKept(URL(fileURLWithPath: "/tmp/a b"))])
+        let lines = note.body.components(separatedBy: "\n")
+        XCTAssertEqual(lines[2], "> No sound was captured from Zoom, so Them may be missing. "
+                       + SystemAudioIssue.heardOnlySilence.detail)
+        XCTAssertEqual(lines[3], "> Zoom's audio stopped recording at 12:34; after that only your microphone was recorded.")
+        XCTAssertEqual(lines[4], "> Recording stopped at the 2-hour limit.")
+        XCTAssertEqual(lines[5], "> 2 of 9 passages couldn't be transcribed: No model.")
+        XCTAssertEqual(lines[6], "> The meeting's audio is kept in `/tmp/a b`.")
+        XCTAssertEqual(MarkdownBlock.parse(note.body).filter { if case .quote = $0 { return true } else { return false } }.count, 1)
+    }
+
+    func testANoteWithNothingTranscribedSaysSo() {
+        let note = MeetingNote(appName: "Zoom", start: start, duration: 60, turns: [],
+                               caveats: [.quitBeforeTranscribing])
+        XCTAssertTrue(note.body.hasSuffix("_Nothing was transcribed._\n"))
+    }
+
+    func testClock() {
+        XCTAssertEqual(MeetingNote.clock(0), "0:00")
+        XCTAssertEqual(MeetingNote.clock(754.9), "12:34")
+        XCTAssertEqual(MeetingNote.clock(3723), "1:02:03")
+    }
+
+    // MARK: - Which app
+
+    private func app(_ name: String, meeting: Bool) -> RecordableApp {
+        RecordableApp(name: name, bundleID: "id.\(name)", pid: 1, isKnownMeetingApp: meeting, audioProcessCount: 1)
+    }
+
+    func testOneMeetingAppIsPickedEvenWithOtherAppsPlaying() {
+        let zoom = app("Zoom", meeting: true)
+        XCTAssertEqual(MeetingAppChoice.decide(supported: true, apps: [zoom, app("Music", meeting: false)]), .one(zoom))
+    }
+
+    func testSeveralMeetingAppsAreOfferedButOnlyThem() {
+        let zoom = app("Zoom", meeting: true), chrome = app("Google Chrome", meeting: true)
+        XCTAssertEqual(MeetingAppChoice.decide(supported: true, apps: [chrome, zoom, app("Music", meeting: false)]),
+                       .several([chrome, zoom]))
+    }
+
+    func testNoMeetingAppOffersTheOthers() {
+        let music = app("Music", meeting: false)
+        XCTAssertEqual(MeetingAppChoice.decide(supported: true, apps: [music]), .noMeetingApp(others: [music]))
+        XCTAssertEqual(MeetingAppChoice.decide(supported: true, apps: []), .nothing)
+    }
+
+    func testUnsupportedOSOffersNothing() {
+        XCTAssertEqual(MeetingAppChoice.decide(supported: false, apps: [app("Zoom", meeting: true)]), .unsupported)
+    }
+
+    // MARK: - Menu
+
+    private func menu(_ choice: MeetingAppChoice) -> MeetingMenuContent { menu(.idle, choice) }
+
+    private func menu(_ status: MeetingStatus, _ choice: MeetingAppChoice, now: TimeInterval = 0) -> MeetingMenuContent {
+        MeetingMenuContent(status: status, choice: choice, now: now)
+    }
+
+    func testIdleWithOneMeetingAppStartsItInOneClick() {
+        let zoom = app("Zoom", meeting: true)
+        let content = menu(.one(zoom))
+        XCTAssertEqual(content.title, "Record Meeting (Zoom)")
+        XCTAssertEqual(content.action, .start(MeetingApp(zoom)))
+        XCTAssertNil(content.choices)
+        XCTAssertTrue(content.isEnabled)
+        XCTAssertFalse(content.isRecording)
+    }
+
+    func testIdleWithSeveralAppsIsASubmenu() {
+        let zoom = app("Zoom", meeting: true), chrome = app("Google Chrome", meeting: true)
+        let content = menu(.several([zoom, chrome]))
+        XCTAssertEqual(content.title, "Record Meeting")
+        XCTAssertNil(content.action)
+        XCTAssertEqual(content.choices, [.init(title: "Zoom", action: .start(MeetingApp(zoom))),
+                                         .init(title: "Google Chrome", action: .start(MeetingApp(chrome)))])
+    }
+
+    func testNoMeetingAppSaysSoAboveTheOthers() {
+        let music = app("Music", meeting: false)
+        let content = menu(.noMeetingApp(others: [music]))
+        XCTAssertEqual(content.choices, [.init(title: MeetingMenuContent.noMeetingAppTitle, action: nil),
+                                         .init(title: "Music", action: .start(MeetingApp(music)))])
+    }
+
+    func testNothingToRecordOrOldMacOSIsDisabledWithAReason() {
+        let none = menu(.nothing)
+        XCTAssertFalse(none.isEnabled)
+        XCTAssertEqual(none.detail, "No meeting app is running")
+        let old = menu(.unsupported)
+        XCTAssertFalse(old.isEnabled)
+        XCTAssertEqual(old.detail, "Recording meetings needs macOS 14.2 or later.")
+    }
+
+    func testRecordingShowsStopWithElapsedTimeAndTheApp() {
+        let content = menu(.recording(app: "Zoom", startedAt: 100, lost: []), .nothing, now: 100 + 754)
+        XCTAssertEqual(content.title, "Stop Recording — 12:34")
+        XCTAssertEqual(content.action, .stop)
+        XCTAssertEqual(content.detail, "Recording Zoom and your microphone")
+        XCTAssertTrue(content.isRecording)
+        XCTAssertEqual(content.elapsed, "12:34")
+    }
+
+    func testRecordingSaysWhichSideStopped() {
+        XCTAssertEqual(menu(.recording(app: "Zoom", startedAt: 0, lost: [.them]), .nothing).detail,
+                       "Zoom's audio stopped — recording your microphone only")
+        XCTAssertEqual(menu(.recording(app: "Zoom", startedAt: 0, lost: [.me]), .nothing).detail,
+                       "Microphone stopped — recording Zoom only")
+    }
+
+    func testTranscribingIsDisabledWithProgress() {
+        let content = menu(.transcribing(app: "Zoom", done: 3, total: 12), .one(app("Zoom", meeting: true)))
+        XCTAssertEqual(content.title, "Transcribing Meeting… 3 of 12")
+        XCTAssertFalse(content.isEnabled, "No second meeting until this one is written")
+        XCTAssertFalse(content.isRecording)
+        XCTAssertEqual(menu(.transcribing(app: "Zoom", done: 0, total: 0), .nothing).title, "Finishing Meeting…")
+    }
+}

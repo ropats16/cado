@@ -112,6 +112,7 @@ final class DictationSessionTests: XCTestCase {
     private var history: FakeHistory!
     private var settings: DictationSettings!
     private var status: AppStatus = .ready
+    private var busy: DictationBusyNotice?
     private var session: DictationSession!
 
     override func setUp() {
@@ -128,7 +129,8 @@ final class DictationSessionTests: XCTestCase {
         session = DictationSession(
             capture: capture, engine: engine, delivery: delivery, feedback: feedback,
             activity: feedback, history: history, clock: clock, settings: { [unowned self] in settings },
-            readiness: { [unowned self] in status }
+            readiness: { [unowned self] in status },
+            busy: { [unowned self] in busy }
         )
     }
 
@@ -210,6 +212,37 @@ final class DictationSessionTests: XCTestCase {
         session.handle(.holdDown)
         XCTAssertEqual(feedback.notifications, ["Cado — Needs Microphone", "Cado — Needs Microphone"],
                        "The status changed in between, so it's news again")
+    }
+
+    // MARK: - Busy gate (a meeting recording, #30)
+
+    func testABusyPressStartsNothingAndSaysWhyOncePerWindow() {
+        busy = MeetingSession.dictationNotice
+        session.handle(.holdDown)
+        session.handle(.holdUp)
+        session.handle(.toggle)
+
+        XCTAssertEqual(session.phase, .idle)
+        XCTAssertTrue(capture.begins.isEmpty, "The meeting owns the mic")
+        XCTAssertEqual(engine.prewarms, 0)
+        XCTAssertTrue(clock.timers.isEmpty)
+        XCTAssertEqual(feedback.events, [.notify("Meeting recording", MeetingSession.dictationNotice.body)])
+
+        clock.advance(by: DictationSession.noticeInterval)
+        session.handle(.toggle)
+        XCTAssertEqual(feedback.notifications.count, 2, "Window over: noticed again")
+    }
+
+    func testBusyOutranksNotReadyAndClearsWhenTheMeetingStops() {
+        busy = MeetingSession.dictationNotice
+        status = Self.micDenied
+        session.handle(.toggle)
+        XCTAssertEqual(feedback.notifications, ["Meeting recording"])
+
+        busy = nil
+        status = .ready
+        dictate("after the meeting")
+        XCTAssertEqual(delivery.delivered, ["after the meeting"])
     }
 
     func testLoadingOrVerifyingModelStillDictates() {

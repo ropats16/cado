@@ -19,9 +19,9 @@ final class AppActivityFeed {
     /// Current value; set before observers hear of it.
     private(set) var activity: AppActivity = .idle
 
-    /// Each flow's own activity; a meeting flow (#30+) adds its input here
-    /// and a rule in `combined`.
+    /// Each flow's own activity.
     private var dictation: AppActivity = .idle
+    private var meeting: AppActivity = .idle
 
     private var observers: [(Signal) -> Void] = []
 
@@ -30,7 +30,9 @@ final class AppActivityFeed {
         observers.append(observer)
     }
 
-    private var combined: AppActivity { dictation }
+    /// A running dictation shows over a meeting (one can still be
+    /// transcribing when a meeting starts); otherwise the meeting shows.
+    private var combined: AppActivity { dictation != .idle ? dictation : meeting }
 
     private func update() {
         let next = combined
@@ -61,5 +63,18 @@ extension AppActivityFeed: DictationActivity {
         case .recording: return .dictating
         case .transcribing, .delivering: return .transcribing
         }
+    }
+}
+
+extension AppActivityFeed: MeetingActivity {
+    /// Recording is `meetingLive`; transcribing a meeting shows like a
+    /// dictation's transcription.
+    func meetingStatusChanged(_ status: MeetingStatus) {
+        switch status {
+        case .idle: meeting = .idle
+        case .recording: meeting = .meetingLive
+        case .transcribing: meeting = .transcribing
+        }
+        update()
     }
 }
