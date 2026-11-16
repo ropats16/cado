@@ -10,6 +10,9 @@ only network use is downloading models (see [Privacy](#privacy)).
 > **Status:** v1. You install it by building it on your own Mac (steps below).
 > A ready-made download will come later. Models (whisper.cpp, WhisperKit,
 > Parakeet) download from Settings › Model (only when you click Download).
+>
+> **Homebrew** (available once the first release is published; not yet):
+> `brew install --cask ropats16/tap/cado`
 
 ---
 
