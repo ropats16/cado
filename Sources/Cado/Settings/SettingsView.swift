@@ -73,6 +73,8 @@ struct SettingsView: View {
                     }
                 }
 
+                updatesSection   // SettingsView+Updates.swift (#24)
+
                 // MARK: Dictation
                 SettingsSection(title: "Dictation", systemImage: "timer") {
                     SettingsRow("Max dictation length") {

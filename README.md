@@ -5,7 +5,8 @@ and your words are transcribed **entirely on your Mac** with
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (GPU-accelerated) and
 typed into whatever text field you're in — any browser, any app, the Terminal,
 and the Claude Code CLI. No audio or text is ever sent to the internet; the
-only network use is downloading models (see [Privacy](#privacy)).
+only network use is downloading models and a daily update check you can turn
+off (see [Privacy](#privacy)).
 
 > **Status:** v1. You install it by building it on your own Mac (steps below).
 > A ready-made download will come later. Models (whisper.cpp, WhisperKit,
@@ -36,7 +37,8 @@ only network use is downloading models (see [Privacy](#privacy)).
 - **Menu-bar only** — a small avocado icon, no Dock icon, stays out of your way.
 - **100% private.** It only uses the internet to download models: the
   one-time setup download, and Settings › Model's **Download** button, which
-  fetches pinned files from `huggingface.co` only when you click it.
+  fetches pinned files from `huggingface.co` only when you click it — plus a
+  once-a-day update check on GitHub (Settings › Updates turns it off).
 
 ---
 
@@ -429,7 +431,8 @@ the engine's Automatic pick (add `--engine parakeet`, `whisperkit` or
 
 Everything runs on your Mac. No accounts, no telemetry, and no audio or text
 ever leaves your machine. The only things that touch the network are model
-downloads, which happen when you run setup or click **Download** — see
+downloads, which happen when you run setup or click **Download**, and the
+update check (once a day; off in Settings › Updates) — see
 [Network activity](#network-activity) for the full list.
 
 Dictated text isn't kept after it's pasted, unless you turn on
@@ -449,6 +452,7 @@ file.
 | `huggingface.co` | `make setup` (`scripts/download_model.sh`) and the other `scripts/download_*_model.sh` scripts | Downloads whisper.cpp model files (and the VAD model for benchmarks), WhisperKit and Parakeet model folders. Each file is checked against a pinned SHA-256; WhisperKit/Parakeet files are also pinned to one repo commit. | You run the script |
 | `huggingface.co` | In the app, only when you click **Download** in Settings › Model | Downloads whisper.cpp model files (from the same place as `make model`, pinned by SHA-256 only, like the script) and WhisperKit/Parakeet model files (pinned by commit and SHA-256), each verified before use. A plain file request: no cookies, no account. | Yes, per click |
 | Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
+| `github.com` | Release builds of the app: about once a day while Cado runs, and when you choose **Check for Updates…** in the menu (or **Check Now** in Settings › Updates) | Fetches the update feed, `github.com/ropats16/cado/releases/latest/download/appcast.xml` ([Sparkle](https://sparkle-project.org)). If there's a newer version, Cado asks before installing it (unless you tick "Automatically download and install updates" in that prompt), then downloads its DMG from the same GitHub release (served via GitHub's `objects.githubusercontent.com`); the download must match the release's Ed25519 signature and Cado's code signature, or it's discarded. No system profile or identifier is sent (just a normal HTTPS request, with Cado's version in the User-Agent). Builds made with `make install`/`make package` never check. | On by default; turn off **Automatically check for updates** in Settings › Updates |
 
 Downloads from `huggingface.co` may be redirected to Hugging Face's CDN. The
 speech libraries Cado uses (WhisperKit, FluidAudio) are set up never to
@@ -458,16 +462,16 @@ download anything on their own; they only load model folders already on disk.
 
 - `github.com` — `git submodule update` fetches whisper.cpp
   (`ggml-org/whisper.cpp`), and SwiftPM fetches the Swift packages:
-  `FluidInference/FluidAudio`, `argmaxinc/argmax-oss-swift` (WhisperKit) and,
-  through them, `apple/swift-argument-parser`.
+  `FluidInference/FluidAudio`, `argmaxinc/argmax-oss-swift` (WhisperKit),
+  `sparkle-project/Sparkle` (its prebuilt framework, from that repo's GitHub
+  releases) and, through them, `apple/swift-argument-parser`.
 - `www.openslr.org` — only `scripts/fetch_bench_fixtures.sh`, the developer
   benchmark's audio fixtures (LibriSpeech test-clean, SHA-256 pinned). The app
   never contacts it.
 
 **Not in the app yet.** These are planned and will be listed in the table above
-when they land: an update check (Sparkle auto-update, issue #24 — on by default, with a
-switch to turn it off; feed expected on GitHub Releases); an anonymous launch
-ping (issue #26, off by default); and meeting summaries through
+when they land: an anonymous launch ping (issue #26, off by default); and
+meeting summaries through
 `openrouter.ai` (issue #35, off by default, sends a transcript only if you turn it on).
 
 ---

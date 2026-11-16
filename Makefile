@@ -20,6 +20,7 @@
 #                  (Sources/Cado/Acknowledgements/Acknowledgements+Text.swift)
 #                  from ACKNOWLEDGEMENTS.md and LICENSE
 #   make release VERSION=x.y.z  Developer ID-signed, notarized, stapled dist/Cado-x.y.z.dmg
+#                  + signed Sparkle feed dist/appcast.xml; prints the gh upload
 #                  (docs/RELEASING.md; SKIP_NOTARIZE=1 for a local rehearsal)
 #   make clean    remove build artifacts
 

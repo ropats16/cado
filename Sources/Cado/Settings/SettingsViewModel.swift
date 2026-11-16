@@ -61,6 +61,8 @@ final class SettingsViewModel: ObservableObject {
     /// "Keep recent dictations" changed (saved first): the app refreshes the
     /// menu, and forgets the recents when it was turned off.
     let onDictationHistoryChange: () -> Void
+    /// Sparkle, behind `AppUpdater` (#24; SettingsViewModel+Updates.swift).
+    let updater: AppUpdater
 
     // MARK: - Published display state
 
@@ -144,7 +146,9 @@ final class SettingsViewModel: ObservableObject {
          engineFacts: @escaping () -> EngineFacts? = { nil },
          pickNotesFolder: (() -> URL?)? = nil,
          revealFolder: @escaping (URL) -> Void = SettingsViewModel.revealInFinder,
-         onDictationHistoryChange: @escaping () -> Void = {}) {
+         onDictationHistoryChange: @escaping () -> Void = {},
+         updater: AppUpdater = DisabledUpdater()) {
+        self.updater = updater
         self.configStore = configStore
         self.loginItem = loginItem
         self.availableMics = availableMics

@@ -220,6 +220,10 @@ let package = Package(
         // WhisperKit (Core ML / Neural Engine engine, #12). The repo was renamed
         // from argmaxinc/WhisperKit; only its WhisperKit product is linked.
         .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", .upToNextMinor(from: "1.1.1")),
+        // Sparkle 2 auto-update (#24): a prebuilt binary XCFramework.
+        // scripts/package_app.sh embeds Sparkle.framework in Contents/Frameworks
+        // (found via the rpath below); only Updates/SparkleUpdater.swift imports it.
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", .upToNextMinor(from: "2.10.1")),
     ],
     targets: [
         // C/C++/ObjC target: whisper + ggml (+ Metal backend on arm64), no cmake.
@@ -246,10 +250,16 @@ let package = Package(
                 "CWhisper", "CAudioRing",
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "WhisperKit", package: "argmax-oss-swift"),
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/Cado",
             swiftSettings: whisperImporterSettings,
             linkerSettings: [
+                // Inside Cado.app the binary is Contents/MacOS/Cado and Sparkle
+                // is Contents/Frameworks/Sparkle.framework. (SwiftPM's own
+                // @loader_path rpath still finds it next to the binary in .build
+                // for `swift run` and the tests.)
+                .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"]),
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("ApplicationServices"),

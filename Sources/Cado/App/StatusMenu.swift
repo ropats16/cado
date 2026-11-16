@@ -87,10 +87,15 @@ struct StatusMenuContent: Equatable {
     var configIssues: String?
     /// nil when history is off: the menu item is hidden.
     var recents: RecentDictations?
+    /// "Check for Updates…" / "Update Available (x)…"; nil (hidden) when
+    /// the updater isn't running (#24).
+    var update: UpdateMenuRow?
 
     init(status: AppStatus, inputs: ReadinessInputs, hold: String, toggle: String,
          configIssues: [ConfigIssue], recentDictations: [DictationHistoryEntry] = [],
-         historyEnabled: Bool = false, now: Date = Date(), calendar: Calendar = .current) {
+         historyEnabled: Bool = false, now: Date = Date(), calendar: Calendar = .current,
+         update: UpdateMenuRow? = nil) {
+        self.update = update
         recents = historyEnabled
             ? RecentDictations(entries: recentDictations, now: now, calendar: calendar) : nil
         header = status.headline
@@ -133,6 +138,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var onOpenOnboarding: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenAcknowledgements: (() -> Void)?
+    var onCheckForUpdates: (() -> Void)?
     var onOpenConfig: (() -> Void)?
     /// A Recent Dictations row was clicked: the full text to copy again.
     var onCopyAgain: ((String) -> Void)?
@@ -152,6 +158,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private let recents = NSMenuItem(title: "Recent Dictations", action: nil, keyEquivalent: "")
     private let recentsMenu = NSMenu()
     private let recentsSeparator = NSMenuItem.separator()
+    private let checkForUpdates = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
     private var shownRecents: [RecentDictations.Row]?
     private var glyph: StatusGlyph?
 
@@ -163,6 +170,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             row.target = self
             row.action = #selector(rowClicked(_:))
         }
+        checkForUpdates.target = self
+        checkForUpdates.action = #selector(checkForUpdatesClicked)
         recentsMenu.autoenablesItems = false
         recents.submenu = recentsMenu
         menu.items = [
@@ -173,6 +182,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             item("Set Up Cado…", #selector(openOnboarding)),
             item("Settings…", #selector(openSettings), key: ","),
             item("Acknowledgements…", #selector(openAcknowledgements)),
+            checkForUpdates,
             item("Open Config File…", #selector(openConfig)),
             item("Open Models Folder…", #selector(openModelsFolder)),
             configIssues, .separator(),
@@ -192,6 +202,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         configIssues.title = content.configIssues ?? ""
         configIssues.isHidden = content.configIssues == nil
         renderRecents(content.recents)
+        checkForUpdates.isHidden = content.update == nil
+        checkForUpdates.title = content.update?.title ?? "Check for Updates…"
+        checkForUpdates.isEnabled = content.update?.isEnabled ?? false
 
         if content.glyph != glyph, let button = statusItem.button {
             glyph = content.glyph
@@ -261,6 +274,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func openOnboarding() { onOpenOnboarding?() }
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openAcknowledgements() { onOpenAcknowledgements?() }
+    @objc private func checkForUpdatesClicked() { onCheckForUpdates?() }
     @objc private func openConfig() { onOpenConfig?() }
     @objc private func openModelsFolder() { onAction?(.openModelsFolder) }
 }

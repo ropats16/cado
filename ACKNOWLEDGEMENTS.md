@@ -98,3 +98,15 @@ FluidAudio's ThirdPartyLicenses/) or at the linked URL.
   under the macOS Software License Agreement. https://developer.apple.com/documentation/speech
   SpeechAnalyzer / SpeechTranscriber (macOS 26); macOS downloads and manages
   the models. Nothing is bundled with Cado.
+
+## Sparkle
+
+- **Sparkle** — © 2006-2013 Andy Matuschak, © 2009-2013 Elgato Systems GmbH,
+  © 2011-2014 Kornel Lesiński, © 2015-2017 Mayur Pawashe, © 2014 C.W. Betts,
+  © 2014 Petroules Corporation, © 2014 Big Nerd Ranch. MIT License (MIT).
+  https://sparkle-project.org, https://github.com/sparkle-project/Sparkle
+  Auto-update: checks Cado's feed on GitHub Releases and installs signed
+  updates. Its framework is bundled in the app. It includes bsdiff/bspatch
+  (© 2003-2005 Colin Percival, BSD-2-Clause), sais-lite (© 2008-2010 Yuta
+  Mori, MIT), ed25519 (© 2015 Orson Peters, Zlib) and SUSignatureVerifier
+  (© 2011 Mark Hamlin, BSD-2-Clause); full texts in Sparkle's LICENSE.
