@@ -116,3 +116,10 @@ struct DictationSettings: Equatable {
     /// The max-duration timer's length.
     var limitSeconds: Double { maxSeconds > 0 ? maxSeconds : ceilingSeconds }
 }
+
+/// Why a dictation can't start right now although the app is ready: another
+/// flow owns the mic (a meeting recording). Shown as a notice.
+struct DictationBusyNotice: Equatable {
+    var title: String
+    var body: String
+}

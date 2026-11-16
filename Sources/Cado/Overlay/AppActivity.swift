@@ -10,6 +10,6 @@ enum AppActivity: Equatable {
     case dictating
     /// A dictation's audio is being turned into text and delivered.
     case transcribing
-    /// A meeting is being recorded (#30+; nothing publishes it yet).
+    /// A meeting is being recorded (#30).
     case meetingLive
 }

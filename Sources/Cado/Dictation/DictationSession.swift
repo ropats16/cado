@@ -17,6 +17,9 @@ import Foundation
 ///   silence) nothing starts, and the press gets a notice saying why — unless
 ///   the same issue was noticed less than `noticeInterval` ago with no
 ///   allowed press in between (no banner per key repeat or impatient press).
+/// - A start is also refused while `busy` says another flow owns the mic (a
+///   meeting recording, #30): nothing starts, and the press gets `busy`'s
+///   notice, at most once per `noticeInterval`.
 /// - Each recording gets an id; callbacks (mic start, timer, post-roll,
 ///   transcript) for any other recording are ignored, so a late one can't
 ///   stop, fail or deliver the current one.
@@ -70,6 +73,7 @@ final class DictationSession {
     private let clock: Clock
     private let settings: () -> DictationSettings
     private let readiness: () -> AppStatus
+    private let busy: () -> DictationBusyNotice?
 
     private var state: State = .idle {
         didSet {
@@ -82,6 +86,8 @@ final class DictationSession {
     private var recordingCount = 0
     /// The last blocked press's notice, until a press is allowed again.
     private var lastNotice: (issue: ReadinessIssue, at: TimeInterval)?
+    /// When the last busy press was noticed.
+    private var lastBusyNoticeAt: TimeInterval?
 
     var phase: Phase { Self.phase(of: state) }
 
@@ -97,13 +103,15 @@ final class DictationSession {
     /// `settings` is read live: `maxSeconds` at start, `minSeconds` and
     /// `trailingSpace` at stop. `readiness` is read at each start; no default,
     /// so nothing dictates without a gate. Nor for `activity`: a recording
-    /// nobody shows would be a hot mic with no sign of it.
+    /// nobody shows would be a hot mic with no sign of it. `busy` is read at
+    /// each start too.
     init(capture: DictationCapture, engine: DictationEngine, delivery: DictationDelivery,
          feedback: DictationFeedback, activity: DictationActivity,
          history: DictationHistory = NoDictationHistory(),
          clock: Clock = SystemClock(),
          settings: @escaping () -> DictationSettings,
-         readiness: @escaping () -> AppStatus) {
+         readiness: @escaping () -> AppStatus,
+         busy: @escaping () -> DictationBusyNotice? = { nil }) {
         self.capture = capture
         self.engine = engine
         self.delivery = delivery
@@ -113,6 +121,7 @@ final class DictationSession {
         self.clock = clock
         self.settings = settings
         self.readiness = readiness
+        self.busy = busy
         capture.onLevel = { [weak self] level in
             guard let self, case .recording = state else { return }
             self.activity.dictationLevel(level)
@@ -127,6 +136,8 @@ final class DictationSession {
         switch (state, event) {
         // idle
         case (.idle, .intent(.holdDown)), (.idle, .intent(.toggle)):
+            if let notice = busy() { return refuse(notice) }
+            lastBusyNoticeAt = nil
             let status = readiness()
             if status.allowsDictation {
                 lastNotice = nil
@@ -213,6 +224,13 @@ final class DictationSession {
         if let last = lastNotice, last.issue == issue, clock.now - last.at < Self.noticeInterval { return }
         lastNotice = (issue, clock.now)
         feedback.notify(title: status.headline, body: issue.detail)
+    }
+
+    private func refuse(_ notice: DictationBusyNotice) {
+        Log.info("Not dictating: \(notice.title).")
+        if let last = lastBusyNoticeAt, clock.now - last < Self.noticeInterval { return }
+        lastBusyNoticeAt = clock.now
+        feedback.notify(title: notice.title, body: notice.body)
     }
 
     private func stop(id: Int, startedAt: TimeInterval) {

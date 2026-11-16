@@ -138,6 +138,33 @@ enum Brand {
             return slashed
         }
 
+        /// `menuBarGlyph` with a filled record dot at its lower right, cut
+        /// clear of the avocado: a meeting is recording (#30). Distinct in
+        /// silhouette from ready and not-ready, so it reads on a monochrome bar.
+        static var menuBarGlyphRecording: NSImage {
+            let glyph = menuBarGlyph
+            let recording = NSImage(size: menuBarGlyphSize, flipped: false) { rect in
+                let unit = rect.width / 22
+                let centre = NSPoint(x: 16.6 * unit, y: 5.4 * unit)
+                func circle(_ r: CGFloat) -> NSBezierPath {
+                    NSBezierPath(ovalIn: NSRect(x: centre.x - r * unit, y: centre.y - r * unit,
+                                                width: 2 * r * unit, height: 2 * r * unit))
+                }
+                let gap = NSBezierPath(rect: rect)
+                gap.append(circle(5.4))
+                gap.windingRule = .evenOdd
+                NSGraphicsContext.saveGraphicsState()
+                gap.addClip()
+                glyph.draw(in: rect)
+                NSGraphicsContext.restoreGraphicsState()
+                NSColor.black.setFill()
+                circle(4.0).fill()
+                return true
+            }
+            recording.isTemplate = true
+            return recording
+        }
+
         private static func image(_ svg: String) -> NSImage {
             NSImage(data: Data(svg.utf8))!   // embedded and checked by BrandTests
         }

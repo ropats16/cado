@@ -30,7 +30,7 @@ final class BrandTests: XCTestCase {
     }
 
     func testMenuBarGlyphsAreTemplatesOfMenuBarSize() {
-        for image in [Brand.Art.menuBarGlyph, Brand.Art.menuBarGlyphSlashed] {
+        for image in [Brand.Art.menuBarGlyph, Brand.Art.menuBarGlyphSlashed, Brand.Art.menuBarGlyphRecording] {
             XCTAssertTrue(image.isTemplate)
             XCTAssertTrue(image.isValid)
             XCTAssertEqual(image.size, Brand.Art.menuBarGlyphSize)
@@ -41,6 +41,12 @@ final class BrandTests: XCTestCase {
     /// on a monochrome bar.
     func testTheSlashedGlyphDiffersFromTheReadyOne() {
         XCTAssertNotEqual(pixels(Brand.Art.menuBarGlyph), pixels(Brand.Art.menuBarGlyphSlashed))
+    }
+
+    /// A recording meeting (#30) has its own silhouette too.
+    func testTheRecordingGlyphDiffersFromBoth() {
+        XCTAssertNotEqual(pixels(Brand.Art.menuBarGlyph), pixels(Brand.Art.menuBarGlyphRecording))
+        XCTAssertNotEqual(pixels(Brand.Art.menuBarGlyphSlashed), pixels(Brand.Art.menuBarGlyphRecording))
     }
 
     func testThemeColoursAdaptToDarkMode() {

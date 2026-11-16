@@ -37,6 +37,11 @@ only network use is downloading models (see [Privacy](#privacy)).
 - **Notifies you** on errors (mic unavailable, model missing, transcription
   failure) and when no text field is focused, instead of failing silently.
 - **Menu-bar only** — a small avocado icon, no Dock icon, stays out of your way.
+- **Meeting notes** (macOS 14.2+): **Record Meeting** in the avocado menu
+  records you (the mic, "Me") and the meeting app (Zoom, Teams, Meet in a
+  browser…, "Them") until you click **Stop Recording**, then writes a Markdown
+  note with the conversation as Me/Them turns to your notes folder. See
+  [Meeting notes](#meeting-notes).
 - **100% private.** It only uses the internet to download models: the
   one-time setup download, and Settings › Model's **Download** button, which
   fetches pinned files from `huggingface.co` only when you click it.
@@ -165,6 +170,10 @@ status; both must say **Granted** before dictation works.
 
 When both show **Granted**, the menu status changes to **Ready**. 🎉
 
+A third permission, **Screen & System Audio Recording**, is only for
+[meeting notes](#meeting-notes): macOS asks for it the first time you click
+**Record Meeting**. Dictation never needs it.
+
 > ⚠️ **If you just granted Accessibility but it still says "Not granted,"** see
 > [Troubleshooting](#troubleshooting) below — there's a quick one-time reset.
 
@@ -245,8 +254,36 @@ Everyday dictations are never written to your notes folder.
 ### Notes folder
 
 **Settings → Notes** also picks a notes folder (default `~/Documents/Cado`).
-Nothing is saved there yet: it's where meeting notes will go, as plain Markdown,
-so you'll be able to point it at an Obsidian vault.
+Meeting notes are saved there as plain Markdown, so you can point it at an
+Obsidian vault. **Library…** in the menu lists and opens them.
+
+### Meeting notes
+
+Needs macOS 14.2 or later (on older macOS, **Record Meeting** is greyed out
+and says why).
+
+- **Start:** click **Record Meeting** in the avocado menu. Cado records only
+  the meeting app's audio as "Them" — never everything your Mac plays — plus
+  your microphone as "Me". One meeting app running (Zoom, Teams, Slack,
+  Webex, Discord, FaceTime, or a browser for Meet): it's picked for you and
+  named in the menu. Several (e.g. Zoom and Chrome): pick one from the
+  submenu. None: the submenu says so and lists the other apps playing audio.
+- **While recording:** the menu-bar avocado gets a record dot and the elapsed
+  time, the menu shows **Stop Recording — 12:34** and which app is recorded,
+  and the mascot stays on screen. Dictation is off until you stop (a hotkey
+  press says so).
+- **Stop:** click **Stop Recording**. Cado transcribes on your Mac and saves
+  "Meeting with Zoom — date time" to your notes folder, with the date, the
+  length and the Me/Them conversation. A notification says when it's saved.
+- **First time:** macOS asks to let Cado record system audio. If you don't
+  allow it (or it was turned off), the other side records as silence: the
+  note says Them may be missing and how to turn it on (System Settings ›
+  Privacy & Security › Screen & System Audio Recording).
+- **Limits (for now):** a meeting stops by itself after 2 hours (the note is
+  still written); it's held in memory until it's transcribed, so quitting
+  Cado mid-meeting saves the audio (in Cado's support folder, `Meeting
+  Audio`) and a note saying it wasn't transcribed. Without headphones the
+  mic also hears the other side, so their words can appear under "Me" too.
 
 ---
 
@@ -366,7 +403,7 @@ logs the problem at startup and the menu shows a **Config issue** warning.
 | `mascotAlwaysVisible` | Keep a small resting Cado on screen; click it to start/stop dictating (default off). |
 | `mascotInScreenShares`| Let screen shares, recordings and screenshots capture Cado (default off: hidden). |
 | `mascotPositions`     | Where you dragged Cado, per display (written when you drag it). |
-| `notesFolder`         | Folder for meeting notes, not used yet (`""` = default `~/Documents/Cado`). |
+| `notesFolder`         | Folder for meeting notes (`""` = default `~/Documents/Cado`). |
 | `dictationHistory`    | Keep the last 10 dictations for **Recent Dictations** in the menu (default `false`). |
 
 ---
@@ -439,6 +476,11 @@ off-by-default anonymous launch count you can switch on — see
 Dictated text isn't kept after it's pasted, unless you turn on
 [Recent dictations](#recent-dictations): then the last 10 stay in a file on your
 Mac until you turn it off.
+
+Meeting recording only happens when you click **Record Meeting**, and only
+records the meeting app you picked plus your mic. The audio stays in memory
+and is thrown away once the note is written (it's kept on disk only if
+transcription fails or you quit mid-meeting, so the meeting isn't lost).
 
 ---
 

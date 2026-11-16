@@ -12,6 +12,10 @@ if CommandLine.arguments.contains("--selftest") {
 if CommandLine.arguments.contains("--system-audio-test") {
     exit(SystemAudioSelfTest.run(arguments: CommandLine.arguments))
 }
+// A whole meeting from two WAVs (Me, Them) through the real engine to a note.
+if CommandLine.arguments.contains("--meeting-test") {
+    exit(MeetingSelfTest.run(arguments: CommandLine.arguments))
+}
 // Benchmark: run an engine over the bench fixtures, print a table, write JSON.
 if CommandLine.arguments.contains("--bench") {
     exit(BenchCommand.run(arguments: CommandLine.arguments))
