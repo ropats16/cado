@@ -85,7 +85,7 @@ struct MeetingNote: Equatable {
 
     func draft(locale: Locale = .current, timeZone: TimeZone = .current) -> NoteDraft {
         NoteDraft(title: Self.title(appName: appName, start: start, locale: locale, timeZone: timeZone),
-                  date: start, kind: "meeting", duration: duration, body: body)
+                  date: start, kind: NoteKind.meeting, duration: duration, body: body)
     }
 
     var body: String {

@@ -223,7 +223,7 @@ enum NoteRowText {
     /// "Today at 14:32 · Meeting · 30 min"; the kind is left out for a plain note.
     static func subtitle(_ note: NoteSummary, now: Date = Date(), calendar: Calendar = .current) -> String {
         var parts = [dateText(note.date, calendar: calendar)]
-        if note.kind != "note", !note.kind.isEmpty {
+        if note.kind != NoteKind.note, !note.kind.isEmpty {
             parts.append(note.kind.prefix(1).uppercased() + note.kind.dropFirst())
         }
         if let duration = note.duration, duration >= 1 { parts.append(durationText(duration)) }

@@ -1,16 +1,24 @@
 import Foundation
 
+/// A note's front-matter `kind`: free text, but these are the ones Cado
+/// writes and reads specially.
+enum NoteKind {
+    /// A plain note; also what a file without a `kind` is.
+    static let note = "note"
+    static let meeting = "meeting"
+}
+
 /// What a caller hands over to make a note.
 struct NoteDraft: Equatable {
     var title: String
     var date: Date
-    /// Free text, e.g. `meeting`.
+    /// Free text, e.g. `NoteKind.meeting`.
     var kind: String
     /// Seconds, when it means something (meetings).
     var duration: TimeInterval?
     var body: String
 
-    init(title: String, date: Date, kind: String = "note", duration: TimeInterval? = nil, body: String) {
+    init(title: String, date: Date, kind: String = NoteKind.note, duration: TimeInterval? = nil, body: String) {
         self.title = title
         self.date = date
         self.kind = kind
@@ -256,7 +264,7 @@ final class NotesLibrary {
         let title = parsed.value(for: "title").flatMap { $0.isEmpty ? nil : $0 } ?? fallbackTitle
         let date = parsed.value(for: "date").flatMap(NoteFrontMatter.parseDate)
             ?? values?.contentModificationDate ?? Date(timeIntervalSince1970: 0)
-        let kind = parsed.value(for: "kind").flatMap { $0.isEmpty ? nil : $0 } ?? "note"
+        let kind = parsed.value(for: "kind").flatMap { $0.isEmpty ? nil : $0 } ?? NoteKind.note
         let duration = parsed.value(for: "duration").flatMap { TimeInterval($0) }.flatMap { $0 >= 0 ? $0 : nil }
         let summary = NoteSummary(id: filename, title: title, date: date, kind: kind, duration: duration,
                                   preview: Self.preview(parsed.body), url: url)
