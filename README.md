@@ -394,12 +394,44 @@ the engine's Automatic pick (add `--engine parakeet`, `whisperkit` or
 
 ## Privacy
 
-Everything runs on your Mac. The app's only network requests are model
-downloads: the one-time setup download, and, only when you click **Download**
-in Settings › Model, WhisperKit/Parakeet model files from `huggingface.co`
-(pinned by commit and SHA-256, verified before use). Apple Speech models come
-from Apple through macOS. No accounts, no telemetry, no audio or text leaves
-your machine.
+Everything runs on your Mac. No accounts, no telemetry, and no audio or text
+ever leaves your machine. The only things that touch the network are model
+downloads, which happen when you run setup or click **Download** — see
+[Network activity](#network-activity) for the full list.
+
+---
+
+## Network activity
+
+Every host Cado or its setup scripts contact, and when. Nothing here sends
+your audio, transcripts or settings anywhere; each request only fetches a
+file.
+
+| Host | When | What's sent / received | Opt-in? |
+| --- | --- | --- | --- |
+| `huggingface.co` | `make setup` (`scripts/download_model.sh`) and the other `scripts/download_*_model.sh` scripts | Downloads whisper.cpp model files (and the VAD model for benchmarks), WhisperKit and Parakeet model folders. Each file is checked against a pinned SHA-256; WhisperKit/Parakeet files are also pinned to one repo commit. | You run the script |
+| `huggingface.co` | In the app, only when you click **Download** in Settings › Model | Downloads WhisperKit/Parakeet model files, pinned by commit and SHA-256 and verified before use. A plain file request: no cookies, no account. | Yes, per click |
+| Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
+
+Downloads from `huggingface.co` may be redirected to Hugging Face's CDN. The
+speech libraries Cado uses (WhisperKit, FluidAudio) are set up never to
+download anything on their own; they only load model folders already on disk.
+
+**Building from source and developer tools** (not the app) also use the network:
+
+- `github.com` — `git submodule update` fetches whisper.cpp
+  (`ggml-org/whisper.cpp`), and SwiftPM fetches the Swift packages:
+  `FluidInference/FluidAudio`, `argmaxinc/argmax-oss-swift` (WhisperKit) and,
+  through them, `apple/swift-argument-parser`.
+- `www.openslr.org` — only `scripts/fetch_bench_fixtures.sh`, the developer
+  benchmark's audio fixtures (LibriSpeech test-clean, SHA-256 pinned). The app
+  never contacts it.
+
+**Not in the app yet.** These are planned and will be listed in the table above
+when they land: an update check (Sparkle auto-update, issue #24 — on by default, with a
+switch to turn it off; feed expected on GitHub Releases); an anonymous launch
+ping (issue #26, off by default); and meeting summaries through
+`openrouter.ai` (issue #35, off by default, sends a transcript only if you turn it on).
 
 ---
 
@@ -412,6 +444,7 @@ make package      # assemble dist/Cado.app
 make install      # build + package + copy to /Applications
 make clean        # remove build artifacts
 make brand        # regenerate the app icon + embedded mascot art from plans/mascot (needs rsvg-convert)
+make acknowledgements  # regenerate the in-app Acknowledgements text from ACKNOWLEDGEMENTS.md + LICENSE
 ```
 
 whisper.cpp is vendored as a git submodule under `Sources/CWhisper/whisper.cpp`
@@ -468,3 +501,12 @@ make build
 
 See [`plans/benchmark.md`](plans/benchmark.md) for options, what each number
 means, the JSON schema, fixture licenses, and how to add an engine.
+
+---
+
+## License
+
+Cado is MIT-licensed — see [`LICENSE`](LICENSE). The open-source projects and
+models it builds on, and their licenses, are listed in
+[`ACKNOWLEDGEMENTS.md`](ACKNOWLEDGEMENTS.md) and in the app's menu-bar menu
+under **Acknowledgements…**.

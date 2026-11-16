@@ -80,6 +80,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     /// A clicked reason or permission row.
     var onAction: ((ReadinessAction) -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onOpenAcknowledgements: (() -> Void)?
     var onOpenConfig: (() -> Void)?
     /// The menu is about to open: refresh what it shows.
     var onWillOpen: (() -> Void)?
@@ -109,6 +110,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             microphone, accessibility, .separator(),
             hold, toggle,
             item("Settings…", #selector(openSettings), key: ","),
+            item("Acknowledgements…", #selector(openAcknowledgements)),
             item("Open Config File…", #selector(openConfig)),
             item("Open Models Folder…", #selector(openModelsFolder)),
             configIssues, .separator(),
@@ -163,6 +165,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         if let action = sender.representedObject as? ReadinessAction { onAction?(action) }
     }
     @objc private func openSettings() { onOpenSettings?() }
+    @objc private func openAcknowledgements() { onOpenAcknowledgements?() }
     @objc private func openConfig() { onOpenConfig?() }
     @objc private func openModelsFolder() { onAction?(.openModelsFolder) }
 }

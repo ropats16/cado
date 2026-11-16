@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeys: HotkeyManager?
     private var settingsWindowController: SettingsWindowController?
     private weak var settingsViewModel: SettingsViewModel?
+    private var acknowledgementsWindowController: AcknowledgementsWindowController?
 
     private var configIssues: [ConfigIssue] = []
     private var isMicWarm = false
@@ -93,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu = StatusMenu()
         menu.onAction = { [weak self] action in self?.perform(action) }
         menu.onOpenSettings = { [weak self] in self?.openSettings() }
+        menu.onOpenAcknowledgements = { [weak self] in self?.openAcknowledgements() }
         menu.onOpenConfig = { [weak self] in self?.openConfig() }
         // Re-read permissions on open: a mic change while Accessibility is
         // denied leaves the status alone but changes a row.
@@ -362,6 +364,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settingsWindowController = SettingsWindowController(viewModel: vm)
             }
             settingsWindowController?.show()
+        }
+    }
+
+    private func openAcknowledgements() {
+        MainActor.assumeIsolated {   // menu actions run on the main thread
+            if acknowledgementsWindowController == nil {
+                acknowledgementsWindowController = AcknowledgementsWindowController()
+            }
+            acknowledgementsWindowController?.show()
         }
     }
 

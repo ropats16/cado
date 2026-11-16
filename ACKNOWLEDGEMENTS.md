@@ -1,22 +1,28 @@
 # Acknowledgements
 
-Cado is MIT-licensed and builds on the work below. This file is the
-source for the in-app Acknowledgements screen (#21).
+Cado is MIT-licensed and builds on the open-source software and models below.
+Thank you to everyone who made them.
+
+<!--
+Maintainers: this file is compiled into the app's Acknowledgements screen
+(#21) by scripts/embed_acknowledgements.sh (`make acknowledgements`), with
+Cado's own LICENSE. Re-run it after editing either file; AcknowledgementsTests
+fails while the embedded copy is stale. The screen shows the intro above and
+the `## ` sections; this comment is left out.
 
 Each speech engine has one section, headed by its name exactly as Settings
-shows it (`EngineKind.displayName`); `AcknowledgementsTests` checks every
+shows it (`EngineKind.displayName`); AcknowledgementsTests checks every
 registered engine has one. Other components (libraries, models not tied to an
 engine) get a section of their own. Use this format:
 
-```markdown
-## <Name>
+    ## <Name>
 
-- **<Component>** — <author>. <License> (<SPDX id>). <URL>
-  <Optional note: what Cado uses it for, attribution the license asks for.>
-```
+    - **<Component>** — <author>. <License> (<SPDX id>). <URL>
+      <Optional note: what Cado uses it for, attribution the license asks for.>
 
-Full license texts live with each component (e.g. the submodule's `LICENSE`)
-or at the linked URL.
+Full license texts live with each component (e.g. the submodule's LICENSE,
+FluidAudio's ThirdPartyLicenses/) or at the linked URL.
+-->
 
 ## Whisper (whisper.cpp)
 
@@ -27,9 +33,17 @@ or at the linked URL.
 - **ggml** — Georgi Gerganov and contributors. MIT License (MIT).
   https://github.com/ggml-org/ggml
   The tensor library under whisper.cpp (Metal on Apple Silicon), bundled with it.
+  Includes llamafile's sgemm (© 2024 Mozilla Foundation, MIT) and YaRN RoPE
+  code (© 2023 Jeffrey Quesnelle and Bowen Peng, MIT).
 - **Whisper models** — OpenAI. MIT License (MIT). https://github.com/openai/whisper
   Model weights, converted to ggml format and published at
-  https://huggingface.co/ggerganov/whisper.cpp; downloaded on demand.
+  https://huggingface.co/ggerganov/whisper.cpp; downloaded by `make setup` /
+  `make model`, not bundled.
+- **Silero VAD** — Silero Team. MIT License (MIT).
+  https://github.com/snakers4/silero-vad
+  Voice-activity model, in ggml format from
+  https://huggingface.co/ggml-org/whisper-vad; optional, downloaded only by
+  `scripts/download_vad_model.sh`, not bundled.
 
 ## WhisperKit (Core ML)
 
@@ -45,8 +59,8 @@ or at the linked URL.
   https://github.com/openai/whisper
   Converted to Core ML by Argmax and published (MIT) at
   https://huggingface.co/argmaxinc/whisperkit-coreml, with OpenAI's tokenizer
-  files from https://huggingface.co/openai; downloaded on demand by
-  `make whisperkit-model`.
+  files from https://huggingface.co/openai; downloaded from Settings › Model
+  or by `make whisperkit-model`, not bundled.
 
 ## Turbo (English/EU)
 
@@ -55,16 +69,28 @@ or at the linked URL.
   License: https://creativecommons.org/licenses/by/4.0/. Used unmodified, in
   the Core ML conversion by FluidInference
   (https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml);
-  downloaded on demand by `make parakeet-model`.
+  downloaded from Settings › Model or by `make parakeet-model`, not bundled.
 - **FluidAudio** — FluidInference. Apache License 2.0 (Apache-2.0).
   https://github.com/FluidInference/FluidAudio
   Runs Parakeet on Core ML (Neural Engine); linked into the app.
 - **NemoTextProcessing (text-processing-rs)** — FluidInference. Apache License
   2.0 (Apache-2.0). https://github.com/FluidInference/text-processing-rs
-  Prebuilt library, linked in through FluidAudio.
+  Prebuilt library behind FluidAudio's text normalization, which Cado opts out
+  of (`traits: []`); only builds made with a Swift toolchain older than 6.2
+  still link it.
 - **fastcluster** — © 2011 Daniel Müllner; changes from 1.1.24 © Google Inc.
   BSD 2-Clause License (BSD-2-Clause). https://danifold.net/fastcluster.html
   Linked in through FluidAudio.
+- **VBx** — © 2021-2024 BUT Speech@FIT. Apache License 2.0 (Apache-2.0).
+  https://github.com/BUTSpeechFIT/VBx
+  FluidAudio's speaker-diarization clustering is based on it; linked in through
+  FluidAudio, not used by Cado.
+- **Misaki, cutlet and Convert-Numbers-to-Japanese** — hexgrad (Apache-2.0),
+  © 2020 Paul O'Leary McCann (MIT), © 2018 David Wilson (MIT).
+  https://github.com/hexgrad/misaki, https://github.com/polm/cutlet,
+  https://github.com/Greatdane/Convert-Numbers-to-Japanese
+  Ported into FluidAudio's Japanese text-to-speech frontend; linked in through
+  FluidAudio, not used by Cado.
 
 ## Apple Speech
 

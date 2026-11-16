@@ -11,7 +11,8 @@
 # The mascot art the app draws is compiled in (Brand/MascotArt+SVG.swift).
 # SwiftPM's FluidAudio_FluidAudio.bundle is deliberately left out: it holds only
 # LuxTts G2P data for FluidAudio's TTS, which the app never calls (Parakeet ASR
-# never reads it). The folder-model pins are compiled in (FolderModelPins+Tables).
+# never reads it). The folder-model pins are compiled in (FolderModelPins+Tables),
+# as is the Acknowledgements screen's text (Acknowledgements+Text).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

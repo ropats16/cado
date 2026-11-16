@@ -16,6 +16,9 @@
 #   make brand     regenerate the checked-in brand assets from plans/mascot/*.svg:
 #                  the embedded mascot art (Sources/Cado/Brand/MascotArt+SVG.swift)
 #                  and Resources/AppIcon.icns (needs rsvg-convert: brew install librsvg)
+#   make acknowledgements  regenerate the checked-in Acknowledgements screen text
+#                  (Sources/Cado/Acknowledgements/Acknowledgements+Text.swift)
+#                  from ACKNOWLEDGEMENTS.md and LICENSE
 #   make clean     remove build artifacts
 
 APP   := Cado
@@ -26,7 +29,7 @@ PARAKEET ?=
 # Empty = scripts/download_whisperkit_model.sh's default (the app's English Automatic pick).
 WHISPERKIT ?=
 
-.PHONY: setup embed brand model vad-model parakeet-model whisperkit-model build run package install clean
+.PHONY: setup embed brand acknowledgements model vad-model parakeet-model whisperkit-model build run package install clean
 
 # `make setup` auto-detects the model from this Mac's arch + RAM. Pass MODEL= to
 # override, e.g. `make setup MODEL=small.en-q5_1` — only a command-line MODEL is
@@ -49,6 +52,12 @@ embed:
 brand:
 	bash scripts/embed_mascot_art.sh
 	python3 scripts/make_app_icon.py
+
+# The Acknowledgements screen's text, likewise generated and CHECKED IN.
+# Re-run after editing ACKNOWLEDGEMENTS.md or LICENSE; AcknowledgementsTests
+# fails while the embedded copy is stale.
+acknowledgements:
+	bash scripts/embed_acknowledgements.sh
 
 model:
 	bash scripts/download_model.sh $(MODEL)
