@@ -288,18 +288,49 @@ final class NotesLibraryTests: XCTestCase {
         XCTAssertEqual(lib.list().count, 1)
     }
 
-    func testRenameForeignFileAddsTitleKeepsBodyIntact() throws {
-        try write("plain.md", "# Heading\ntext\n", modified: t0)
-        let renamed = try makeLibrary().rename(id: "plain.md", to: "Fresh")
-        XCTAssertEqual(renamed.summary.title, "Fresh")
-        XCTAssertEqual(renamed.body, "# Heading\ntext\n")
-        XCTAssertEqual(renamed.id, "2027-01-15 Fresh.md")
+    func testRenameAPlainForeignNoteOnlyRenamesTheFile() throws {
+        try write("Idea.md", "# Heading\ntext\n", modified: t0)
+        let renamed = try makeLibrary().rename(id: "Idea.md", to: "Fresh")
+        XCTAssertEqual(renamed.id, "Fresh.md", "No date prefix added: fewer broken [[links]]")
+        XCTAssertEqual(renamed.summary.title, "Fresh", "Its name is its title")
+        XCTAssertEqual(try raw("Fresh.md"), "# Heading\ntext\n", "No front matter injected")
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: dir.path), ["Fresh.md"])
     }
 
     func testRenameAddsTitleKeyWhenBlockLacksIt() throws {
         try write("x.md", "---\nkind: meeting\n---\nbody", modified: t0)
         let renamed = try makeLibrary().rename(id: "x.md", to: "T")
+        XCTAssertEqual(renamed.id, "T.md", "The filename keeps its shape: no date prefix")
         XCTAssertEqual(try raw(renamed.id), "---\ntitle: \"T\"\nkind: meeting\n---\nbody")
+    }
+
+    func testRenameKeepsAnExistingDatePrefix() throws {
+        try write("2026-03-02 Old.md", "---\ntitle: Old\n---\nbody", modified: t0)
+        XCTAssertEqual(try makeLibrary().rename(id: "2026-03-02 Old.md", to: "New").id, "2026-03-02 New.md")
+    }
+
+    func testACaseOnlyRenameKeepsTheSameFile() throws {
+        let lib = makeLibrary()
+        let a = try lib.create(draft("idea"))
+        let renamed = try lib.rename(id: a.id, to: "Idea")
+        XCTAssertEqual(renamed.id, "2027-01-15 Idea.md", "Not “Idea 2”: on a case-insensitive volume it's the same file")
+        XCTAssertEqual(renamed.summary.title, "Idea")
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: dir.path), ["2027-01-15 Idea.md"])
+
+        try write("plain.md", "text")
+        XCTAssertEqual(try lib.rename(id: "plain.md", to: "Plain").id, "Plain.md")
+    }
+
+    func testANoteThatIsntUTF8IsNotRewritten() throws {
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let bytes = Data("---\ntitle: Old\n---\ncaf".utf8) + Data([0xE9, 0x0A])   // Latin-1 "é"
+        try bytes.write(to: dir.appendingPathComponent("Latin.md"))
+        XCTAssertThrowsError(try makeLibrary().rename(id: "Latin.md", to: "New")) {
+            XCTAssertEqual($0 as? NotesLibraryError, .notUTF8("Latin.md"))
+            XCTAssertTrue($0.localizedDescription.contains("UTF-8"))
+        }
+        XCTAssertEqual(try Data(contentsOf: dir.appendingPathComponent("Latin.md")), bytes, "Not a byte changed")
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: dir.path), ["Latin.md"])
     }
 
     // MARK: delete

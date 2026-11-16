@@ -41,9 +41,19 @@ struct Note: Equatable, Identifiable {
     var id: String { summary.id }
 }
 
-enum NotesLibraryError: Error, Equatable {
+enum NotesLibraryError: LocalizedError, Equatable {
     /// The file is gone (deleted or renamed outside Cado) or not a top-level `.md`.
     case notFound(String)
+    /// The file isn't valid UTF-8, so rewriting it would damage it.
+    case notUTF8(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .notFound(let id): return "“\(id)” isn't in the notes folder."
+        case .notUTF8(let id):
+            return "“\(id)” isn't saved as UTF-8 text, so Cado won't rewrite it. Rename it in Finder instead."
+        }
+    }
 }
 
 /// Where deleted notes go. Real one uses the Trash.
@@ -83,7 +93,9 @@ protocol FolderWatching: AnyObject {
 /// `.md` files count; missing/partial/malformed front matter falls back
 /// (title: filename, date: modification date) and is never rewritten by a
 /// read. Rename touches only the `title` line, keeping the body and any keys
-/// the user added. The folder is resolved on every call (it may be changed in
+/// the user added; a file without front matter is titled by its name, so
+/// only its name changes; the name keeps its shape (a date prefix only if it
+/// had one); a file that isn't UTF-8 is refused, never rewritten. The folder is resolved on every call (it may be changed in
 /// Settings) and created on first write; a missing folder lists as empty.
 ///
 /// Synchronous and stateless apart from the watcher; call from a background
@@ -157,26 +169,37 @@ final class NotesLibrary {
 
     // MARK: Change
 
-    /// Sets the title and renames the file to match (date prefix kept from the
-    /// note's date; collision-safe). Body and unknown front-matter keys are
-    /// preserved. Returns the note under its new id.
+    /// Sets the title and renames the file to match, keeping the name's
+    /// shape: `yyyy-MM-dd Title.md` keeps its date prefix, `Idea.md` gets
+    /// none (fewer broken `[[links]]`). Collision-safe (` 2`, ` 3`…); a
+    /// change of case alone stays the same file. With front matter, only its
+    /// title line changes (body and unknown keys kept); without, the file is
+    /// untouched apart from its name, which is its title. A file that isn't
+    /// valid UTF-8 throws `notUTF8` unchanged. Returns the note under its
+    /// new id.
     @discardableResult
     func rename(id: String, to newTitle: String) throws -> Note {
-        guard let url = fileURL(id), let current = load(url) else { throw NotesLibraryError.notFound(id) }
+        guard let url = fileURL(id), load(url) != nil else { throw NotesLibraryError.notFound(id) }
         let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        let raw = String(decoding: try Data(contentsOf: url), as: UTF8.self)
-        let data = Data(NoteFrontMatter.settingTitle(title, in: raw).utf8)
+        let bytes = try Data(contentsOf: url)
+        let raw = String(decoding: bytes, as: UTF8.self)
+        guard Data(raw.utf8) == bytes else { throw NotesLibraryError.notUTF8(id) }
+        let stem: String
+        if NoteFrontMatter.parse(raw).hasBlock {
+            let updated = Data(NoteFrontMatter.settingTitle(title, in: raw).utf8)
+            if updated != bytes { try updated.write(to: url, options: .atomic) }
+            stem = Self.datePrefix(of: id).map { "\($0) \(Self.sanitise(title))" } ?? Self.sanitise(title)
+        } else {
+            stem = Self.sanitise(title)
+        }
         let dir = url.deletingLastPathComponent()
-        let stem = baseName(date: current.summary.date, title: title)
         for n in 1... {
             let name = (n == 1 ? stem : "\(stem) \(n)") + ".md"
-            if name == id {
-                try data.write(to: url, options: .atomic)
-                return try note(id: id)
-            }
+            if name == id { return try note(id: id) }
             do {
-                try data.write(to: dir.appendingPathComponent(name), options: .withoutOverwriting)
-                try? fileManager.removeItem(at: url)
+                // Never over an existing file; a case-only change on a
+                // case-insensitive volume is a plain rename, not a collision.
+                try fileManager.moveItem(at: url, to: dir.appendingPathComponent(name))
                 return try note(id: name)
             } catch let error as CocoaError where error.code == .fileWriteFileExists {
                 continue
@@ -248,6 +271,17 @@ final class NotesLibrary {
 
     private static func contains(_ text: String, _ word: String) -> Bool {
         text.range(of: word, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }
+
+    /// The `yyyy-MM-dd` a filename starts with (before a space), if any.
+    private static func datePrefix(of filename: String) -> String? {
+        let prefix = filename.prefix(11)
+        guard prefix.count == 11, prefix.last == " " else { return nil }
+        let date = prefix.dropLast()
+        let digits = date.enumerated().allSatisfy { index, ch in
+            index == 4 || index == 7 ? ch == "-" : ch.isASCII && ch.isNumber
+        }
+        return digits ? String(date) : nil
     }
 
     /// `yyyy-MM-dd Title` without the extension.

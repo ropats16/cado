@@ -158,6 +158,19 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(vm.listState, .empty)
     }
 
+    func testARenameTheLibraryRefusesShowsQuietlyWhy() async throws {
+        let a = try add("Latin")
+        try (Data("---\ntitle: Latin\n---\ncaf".utf8) + Data([0xE9])).write(to: a.summary.url)
+        await vm.reload()
+        await vm.select(a.id)
+        vm.beginRename(a.id)
+        vm.renameDraft = "Other"
+        await vm.commitRename()
+        XCTAssertEqual(vm.message, "Couldn't rename the note: " + NotesLibraryError.notUTF8(a.id).localizedDescription)
+        XCTAssertEqual(vm.selection, a.id, "The note stays as it was")
+        XCTAssertEqual(titles(), ["Latin"])
+    }
+
     func testRenameCollisionLeavesBothNotes() async throws {
         let a = try add("One")
         try add("Two")
