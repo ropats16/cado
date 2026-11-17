@@ -237,6 +237,20 @@ final class NotesLibraryTests: XCTestCase {
         XCTAssertEqual(summary.preview, "**Me:** Hello there. **Them:** Hi.")
     }
 
+    func testThePreviewSkipsHeadingsAndRules() throws {
+        let lib = makeLibrary()
+        let intro = "Recorded from Zoom (Them) and your microphone (Me).\n\n> Recording stopped at the 2-hour limit.\n\n"
+        try lib.create(draft("Summary first", body: intro + "## Summary\nAgreed to ship.\n\n## Transcript\n**Me:** Thanks."))
+        try lib.create(draft("Transcript first", at: 10, body: intro + "## Transcript\n**Me:** Thanks for joining."))
+        try lib.create(draft("Plain", at: 20, kind: "note", body: "# Plain\n\n---\n\nFirst line.\n\n## More\nSecond."))
+        try lib.create(draft("Only headings", at: 30, kind: "note", body: "# Just a title\n## And another"))
+        let byTitle = Dictionary(uniqueKeysWithValues: lib.list().map { ($0.title, $0) })
+        XCTAssertEqual(byTitle["Summary first"]?.preview, "Agreed to ship. **Me:** Thanks.")
+        XCTAssertEqual(byTitle["Transcript first"]?.preview, "**Me:** Thanks for joining.")
+        XCTAssertEqual(byTitle["Plain"]?.preview, "First line. Second.")
+        XCTAssertEqual(byTitle["Only headings"]?.preview, "# Just a title ## And another", "nothing else: keep them")
+    }
+
     func testAPlainNoteOrAnEditedMeetingHasNoApp() throws {
         let lib = makeLibrary()
         let intro = "Recorded from Zoom (Them) and your microphone (Me).\n\nhi"

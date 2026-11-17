@@ -290,10 +290,22 @@ final class NotesLibrary {
             .joined(separator: "\n")
     }
 
+    /// The body's first words as one line, without headings ("## Summary")
+    /// and rules ("---"), so it starts at real content; a body of nothing
+    /// but those keeps them.
     private static func preview(_ body: String) -> String {
-        let flat = body.split(whereSeparator: \.isNewline).joined(separator: " ")
-            .trimmingCharacters(in: .whitespaces)
+        let lines = body.split(whereSeparator: \.isNewline)
+        let content = lines.filter { !isHeadingOrRule($0.trimmingCharacters(in: .whitespaces)) }
+        let flat = (content.contains { !$0.allSatisfy(\.isWhitespace) } ? content : lines)
+            .joined(separator: " ").trimmingCharacters(in: .whitespaces)
         return String(flat.prefix(160))
+    }
+
+    private static func isHeadingOrRule(_ line: String) -> Bool {
+        let hashes = line.prefix { $0 == "#" }.count
+        if (1...6).contains(hashes), line.dropFirst(hashes).first == " " { return true }
+        let marks = line.filter { $0 != " " }
+        return marks.count >= 3 && Set(marks).count == 1 && ["-", "*", "_"].contains(marks.first!)
     }
 
     private static func contains(_ text: String, _ word: String) -> Bool {
