@@ -242,9 +242,4 @@ final class StatusMenuContentTests: XCTestCase {
                        .init(title: "2 hotkey problems. Fix them in Settings › Hotkeys.", action: .openSettings))
     }
 
-    func testAConfigErrorSettingsCantFixPointsAtTheConfigFile() {
-        XCTAssertEqual(content(.ready, configIssues: [issue(.error, .engine, "x")]).configIssues,
-                       .init(title: "There's a problem in Cado's config file. Choose Open Config File… to fix it.",
-                             action: nil))
-    }
 }

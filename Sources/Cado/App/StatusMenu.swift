@@ -148,12 +148,11 @@ struct StatusMenuContent: Equatable {
         self.configIssues = Self.configRow(configIssues.filter { $0.severity == .error })
     }
 
-    /// Errors only (warnings are logged; Settings shows hotkey ones).
+    /// Errors only, all of them hotkey ones (`ConfigValidator`); warnings
+    /// are logged, and Settings shows the hotkey ones.
     private static func configRow(_ errors: [ConfigIssue]) -> Row? {
+        let errors = errors.filter { $0.topic == .hotkeys }
         guard let first = errors.first else { return nil }
-        guard errors.allSatisfy({ $0.topic == .hotkeys }) else {
-            return Row(title: "There's a problem in Cado's config file. Choose Open Config File… to fix it.", action: nil)
-        }
         let title = errors.count == 1
             ? "\(first.summary) Fix it in Settings › Hotkeys."
             : "\(errors.count) hotkey problems. Fix them in Settings › Hotkeys."

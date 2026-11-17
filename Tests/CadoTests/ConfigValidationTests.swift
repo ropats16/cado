@@ -97,6 +97,19 @@ final class ConfigValidationTests: XCTestCase {
         }
     }
 
+    /// Problems that turn up after launch (a hand edit, a Settings change)
+    /// are logged once, when they first appear, not on every menu refresh.
+    func testTheReporterHandsOverEachIssueOnceWhileItLasts() {
+        var same = Config.defaults
+        same.toggle = same.hold
+        var reporter = ConfigIssueReporter()
+        XCTAssertEqual(reporter.fresh(ConfigValidator.validate(.defaults)), [])
+        XCTAssertEqual(reporter.fresh(ConfigValidator.validate(same)).count, 1)
+        XCTAssertEqual(reporter.fresh(ConfigValidator.validate(same)), [], "Already logged")
+        XCTAssertEqual(reporter.fresh(ConfigValidator.validate(.defaults)), [])
+        XCTAssertEqual(reporter.fresh(ConfigValidator.validate(same)).count, 1, "Fixed, then back: news again")
+    }
+
     func testHoldEqualsToggleViaAliasesIsError() {
         var config = Config.defaults
         config.hold = KeyBinding(keyCode: -1, modifiers: ["control", "shift"])

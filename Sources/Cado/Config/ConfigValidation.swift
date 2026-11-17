@@ -15,6 +15,19 @@ struct ConfigIssue: Equatable {
     let summary: String
 }
 
+/// Which issues are new since the last look, so each is logged once when
+/// it appears (at launch, or later after a hand edit or a Settings change),
+/// not on every menu refresh. One that goes away and comes back is new again.
+struct ConfigIssueReporter {
+    private var reported: [ConfigIssue] = []
+
+    mutating func fresh(_ issues: [ConfigIssue]) -> [ConfigIssue] {
+        let new = issues.filter { !reported.contains($0) }
+        reported = issues
+        return new
+    }
+}
+
 /// Pure, side-effect-free validation of a `Config`. Detects invalid or
 /// conflicting key bindings (plus a sanity check on max recording duration) so
 /// the app can report them clearly at startup. It never mutates the config; it

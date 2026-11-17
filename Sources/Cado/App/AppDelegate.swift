@@ -105,6 +105,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var launchPromptsDeferred = false
 
     private var isMicWarm = false
+    /// Logs each config problem once, when it first appears.
+    private var configIssueReporter = ConfigIssueReporter()
 
     // MARK: - Lifecycle
 
@@ -211,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.render(StatusMenuContent(status: monitor.status, inputs: monitor.inputs,
                                       hold: "\(config.hold)", toggle: "\(config.toggle)",
                                       // Re-read: a hotkey fixed in Settings clears its line.
-                                      configIssues: ConfigValidator.validate(config),
+                                      configIssues: reportConfigIssues(),
                                       recentDictations: recents.recent(),
                                       historyEnabled: config.dictationHistory,
                                       update: MainActor.assumeIsolated { updater.flatMap(UpdateMenuRow.init) },
@@ -222,15 +224,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Logs each invalid/conflicting binding (errors via `Log.error`, warnings
-    /// via `Log.info`); the menu summarises them. Reporting only.
-    private func reportConfigIssues() {
-        for issue in ConfigValidator.validate(configStore.config) {
+    /// Validates the config, logging each problem once when it first appears
+    /// (errors via `Log.error`, warnings via `Log.info`); the menu summarises
+    /// them. Reporting only.
+    @discardableResult
+    private func reportConfigIssues() -> [ConfigIssue] {
+        let issues = ConfigValidator.validate(configStore.config)
+        for issue in configIssueReporter.fresh(issues) {
             switch issue.severity {
             case .error:   Log.error("Config issue: \(issue.message)")
             case .warning: Log.info("Config issue: \(issue.message)")
             }
         }
+        return issues
     }
 
     // MARK: - Readiness
