@@ -2,6 +2,22 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
+## 0.3.0 - 2026-11-17
+
+### Added
+- Setup: an optional Notifications step, and "Almost there" now has a button for each step still to do.
+
+### Changed
+- Messages in the menu, Settings, setup and notifications say what to do inside Cado; no more terminal commands or "see log".
+- Engine and download errors are in plain words, without file paths.
+- Settings: the model download list opens by itself while a download runs or fails, or when the chosen model is missing.
+- Hotkey clashes are explained in plain words.
+- One name per thing: "speech model", "the mascot", "Send anonymous usage count"; consistent button and notification titles.
+
+### Fixed
+- Green text (Recommended badge, links) is readable in light mode.
+- Outlines respect Increase Contrast.
+
 ## 0.2.0 - 2026-11-17
 
 ### Added
