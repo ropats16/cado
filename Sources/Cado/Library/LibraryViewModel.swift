@@ -79,6 +79,9 @@ final class LibraryViewModel: ObservableObject {
     private var generation = 0
     private var pendingReload: Task<Void, Never>?
     private var pendingRegroup: Task<Void, Never>?
+    /// Reloads awaiting their rows, and a day/zone change that arrived meanwhile.
+    private var reloadsInFlight = 0
+    private var regroupWanted = false
     private var copiedReset: Task<Void, Never>?
     private var meetingStatus: MeetingStatus = .idle
     /// Idle with the row still up: the next reload that lands removes it.
@@ -126,6 +129,13 @@ final class LibraryViewModel: ObservableObject {
     /// Today/Yesterday/This week moved (midnight, a time-zone change): the
     /// same notes, grouped again.
     private func regroup() {
+        // A reload is reading the notes: grouping the old ones now could
+        // overwrite (or be overwritten by) its sections. Redo it once it lands.
+        if reloadsInFlight > 0 { regroupWanted = true; return }
+        runRegroup()
+    }
+
+    private func runRegroup() {
         pendingRegroup?.cancel()
         let notes = notes, at = now(), calendar = calendar, group = group, gen = generation
         pendingRegroup = Task {
@@ -185,6 +195,8 @@ final class LibraryViewModel: ObservableObject {
     func reload() async -> Bool {
         generation += 1
         let gen = generation
+        reloadsInFlight += 1
+        defer { reloadsInFlight -= 1 }
         let query = query, selected = selection, library = library
         let at = now(), calendar = calendar, group = group
         let loaded = await Task.detached { () -> Loaded in
@@ -194,6 +206,13 @@ final class LibraryViewModel: ObservableObject {
             return Loaded(list: list, sections: sections, note: note)
         }.value
         guard gen == generation else { return false }
+
+        // Its sections replace any regroup of the old notes; if the day or
+        // zone changed meanwhile, group these notes again.
+        pendingRegroup?.cancel()
+        let regroupAfter = regroupWanted
+        regroupWanted = false
+        defer { if regroupAfter { runRegroup() } }
 
         hasLoaded = true
         notes = loaded.list
