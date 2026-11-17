@@ -5,7 +5,7 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 ## Unreleased
 
 ### Fixed
-- Meetings on laptop speakers: what the other side says no longer shows up a second time under "Me". Your own words stay, short replies like "yeah" included.
+- Meetings on laptop speakers: what the other side says no longer shows up a second time under "Me" (a few garbled words can still slip through). Your replies stay, also ones that reuse their words, and "yeah"s over them. Saying the same words as them at the same moment, like both saying "thank you", is left out of "Me" on speakers. With headphones Cado normally leaves nothing out.
 
 ## 0.3.0 - 2026-11-17
 

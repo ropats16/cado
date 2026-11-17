@@ -5,15 +5,18 @@ mic, a real call. Background and measured results:
 [../speaker-bleed-36.md](../speaker-bleed-36.md).
 
 Already verified without a human:
-- `SpeakerBleedFilterTests`: the dedup rules (repeats dropped; backchannels,
-  Me over Others and later repeats kept; old journals without end times).
+- `SpeakerBleedFilterTests`: the dedup rules (repeats removed only in a
+  meeting that bleeds; replies, Others repeating Me, Me's voice back from
+  the far end, backchannels, Me over Others kept; old journals without end
+  times).
 - `MeetingBleedReplayTests`: a speaker-bleed fixture (Others mixed into Me at
   −12 dB, 40 ms late) through real captures, chunking, spool and notes:
-  no Others lines under Me; the headphones note is the same; a crashed
+  no Others lines under Me; with headphones every Me line stays; a crashed
   meeting recovers to the same note.
 - `scripts/bleed_bench.sh` on real speech (whisper small.en/tiny.en,
-  Parakeet): Me insertions from bleed down ~95%; headphones notes
-  byte-identical with and without the filter.
+  Parakeet), incl. a `say` conversation: bleed words in Me down 92% (read
+  clips) and 97% (conversation); headphones notes untouched; every Me line
+  of the conversation kept but "Thank you very much." said with Others.
 
 ## Setup
 
@@ -35,14 +38,16 @@ System Audio Recording allowed (as for any meeting, #30).
        Meeting for that app.
 3. [ ] Over ~5 minutes: let the other side talk for a while; answer now and
        then; say "yeah" / "mm-hmm" while they talk; once, talk over them with
-       a sentence of your own; once, repeat 3+ words they just said ("next
-       quarter?").
+       a sentence of your own; once, answer reusing their words ("So we ship
+       Friday?" → "I think we should wait on Friday"); once, say "thank you"
+       together with them.
 4. [ ] Stop. In the note:
    - [ ] Others' sentences are **not** repeated under Me (a garbled
          fragment of a few words may slip through: note how many).
-   - [ ] Your own sentences, the "yeah"s and the sentence over them are all
-         under Me.
-   - [ ] The echo question may be missing (known limit): note whether it is.
+   - [ ] Your own sentences, the "yeah"s, the sentence over them and the
+         reply reusing their words are all under Me.
+   - [ ] The "thank you" said together may be missing under Me (known
+         limit): note whether it is.
 5. [ ] Same again at full volume. Louder bleed: is it still removed?
 
 ## 2. Headphones unchanged
@@ -72,7 +77,9 @@ make build
        (if connected) switch to call quality?
 3. [ ] Optional: see what the note makes of each recording:
        `.build/release/Cado --meeting-test --me /tmp/cado-echo/mic-plain.wav --them .bench/fixtures/short/jfk.wav`.
-       Expected: no Me lines (all bleed was removed).
+       Expected: Me shows little or nothing of the clip. One short clip may
+       be too little to show bleed (Cado waits for two long repeats), in
+       which case Me shows it: that's expected, not a failure.
 
 Record the results (Mac model, macOS version, N, ducking yes/no) in
 `plans/speaker-bleed-36.md`.

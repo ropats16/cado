@@ -339,12 +339,19 @@ and says why).
   the part already on disk can. Notes saved before this label changed say
   "Them"; they still open and show "Others" (the files aren't changed).
 - **Laptop speakers:** without headphones the mic also hears the other side.
-  Cado leaves out of "Me" whatever repeats what Others said at that moment,
-  so their words aren't in the note twice. Your own words stay, also short
-  replies like "yeah" and anything you say over them. Two things it can't
-  tell apart: if you repeat three or more of their words straight after
-  them, that repeat is left out too; and a few garbled words of theirs can
-  still end up under "Me". Headphones avoid both.
+  When a meeting shows that (their sentences turning up under "Me" as they
+  say them), Cado leaves those repeats out of "Me", so their words aren't in
+  the note twice. Your own words stay: replies that reuse some of their
+  words, "yeah" or a sentence of yours over them, and lines they repeat
+  after you. What it can't tell apart on speakers: saying the same words as
+  them at the same moment (both saying "Thank you very much.") or repeating
+  their words straight after them, in step; those are left out of "Me". And
+  some of theirs still gets through: garbled bits, and all of it in a call
+  too short to show the bleed. With headphones there's no bleed, so Cado
+  normally leaves nothing out. It can only if the cases above happen twice
+  or more in one call, or your own voice comes straight back in their audio
+  (their echo cancelling failing): then it stays in the note, under
+  "Others".
 - **Safari:** Safari plays web audio through WebKit's shared media process,
   which every WebKit-based app uses (Mail, and apps with web views) and which
   macOS gives no public way to tell apart. So with Safari as the meeting app,
@@ -668,7 +675,8 @@ means, the JSON schema, fixture licenses, and how to add an engine.
 
 **Speaker bleed (meetings on laptop speakers).** `python3
 scripts/make_bleed_fixtures.py` builds two short meetings from the bench
-clips, with Others mixed into Me as laptop speakers would. Then
+clips and a conversation spoken by macOS `say`, with Others mixed into Me
+as laptop speakers would. Then
 `scripts/bleed_bench.sh` runs them through `Cado --meeting-test` and prints
 each side's WER (bleed shows as Me insertions). `Cado --echo-test --wav
 <file>` measures how much of the speakers the mic hears, with and without
