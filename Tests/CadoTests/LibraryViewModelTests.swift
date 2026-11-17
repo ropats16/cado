@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Combine
 @testable import Cado
 
 private final class LibraryFakeTrasher: NoteTrashing {
@@ -380,6 +381,28 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(titles(), ["Beta", "Alpha"])
     }
 
+    /// The notification opens the Library: the first reload is overtaken by
+    /// the folder watcher's; the note still opens.
+    func testShowingANoteSurvivesAnOvertakenReload() async throws {
+        let a = try add("Alpha")
+        let showing = Task { await vm.show(noteID: a.id) }
+        vm.start()   // a newer reload, from the watcher
+        await showing.value
+        await vm.settled()
+        XCTAssertEqual(vm.selection, a.id)
+        XCTAssertNil(vm.message)
+        XCTAssertEqual(titles(), ["Alpha"])
+    }
+
+    func testShowingTheLatestMeetingSurvivesAnOvertakenReload() async throws {
+        let a = try add("Alpha")
+        let showing = Task { await vm.showLatestMeetingNote() }
+        vm.start()
+        await showing.value
+        await vm.settled()
+        XCTAssertEqual(vm.selection, a.id)
+    }
+
     func testShowingAGoneNoteSaysSoQuietly() async throws {
         try add("Alpha")
         await vm.show(noteID: "2026-01-01 Gone.md")
@@ -427,6 +450,26 @@ final class LibraryViewModelTests: XCTestCase {
         await vm.settled()
         XCTAssertNil(vm.inProgress)
         XCTAssertEqual(vm.notes.map(\.id), [saved.id])
+    }
+
+    /// The idle reload is overtaken (a folder event): the row still stays
+    /// until a reload has listed the note.
+    func testTheRowOutlivesAnOvertakenReload() async throws {
+        await vm.reload()
+        vm.meetingStatusChanged(.transcribing(app: "Zoom", done: 3, total: 3))
+        let saved = try add("Meeting with Zoom")
+        var listedWhenRowWent: [Bool] = []
+        let watch = vm.$meetingUnderWay.dropFirst().sink { [unowned self] row in
+            if row == nil { listedWhenRowWent.append(self.vm.notes.contains { $0.id == saved.id }) }
+        }
+        vm.meetingStatusChanged(.idle)
+        let newer = Task { await vm.reload() }
+        await vm.settled()
+        await newer.value
+        await vm.settled()
+        watch.cancel()
+        XCTAssertNil(vm.inProgress)
+        XCTAssertEqual(listedWhenRowWent, [true])
     }
 
     /// Nothing saved (no speech, a failure): no ghost row.

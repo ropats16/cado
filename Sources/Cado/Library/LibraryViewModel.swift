@@ -76,6 +76,8 @@ final class LibraryViewModel: ObservableObject {
     private var generation = 0
     private var pendingReload: Task<Void, Never>?
     private var meetingStatus: MeetingStatus = .idle
+    /// Idle with the row still up: the next reload that lands removes it.
+    private var rowEndsOnReload = false
 
     /// `now` and `calendar` (time zone, locale, first weekday) date the
     /// sections and format rows and the header.
@@ -127,7 +129,9 @@ final class LibraryViewModel: ObservableObject {
     }
 
     /// Re-reads the list and, if one is selected and still listed, its body.
-    func reload() async {
+    /// Returns false if a newer reload overtook it (nothing applied).
+    @discardableResult
+    func reload() async -> Bool {
         generation += 1
         let gen = generation
         let query = query, selected = selection, library = library
@@ -136,11 +140,15 @@ final class LibraryViewModel: ObservableObject {
             let note = selected.map { id in Result { try library.note(id: id) } }
             return Loaded(list: list, note: note)
         }.value
-        guard gen == generation else { return }
+        guard gen == generation else { return false }
 
         hasLoaded = true
         notes = loaded.list
-        guard let selected else { return }
+        if rowEndsOnReload, meetingStatus == .idle {
+            rowEndsOnReload = false
+            meetingUnderWay = nil   // the saved note (if any) is listed now
+        }
+        guard let selected else { return true }
         switch loaded.note {
         case .success(let note)?:
             if loaded.list.contains(where: { $0.id == selected }) {
@@ -154,6 +162,7 @@ final class LibraryViewModel: ObservableObject {
         case nil:
             break
         }
+        return true
     }
 
     func setQuery(_ text: String) async {
@@ -189,23 +198,22 @@ final class LibraryViewModel: ObservableObject {
 
     /// Selects the note `id` (the notification for a saved meeting), clearing
     /// a search that hides it. Gone: a quiet message.
+    /// Selects by id, not from `notes`: a reload overtaken by the watcher's
+    /// leaves `notes` stale (select reads the file and reports a gone note).
     func show(noteID id: String) async {
         if isSearching { query = "" }
-        await reload()
-        guard notes.contains(where: { $0.id == id }) else {
-            message = Self.describe(NotesLibraryError.notFound(id), verb: "open")
-            return
-        }
         await select(id)
+        await reload()
     }
 
     /// Selects the newest meeting note ("Open Last Meeting Note"), read from
     /// the folder, so it survives a relaunch. None: nothing changes.
     func showLatestMeetingNote() async {
         if isSearching { query = "" }
+        let library = library
+        let latest = await Task.detached { library.latestNote(kind: NoteKind.meeting)?.id }.value
+        if let latest { await select(latest) }
         await reload()
-        guard let id = notes.first(where: { $0.kind.lowercased() == NoteKind.meeting })?.id else { return }
-        await select(id)
     }
 
     // MARK: Meeting under way (#42)
@@ -219,13 +227,12 @@ final class LibraryViewModel: ObservableObject {
         meetingStatus = status
         if let row = LibraryInProgressRow(status: status) {
             meetingUnderWay = row
+            rowEndsOnReload = false
             return
         }
         guard meetingUnderWay != nil else { return }
-        pendingReload = Task {
-            await reload()
-            if meetingStatus == .idle { meetingUnderWay = nil }
-        }
+        rowEndsOnReload = true   // by the next reload that lands, not an overtaken one
+        scheduleReload()
     }
 
     // MARK: Copy
