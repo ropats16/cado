@@ -11,13 +11,18 @@ import AVFoundation
 //   me.f32         raw little-endian Float32, 16 kHz mono, append-only
 //   them.f32       same, for the meeting app's audio
 //   events.jsonl   one JSON object per line ("type" says which), append-only
+//   lock           held (`flock`) while a handle is open, so another
+//                  instance never takes a live meeting for a leftover
 // Speakers are written as the stable keys "me" / "them", never as the
-// user-facing labels.
+// user-facing labels. The root is private to the user (0700) and excluded
+// from backups: it holds raw audio and, in the events, transcript text.
 //
 // Sync policy: every append/record is written straight through to the file
 // (no app-side buffering), so it survives a crash of the app. The files are
-// `synchronize()`d on `.stopped` and otherwise at most every 5 seconds.
-// Power loss may lose the last few seconds; that's accepted.
+// flushed to the disk itself (`F_FULLFSYNC`) on the milestone events
+// (`isMilestone`: stop, quit, note saved…) and otherwise `synchronize()`d at
+// most every 5 seconds. Power loss may lose the last few seconds; that's
+// accepted.
 
 /// What identifies a spooled meeting; written once when it starts.
 struct SpooledMeeting: Codable, Equatable {
@@ -39,10 +44,27 @@ enum SpoolEvent: Codable, Equatable {
     case transcribed(MeetingSpeaker, range: Range<Int>, offset: TimeInterval, segments: [SpoolSegment])
     case failed(MeetingSpeaker, range: Range<Int>, reason: String)  // a chunk failed to transcribe
     case stopped(at: TimeInterval, capReached: Bool)                // the user (or the cap) ended recording
+    case appQuit                                                    // Cado was quit (not a crash); finish it next launch
     case recoveryStarted                                            // a later launch began recovering it
+    case recoveryPaused                                             // …and Cado was quit cleanly during that recovery
+    /// The meeting is written down: `note` saved (nil: no speech, no note
+    /// needed). If `keepAudio`, the audio must still be copied to
+    /// `audioFolder` (nil: make one) before the spool may go.
+    case noteSaved(note: String?, keepAudio: Bool, audioFolder: String?)
+    case audioKept(folder: String)                                  // the audio copy succeeded
+    case audioKeepFailed(reason: String)                            // the audio copy failed (the user was told on the first)
+    case noteSaveFailed(reason: String)                             // the note couldn't be saved anywhere; finish it next launch
+
+    /// Worth flushing to the disk itself, not just the OS.
+    var isMilestone: Bool {
+        switch self {
+        case .stopped, .appQuit, .recoveryPaused, .noteSaved, .audioKept, .noteSaveFailed: return true
+        default: return false
+        }
+    }
 
     private enum Key: String, CodingKey {
-        case type, speaker, origin, reason, at, through, from, to, offset, segments, capReached
+        case type, speaker, origin, reason, at, through, from, to, offset, segments, capReached, note, keepAudio, folder
     }
 
     func encode(to encoder: Encoder) throws {
@@ -71,8 +93,21 @@ enum SpoolEvent: Codable, Equatable {
         case let .stopped(at, capReached):
             try c.encode("stopped", forKey: .type)
             try c.encode(at, forKey: .at); try c.encode(capReached, forKey: .capReached)
+        case .appQuit:
+            try c.encode("appQuit", forKey: .type)
         case .recoveryStarted:
             try c.encode("recoveryStarted", forKey: .type)
+        case .recoveryPaused:
+            try c.encode("recoveryPaused", forKey: .type)
+        case let .noteSaved(note, keepAudio, folder):
+            try c.encode("noteSaved", forKey: .type); try c.encodeIfPresent(note, forKey: .note)
+            try c.encode(keepAudio, forKey: .keepAudio); try c.encodeIfPresent(folder, forKey: .folder)
+        case let .audioKept(folder):
+            try c.encode("audioKept", forKey: .type); try c.encode(folder, forKey: .folder)
+        case let .audioKeepFailed(reason):
+            try c.encode("audioKeepFailed", forKey: .type); try c.encode(reason, forKey: .reason)
+        case let .noteSaveFailed(reason):
+            try c.encode("noteSaveFailed", forKey: .type); try c.encode(reason, forKey: .reason)
         }
     }
 
@@ -103,8 +138,22 @@ enum SpoolEvent: Codable, Equatable {
                            reason: try c.decode(String.self, forKey: .reason))
         case "stopped":
             self = .stopped(at: try c.decode(TimeInterval.self, forKey: .at), capReached: try c.decode(Bool.self, forKey: .capReached))
+        case "appQuit":
+            self = .appQuit
         case "recoveryStarted":
             self = .recoveryStarted
+        case "recoveryPaused":
+            self = .recoveryPaused
+        case "noteSaved":
+            self = .noteSaved(note: try c.decodeIfPresent(String.self, forKey: .note),
+                              keepAudio: try c.decode(Bool.self, forKey: .keepAudio),
+                              audioFolder: try c.decodeIfPresent(String.self, forKey: .folder))
+        case "audioKept":
+            self = .audioKept(folder: try c.decode(String.self, forKey: .folder))
+        case "audioKeepFailed":
+            self = .audioKeepFailed(reason: try c.decode(String.self, forKey: .reason))
+        case "noteSaveFailed":
+            self = .noteSaveFailed(reason: try c.decode(String.self, forKey: .reason))
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown event \(other)")
         }
@@ -144,12 +193,61 @@ protocol MeetingSpoolHandle: AnyObject {
     func sampleCount(of speaker: MeetingSpeaker) -> Int
     /// Reads samples back (clamped to what exists).
     func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float]
-    /// True if every sample appended so far for that side is exactly zero (what an ungranted system-audio tap delivers). Tracked incrementally, O(1) to read; for a reopened spool it is computed once.
+    /// True if every sample appended so far for that side is exactly zero (what an ungranted system-audio tap delivers). Tracked incrementally, O(1) to read; for a reopened spool it is computed once (a whole-file scan: off main, use `audio().isAllZero`).
     func isSilent(_ speaker: MeetingSpeaker) -> Bool
-    /// Writes each non-empty side as a 16 kHz mono 16-bit WAV named `<label>.wav` into `folder` (labels supplied by the caller), streaming — never loading a whole side into memory.
-    func exportAudio(to folder: URL, fileName: (MeetingSpeaker) -> String) throws
-    /// Deletes the spool folder. Idempotent.
+    /// The audio appended so far, as an immutable view that may be read off the main thread (exports, scans).
+    func audio() -> SpoolAudio
+    /// Survives the app quitting: on disk, and nothing failed to write.
+    var isDurable: Bool { get }
+    /// The spool's folder, if it has one.
+    var location: URL? { get }
+    /// Deletes the spool folder. Idempotent. A failure is logged and leaves it (a later discard, or the next launch, deletes it).
     func discard()
+}
+
+extension MeetingSpoolHandle {
+    /// Writes each non-empty side as a 16 kHz mono 16-bit WAV named `<label>.wav` into `folder` (labels supplied by the caller), streaming — never loading a whole side into memory.
+    func exportAudio(to folder: URL, fileName: (MeetingSpeaker) -> String) throws {
+        try audio().exportWAVs(to: folder, fileName: fileName)
+    }
+}
+
+/// A spool's audio up to a point, read-only and safe off the main thread:
+/// what was appended when it was taken (`counts`), read through `read`.
+struct SpoolAudio {
+    let counts: [MeetingSpeaker: Int]
+    /// Reads samples of a side, clamped to `counts`; may throw (unreadable file).
+    let read: (MeetingSpeaker, Range<Int>) throws -> [Float]
+
+    func count(of speaker: MeetingSpeaker) -> Int { counts[speaker] ?? 0 }
+    var isEmpty: Bool { counts.values.allSatisfy { $0 == 0 } }
+
+    func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] {
+        let r = range.clamped(toCount: count(of: speaker))
+        return r.isEmpty ? [] : try read(speaker, r)
+    }
+
+    /// Every sample of the side is exactly zero (read in slices); false if unreadable.
+    func isAllZero(_ speaker: MeetingSpeaker) -> Bool {
+        var offset = 0
+        let total = count(of: speaker)
+        while offset < total {
+            guard let slice = try? samples(offset..<min(offset + SpoolWAV.chunk, total), of: speaker), !slice.isEmpty else {
+                return false
+            }
+            if slice.contains(where: { $0 != 0 }) { return false }
+            offset += slice.count
+        }
+        return true
+    }
+
+    /// The one export loop: each non-empty side as `<fileName>.wav`.
+    func exportWAVs(to folder: URL, fileName: (MeetingSpeaker) -> String) throws {
+        for speaker in MeetingSpeaker.allCases where count(of: speaker) > 0 {
+            try SpoolWAV.write(count: count(of: speaker),
+                               to: folder.appendingPathComponent("\(fileName(speaker)).wav")) { try samples($0, of: speaker) }
+        }
+    }
 }
 
 /// A spool reopened after the app quit without finishing it.
@@ -195,7 +293,7 @@ private enum SpoolWAV {
     }
 }
 
-private extension Range where Bound == Int {
+extension Range where Bound == Int {
     func clamped(toCount count: Int) -> Range<Int> {
         let lo = Swift.min(Swift.max(lowerBound, 0), count)
         return lo..<Swift.max(lo, Swift.min(upperBound, count))
@@ -214,7 +312,7 @@ final class InMemoryMeetingSpool: MeetingSpooling {
 final class InMemorySpoolHandle: MeetingSpoolHandle {
     let meeting: SpooledMeeting
     private(set) var writeError: Error?
-    private var audio: [MeetingSpeaker: [Float]] = [.me: [], .them: []]
+    private var stored: [MeetingSpeaker: [Float]] = [.me: [], .them: []]
     private var silent: [MeetingSpeaker: Bool] = [.me: true, .them: true]
     private(set) var events: [SpoolEvent] = []
     /// `discard()` was called.
@@ -223,23 +321,23 @@ final class InMemorySpoolHandle: MeetingSpoolHandle {
     init(_ meeting: SpooledMeeting) { self.meeting = meeting }
 
     func append(_ samples: [Float], for speaker: MeetingSpeaker) {
-        audio[speaker, default: []].append(contentsOf: samples)
+        stored[speaker, default: []].append(contentsOf: samples)
         if silent[speaker] == true, samples.contains(where: { $0 != 0 }) { silent[speaker] = false }
     }
     func record(_ event: SpoolEvent) { events.append(event) }
-    func sampleCount(of speaker: MeetingSpeaker) -> Int { audio[speaker]?.count ?? 0 }
+    func sampleCount(of speaker: MeetingSpeaker) -> Int { stored[speaker]?.count ?? 0 }
     func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] {
-        let all = audio[speaker] ?? []
+        let all = stored[speaker] ?? []
         return Array(all[range.clamped(toCount: all.count)])
     }
     func isSilent(_ speaker: MeetingSpeaker) -> Bool { silent[speaker] ?? true }
-    func exportAudio(to folder: URL, fileName: (MeetingSpeaker) -> String) throws {
-        for speaker in MeetingSpeaker.allCases where sampleCount(of: speaker) > 0 {
-            try SpoolWAV.write(count: sampleCount(of: speaker),
-                               to: folder.appendingPathComponent("\(fileName(speaker)).wav")) { try samples($0, of: speaker) }
-        }
+    func audio() -> SpoolAudio {
+        let copy = stored
+        return SpoolAudio(counts: copy.mapValues(\.count)) { speaker, range in Array(copy[speaker]![range]) }
     }
-    func discard() { audio = [.me: [], .them: []]; events = []; isDiscarded = true }
+    var isDurable: Bool { false }
+    var location: URL? { nil }
+    func discard() { stored = [.me: [], .them: []]; events = []; isDiscarded = true }
 }
 
 // MARK: - Memory fallback
@@ -305,13 +403,23 @@ final class FallbackSpoolHandle: MeetingSpoolHandle {
         primary.isSilent(speaker) && memorySilent[speaker] != false
     }
 
-    func exportAudio(to folder: URL, fileName: (MeetingSpeaker) -> String) throws {
-        guard isHoldingAudioInMemory else { return try primary.exportAudio(to: folder, fileName: fileName) }
-        for speaker in MeetingSpeaker.allCases where sampleCount(of: speaker) > 0 {
-            try SpoolWAV.write(count: sampleCount(of: speaker),
-                               to: folder.appendingPathComponent("\(fileName(speaker)).wav")) { try samples($0, of: speaker) }
+    func audio() -> SpoolAudio {
+        let disk = primary.audio()
+        guard isHoldingAudioInMemory else { return disk }
+        let starts = memoryStart, held = memory
+        var counts = disk.counts
+        for (speaker, start) in starts { counts[speaker] = start + (held[speaker]?.count ?? 0) }
+        return SpoolAudio(counts: counts) { speaker, r in
+            guard let start = starts[speaker], let mem = held[speaker] else { return try disk.samples(r, of: speaker) }
+            var out: [Float] = []
+            if r.lowerBound < start { out = try disk.samples(r.lowerBound..<min(r.upperBound, start), of: speaker) }
+            if r.upperBound > start { out += mem[(max(r.lowerBound, start) - start)..<(r.upperBound - start)] }
+            return out
         }
     }
+
+    var isDurable: Bool { primary.isDurable && !isHoldingAudioInMemory }
+    var location: URL? { primary.location }
 
     func discard() {
         primary.discard()
@@ -334,8 +442,10 @@ final class FolderMeetingSpool: MeetingSpooling {
     func create(_ meeting: SpooledMeeting) throws -> MeetingSpoolHandle {
         let fm = FileManager.default
         try fm.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        excludeFromBackups()
         let dir = root.appendingPathComponent(meeting.id.uuidString, isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        guard let lock = SpoolLock.take(in: dir) else { throw CocoaError(.fileLocking) }
         for name in [FolderSpoolHandle.eventsName, FolderSpoolHandle.fileName(.me), FolderSpoolHandle.fileName(.them)] {
             guard fm.createFile(atPath: dir.appendingPathComponent(name).path, contents: nil,
                                 attributes: [.posixPermissions: 0o600]) else {
@@ -347,24 +457,73 @@ final class FolderMeetingSpool: MeetingSpooling {
         let url = dir.appendingPathComponent(FolderSpoolHandle.infoName)
         try JSONEncoder().encode(info).write(to: url)
         try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        return FolderSpoolHandle(meeting: meeting, dir: dir)
+        return FolderSpoolHandle(meeting: meeting, dir: dir, lock: lock)
     }
 
+    /// Spools no open handle holds (another instance's live meeting is
+    /// locked), each now locked by its returned handle. A folder without a
+    /// readable meeting.json is deleted if it holds no audio, else skipped.
     func leftovers() -> [LeftoverMeeting] {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return [] }
+        excludeFromBackups()
         var found: [LeftoverMeeting] = []
         for dir in entries where (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            guard let data = try? Data(contentsOf: dir.appendingPathComponent(FolderSpoolHandle.infoName)),
-                  let info = try? JSONDecoder().decode(FolderSpoolHandle.Info.self, from: data) else {
-                Log.error("Meeting spool \(dir.lastPathComponent) has no readable meeting.json; skipped")
+            guard let lock = SpoolLock.take(in: dir) else {
+                Log.info("Meeting spool \(dir.lastPathComponent) is in use by another Cado; skipped")
                 continue
             }
-            let handle = FolderSpoolHandle(meeting: info.meeting, dir: dir)
+            guard let data = try? Data(contentsOf: dir.appendingPathComponent(FolderSpoolHandle.infoName)),
+                  let info = try? JSONDecoder().decode(FolderSpoolHandle.Info.self, from: data) else {
+                let audio = MeetingSpeaker.allCases.contains { speaker in
+                    ((try? fm.attributesOfItem(atPath: dir.appendingPathComponent(FolderSpoolHandle.fileName(speaker)).path))?[.size]
+                        as? Int ?? 0) > 0
+                }
+                if audio {
+                    Log.error("Meeting spool \(dir.lastPathComponent) has audio but no readable meeting.json; left as it is")
+                } else {
+                    Log.info("Meeting spool \(dir.lastPathComponent) was never set up and holds no audio; removed")
+                    try? fm.removeItem(at: dir)
+                }
+                continue
+            }
+            let handle = FolderSpoolHandle(meeting: info.meeting, dir: dir, lock: lock)
             found.append(LeftoverMeeting(handle: handle, events: handle.readEvents()))
         }
         return found.sorted { $0.handle.meeting.startDate < $1.handle.meeting.startDate }
     }
+
+    /// Raw audio and transcript text don't belong in Time Machine.
+    private func excludeFromBackups() {
+        var url = root
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        do { try url.setResourceValues(values) } catch {
+            Log.error("Couldn't exclude the meeting spool from backups: \(error.localizedDescription)")
+        }
+    }
+}
+
+/// An advisory `flock` on `<spool folder>/lock`, held while open; released
+/// when closed (or when the process dies).
+final class SpoolLock {
+    static let name = "lock"
+    private let fd: Int32
+
+    private init(fd: Int32) { self.fd = fd }
+
+    /// Nil if another open handle (this process or another) holds it.
+    static func take(in dir: URL) -> SpoolLock? {
+        let fd = open(dir.appendingPathComponent(name).path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { return nil }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
+            return nil
+        }
+        return SpoolLock(fd: fd)
+    }
+
+    deinit { close(fd) }
 }
 
 final class FolderSpoolHandle: MeetingSpoolHandle {
@@ -397,6 +556,8 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
     let meeting: SpooledMeeting
     private(set) var writeError: Error?
     private let dir: URL
+    /// Held for as long as this handle is open.
+    private var lock: SpoolLock?
     private var outputs: [String: Output] = [:]
     private var counts: [MeetingSpeaker: Int] = [:]
     private var silent: [MeetingSpeaker: Bool] = [:]
@@ -407,9 +568,10 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         return e
     }()
 
-    init(meeting: SpooledMeeting, dir: URL) {
+    init(meeting: SpooledMeeting, dir: URL, lock: SpoolLock?) {
         self.meeting = meeting
         self.dir = dir
+        self.lock = lock
         for s in MeetingSpeaker.allCases {
             let size = ((try? FileManager.default.attributesOfItem(atPath: url(s).path))?[.size] as? Int) ?? 0
             counts[s] = size / 4
@@ -465,11 +627,17 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         }
     }
 
-    private func syncIfDue(force: Bool = false) {
+    /// Every 5 s to the OS; `full`: to the disk itself (`F_FULLFSYNC`, which
+    /// survives power loss), for milestones only.
+    private func syncIfDue(full: Bool = false) {
         let now = ProcessInfo.processInfo.systemUptime
-        guard force || now - lastSync >= Self.syncInterval else { return }
+        guard full || now - lastSync >= Self.syncInterval else { return }
         lastSync = now
-        for o in outputs.values { try? o.handle?.synchronize() }
+        for o in outputs.values {
+            guard let h = o.handle else { continue }
+            if full, fcntl(h.fileDescriptor, F_FULLFSYNC) == 0 { continue }
+            try? h.synchronize()
+        }
     }
 
     func append(_ samples: [Float], for speaker: MeetingSpeaker) {
@@ -488,7 +656,7 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         guard let out = output(Self.eventsName) else { return }
         if out.handle != nil, !endsWithNewline(out.url) { data.insert(0x0A, at: 0) }   // a torn line from a crash
         _ = write(data, to: out)
-        if case .stopped = event { syncIfDue(force: true) }
+        if event.isMilestone { syncIfDue(full: true) }
     }
 
     private var checkedEventsTail = false
@@ -509,7 +677,12 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
     func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] {
         let r = range.clamped(toCount: sampleCount(of: speaker))
         guard !r.isEmpty else { return [] }
-        let h = try FileHandle(forReadingFrom: url(speaker))
+        return try Self.read(r, from: url(speaker))
+    }
+
+    /// Reads whole samples in `r` from a raw Float32 file (its own file handle: safe on any thread).
+    private static func read(_ r: Range<Int>, from url: URL) throws -> [Float] {
+        let h = try FileHandle(forReadingFrom: url)
         defer { try? h.close() }
         try h.seek(toOffset: UInt64(r.lowerBound * 4))
         let data = try h.read(upToCount: r.count * 4) ?? Data()
@@ -524,17 +697,7 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
 
     func isSilent(_ speaker: MeetingSpeaker) -> Bool {
         if let known = silent[speaker] { return known }
-        var result = true
-        var offset = 0
-        let total = sampleCount(of: speaker)
-        while result, offset < total {
-            guard let slice = try? samples(offset..<min(offset + SpoolWAV.chunk, total), of: speaker), !slice.isEmpty else {
-                result = false   // unreadable: don't claim silence
-                break
-            }
-            if slice.contains(where: { $0 != 0 }) { result = false }
-            offset += slice.count
-        }
+        let result = audio().isAllZero(speaker)   // unreadable: not silent
         silent[speaker] = result
         return result
     }
@@ -550,15 +713,23 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         return events
     }
 
-    func exportAudio(to folder: URL, fileName: (MeetingSpeaker) -> String) throws {
-        for speaker in MeetingSpeaker.allCases where sampleCount(of: speaker) > 0 {
-            try SpoolWAV.write(count: sampleCount(of: speaker),
-                               to: folder.appendingPathComponent("\(fileName(speaker)).wav")) { try samples($0, of: speaker) }
-        }
+    func audio() -> SpoolAudio {
+        let urls = Dictionary(uniqueKeysWithValues: MeetingSpeaker.allCases.map { ($0, url($0)) })
+        return SpoolAudio(counts: counts) { speaker, r in try Self.read(r, from: urls[speaker]!) }
     }
+
+    var isDurable: Bool { writeError == nil && FileManager.default.fileExists(atPath: dir.path) }
+    var location: URL? { dir }
 
     func discard() {
         for o in outputs.values { try? o.handle?.close(); o.handle = nil; o.failed = true }
-        try? FileManager.default.removeItem(at: dir)
+        guard FileManager.default.fileExists(atPath: dir.path) else { lock = nil; return }
+        do {
+            try FileManager.default.removeItem(at: dir)
+        } catch {
+            Log.error("Couldn't delete the meeting spool \(dir.lastPathComponent) (\(error.localizedDescription)); "
+                      + "the next launch deletes it")
+        }
+        lock = nil
     }
 }

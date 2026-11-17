@@ -753,6 +753,8 @@ final class MeetingSession {
                 if startedAttempt && !progressed { attempts += 1 }
                 startedAttempt = true
                 progressed = false
+            default:
+                break   // #31 review: handled by RecoveryPlan
             }
         }
         if startedAttempt && !progressed { attempts += 1 }

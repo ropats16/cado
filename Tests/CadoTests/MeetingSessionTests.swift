@@ -975,7 +975,9 @@ final class UnreadableSpoolHandle: MeetingSpoolHandle {
     func sampleCount(of speaker: MeetingSpeaker) -> Int { inner.sampleCount(of: speaker) }
     func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] { throw Unreadable() }
     func isSilent(_ speaker: MeetingSpeaker) -> Bool { false }
-    func exportAudio(to folder: URL, fileName: (MeetingSpeaker) -> String) throws { throw Unreadable() }
+    func audio() -> SpoolAudio { SpoolAudio(counts: inner.audio().counts) { _, _ in throw Unreadable() } }
+    var isDurable: Bool { true }
+    var location: URL? { URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)") }
     func discard() { inner.discard() }
 }
 
@@ -997,7 +999,11 @@ final class ToneSpoolHandle: MeetingSpoolHandle {
         [Float](repeating: speaker == .me ? 0.2 : 0.3, count: max(0, min(range.upperBound, sampleCount(of: speaker)) - range.lowerBound))
     }
     func isSilent(_ speaker: MeetingSpeaker) -> Bool { !heard.contains(speaker) }
-    func exportAudio(to folder: URL, fileName: (MeetingSpeaker) -> String) throws {}
+    func audio() -> SpoolAudio {
+        SpoolAudio(counts: counts) { speaker, r in [Float](repeating: speaker == .me ? 0.2 : 0.3, count: r.count) }
+    }
+    var isDurable: Bool { true }
+    var location: URL? { nil }
     func discard() { counts = [:] }
 }
 
