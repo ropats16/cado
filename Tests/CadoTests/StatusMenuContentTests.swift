@@ -79,6 +79,21 @@ final class StatusMenuContentTests: XCTestCase {
         XCTAssertEqual(failed.modelHint?.title, ModelHints.failed(download: .command("make model")))
     }
 
+    /// The menu's rows are clickable, so they may say "Click"; banners can't.
+    func testMenuRowsUseTheClickableWording() {
+        let hint = ModelDownloadHint.inApp(command: "make model MODEL=x")
+        let issue = ReadinessIssue.modelFailed(reason: "x", download: hint)
+        let menu = content(.notReady(issue), engine: .failed(reason: "x"))
+        XCTAssertEqual(menu.reason, .init(title: issue.menuDetail, action: .openModelsFolder))
+        let behind = StatusMenuContent(
+            status: .notReady(.accessibilityNeeded),
+            inputs: ReadinessInputs(accessibility: .denied, microphone: .authorized,
+                                    engine: EngineReadiness(status: .failed(reason: "x"), modelPath: "/m", download: hint),
+                                    hotkeyTap: .installed),
+            hold: "", toggle: "", configIssues: [])
+        XCTAssertEqual(behind.modelHint?.title, issue.menuDetail)
+    }
+
     func testModelHintIsNotRepeatedWhenItIsTheReason() {
         let issue = ReadinessIssue.modelMissing(path: "/m.bin", download: .command("make model"))
         let menu = content(.notReady(issue), engine: .missing)

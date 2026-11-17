@@ -201,10 +201,15 @@ final class AppReadinessTests: XCTestCase {
         XCTAssertEqual(missing.action, .openSettings)
 
         // Installed but broken: Settings only offers models that aren't there.
+        // The menu line is clickable (it opens the folder); the same issue
+        // as a blocked press's banner isn't, so it names the menu item.
         let failed = ReadinessIssue.modelFailed(reason: "x", download: hint)
-        XCTAssertEqual(failed.detail, "The speech model didn't load. Click to open the Models folder, delete it, "
+        XCTAssertEqual(failed.menuDetail, "The speech model didn't load. Click to open the Models folder, delete it, "
                            + "then download it again in Settings › Speech Model.")
+        XCTAssertEqual(failed.detail, "The speech model didn't load. Choose Open Models Folder… in the Cado menu, "
+                           + "delete it, then download it again in Settings › Speech Model.")
         XCTAssertEqual(failed.action, .openModelsFolder)
+        XCTAssertEqual(missing.menuDetail, missing.detail, "Nothing to click for: the same words")
 
         let engine = EngineReadiness(status: .missing, modelPath: "/m/whisperkit/tiny.en", download: hint)
         XCTAssertEqual(ModelHints.notice(for: .missing, engine: engine),

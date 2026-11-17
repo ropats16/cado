@@ -39,13 +39,15 @@ enum ModelHints {
         }
     }
 
-    /// Menu line for a model that wouldn't load. A model Settings downloads
-    /// is deleted from the Models folder (the line opens it) and downloaded
-    /// again; any other one is swapped for another in Settings.
-    static func failed(download: ModelDownloadHint?) -> String {
+    /// The line for a model that wouldn't load. A model Settings downloads
+    /// is deleted from the Models folder and downloaded again; any other
+    /// one is swapped for another in Settings. `clickable`: the menu row,
+    /// which opens the folder itself; otherwise (a banner) it names the
+    /// menu item.
+    static func failed(download: ModelDownloadHint?, clickable: Bool = false) -> String {
         if case .inApp? = download {
-            return "The speech model didn't load. Click to open the Models folder, delete it, "
-                + "then download it again in \(settingsSection)."
+            let open = clickable ? "Click to open the Models folder" : "Choose Open Models Folder… in the Cado menu"
+            return "The speech model didn't load. \(open), delete it, then download it again in \(settingsSection)."
         }
         return "The speech model didn't load. Choose another in \(settingsSection)."
     }

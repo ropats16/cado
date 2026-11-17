@@ -70,7 +70,15 @@ enum ReadinessIssue: Equatable {
         }
     }
 
-    /// One line on how to fix it.
+    /// `detail` for a clickable menu row (which runs `action`): it may say
+    /// "Click"; `detail` is also a banner body, which can't be clicked.
+    var menuDetail: String {
+        if case .modelFailed(_, let download) = self { return ModelHints.failed(download: download, clickable: true) }
+        return detail
+    }
+
+    /// One line on how to fix it. Also a blocked press's notification body,
+    /// so never "Click…" (see `menuDetail`).
     var detail: String {
         switch self {
         case .accessibilityNeeded:

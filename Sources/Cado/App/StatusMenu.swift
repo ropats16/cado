@@ -123,7 +123,7 @@ struct StatusMenuContent: Equatable {
         header = status.headline
         if case .notReady(let issue) = status {
             glyph = .notReady
-            reason = Row(title: issue.detail, action: issue.action)
+            reason = Row(title: issue.menuDetail, action: issue.action)
         } else {
             glyph = .ready
             reason = status == .starting(.modelPreparing)
@@ -132,7 +132,7 @@ struct StatusMenuContent: Equatable {
         let modelIssue = AppReadiness.issues(for: inputs).first {
             switch $0 { case .modelMissing, .modelFailed: return true; default: return false }
         }
-        modelHint = modelIssue.flatMap { $0 == status.issue ? nil : Row(title: $0.detail, action: $0.action) }
+        modelHint = modelIssue.flatMap { $0 == status.issue ? nil : Row(title: $0.menuDetail, action: $0.action) }
 
         switch inputs.microphone {
         case .authorized: microphone = Row(title: "Microphone: Granted", action: nil)
