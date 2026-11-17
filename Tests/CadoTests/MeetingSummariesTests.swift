@@ -72,6 +72,18 @@ final class MeetingSummariesTests: XCTestCase {
         XCTAssertTrue(pending.isEmpty)
     }
 
+    /// #48: a note recovery adopts is handed on the same way, on a later turn.
+    func testAnAdoptedNoteIsHandedOnLater() {
+        var pending: [() -> Void] = []
+        var handed: [URL] = []
+        let store = SummarizingNoteStore(RecordingNoteStore(), later: { pending.append($0) }, saved: { handed.append($0) })
+        let note = URL(fileURLWithPath: "/notes/b.md")
+        store.adopted(note)
+        XCTAssertEqual(handed, [])
+        pending.forEach { $0() }
+        XCTAssertEqual(handed, [note])
+    }
+
     func testOnlyMeetingNotesAreHandedOn() throws {
         var pending: [() -> Void] = []
         let store = SummarizingNoteStore(RecordingNoteStore(), later: { pending.append($0) }, saved: { _ in })

@@ -104,6 +104,13 @@ final class MeetingSessionTests: XCTestCase {
             return files.reversed().filter { $0.id == id }.map(\.url)   // newest first: a later part ahead of the note
         }
         func text(of note: URL) -> String? { files.first { $0.url == note }?.text }
+        /// Adopted notes handed on (#48), and what `onAdopt` saw then.
+        private(set) var adoptedNotes: [URL] = []
+        var onAdopt: (() -> Void)?
+        func adopted(_ note: URL) {
+            onAdopt?()
+            adoptedNotes.append(note)
+        }
     }
 
     /// Records what was kept, folder by folder; reads the audio it's given
@@ -2497,6 +2504,19 @@ extension MeetingSessionTests {
         XCTAssertEqual(notes.files.count, 2, "The part is left")
         XCTAssertEqual(feedback.titles.last, "Meeting note saved")
         XCTAssertTrue(h.inner.isDiscarded)
+    }
+
+    /// An adopted note is handed on (for its summary) as a saved one is,
+    /// once its `.noteSaved` is journaled.
+    func testAnAdoptedNoteIsHandedOnOnceJournaled() throws {
+        let meeting = newMeeting()
+        let note = wholeNote(for: meeting)
+        let h = leftover(of: meeting, started + [.stopped(at: 10, capReached: false)])
+        var journaled = false
+        notes.onAdopt = { journaled = h.events.contains { if case .noteSaved = $0 { return true } else { return false } } }
+        session.recoverLeftovers()
+        XCTAssertEqual(notes.adoptedNotes, [note])
+        XCTAssertTrue(journaled)
     }
 
     /// A part an older Cado left with the meeting's id is found first, the

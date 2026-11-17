@@ -57,11 +57,17 @@ protocol MeetingNoteStore: AnyObject {
     /// The note's text as it is now; nil if it can't be read. Off main, like
     /// `existingNotes`.
     func text(of note: URL) -> String?
+    /// A meeting note saved by an earlier launch was adopted as this
+    /// meeting's (#48), its `.noteSaved` journaled: what follows a save
+    /// (a summary) may follow it too. Main.
+    func adopted(_ note: URL)
 }
 
 extension MeetingNoteStore {
     /// The file's UTF-8 text.
     func text(of note: URL) -> String? { try? String(contentsOf: note, encoding: .utf8) }
+    /// Nothing follows a save.
+    func adopted(_ note: URL) {}
 }
 
 /// Where a meeting's audio is kept (and its note, when the notes library

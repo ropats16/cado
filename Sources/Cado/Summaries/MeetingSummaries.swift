@@ -62,7 +62,7 @@ struct DiskSummaryNoteFiles: SummaryNoteFiles {
 /// (#34) once the save is done and the session has moved on: `saved` runs
 /// on a later main-loop turn, so nothing about summaries can slow, fail or
 /// reorder saving the note and journaling it (#31). A save that throws
-/// hands nothing on.
+/// hands nothing on. A note recovery adopts (#48) is handed on the same way.
 final class SummarizingNoteStore: MeetingNoteStore {
     private let inner: MeetingNoteStore
     private let saved: (URL) -> Void
@@ -85,6 +85,13 @@ final class SummarizingNoteStore: MeetingNoteStore {
     }
 
     func existingNotes(id: String, since: Date) -> [URL] { inner.existingNotes(id: id, since: since) }
+
+    /// An adopted meeting note (#48) is handed on as a saved one is: on a
+    /// later turn, after the session journaled it.
+    func adopted(_ note: URL) {
+        let saved = saved
+        later { saved(note) }
+    }
     func text(of note: URL) -> String? { inner.text(of: note) }
 }
 

@@ -1368,11 +1368,13 @@ final class MeetingSession {
     /// is kept whenever there is any (`RecoveryPlan.adoption`: the rule the
     /// note was written under isn't known for sure), into the folder the
     /// note names if that's free, else a new one, and the user is told where.
-    /// Adopted notes get no automatic summary: only a save hands a note on.
+    /// Once journaled it's handed on as a saved note is (`notes.adopted`: a
+    /// summary, under the usual rules).
     private func adopt(_ note: URL, _ handle: MeetingSpoolHandle, _ adoption: RecoveryPlan.Adoption, title: String) {
         Log.info("Meeting recovery: “\(title)” has its note already; not writing a second one.")
         let folder = adoption.keepAudio ? adoption.audioFolder ?? newArchiveFolder(title) : nil
         journalWrittenDown(handle, note: note.path, keepAudio: adoption.keepAudio, folder: folder)
+        notes.adopted(note)
         feedback.noteSaved(note, title: "Meeting note saved", body: title)
         guard adoption.keepAudio else {
             Log.info("Meeting recovery: “\(title)” was already written down; removing what was left of it.")
