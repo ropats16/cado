@@ -26,6 +26,8 @@ struct Config: Codable {
     var hold: KeyBinding
     var toggle: KeyBinding
     var cancelKeyCode: Int          // Esc = 53
+    /// Starts or stops a meeting recording (#32). Default ⌃⌥M.
+    var meetingHotkey: KeyBinding
     var maxRecordingSeconds: Double // <= 0 = no limit (a 30-min ceiling still applies)
     var trailingSpace: Bool
     var microphoneUID: String?      // nil = system default input
@@ -72,6 +74,16 @@ struct Config: Codable {
     /// read it through `summaryProviderChoice`.
     var summaryProvider: String
 
+    /// Ask "Record this meeting?" when a meeting app starts using the mic,
+    /// and whether to stop when it lets go (#32). On by default; it never
+    /// records by itself.
+    var meetingDetection: Bool
+    /// A meeting stops by itself after this many minutes, the note written
+    /// as usual (#32). Default 120; <= 0 = Off (`MeetingLimit`).
+    var maxMeetingMinutes: Double
+    /// The one-time recording-consent reminder was acknowledged (#32).
+    var meetingConsentShown: Bool
+
     static var defaults: Config {
         Config(
             model: .automatic,
@@ -98,7 +110,12 @@ struct Config: Codable {
             dictationHistory: false,
             keepMeetingAudio: false,
             meetingSummaries: true,
-            summaryProvider: SummaryProvider.onDevice.rawValue
+            summaryProvider: SummaryProvider.onDevice.rawValue,
+
+            meetingHotkey: .controlOptionM,
+            meetingDetection: true,
+            maxMeetingMinutes: MeetingLimit.defaultMinutes,
+            meetingConsentShown: false
         )
     }
 
@@ -112,7 +129,10 @@ struct Config: Codable {
          usagePing: Bool = false,
          notesFolder: String = "", notesFolderBookmark: String? = nil,
          dictationHistory: Bool = false, keepMeetingAudio: Bool = false,
-         meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue) {
+         meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue,
+
+         meetingHotkey: KeyBinding = .controlOptionM, meetingDetection: Bool = true,
+         maxMeetingMinutes: Double = MeetingLimit.defaultMinutes, meetingConsentShown: Bool = false) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -140,6 +160,11 @@ struct Config: Codable {
         self.keepMeetingAudio = keepMeetingAudio
         self.meetingSummaries = meetingSummaries
         self.summaryProvider = summaryProvider
+
+        self.meetingHotkey = meetingHotkey
+        self.meetingDetection = meetingDetection
+        self.maxMeetingMinutes = maxMeetingMinutes
+        self.meetingConsentShown = meetingConsentShown
     }
 
     init(from decoder: Decoder) throws {
@@ -177,6 +202,11 @@ struct Config: Codable {
         keepMeetingAudio = try c.decodeIfPresent(Bool.self, forKey: .keepMeetingAudio) ?? d.keepMeetingAudio
         meetingSummaries = try c.decodeIfPresent(Bool.self, forKey: .meetingSummaries) ?? d.meetingSummaries
         summaryProvider = try c.decodeIfPresent(String.self, forKey: .summaryProvider) ?? d.summaryProvider
+
+        meetingHotkey = try c.decodeIfPresent(KeyBinding.self, forKey: .meetingHotkey) ?? d.meetingHotkey
+        meetingDetection = try c.decodeIfPresent(Bool.self, forKey: .meetingDetection) ?? d.meetingDetection
+        maxMeetingMinutes = try c.decodeIfPresent(Double.self, forKey: .maxMeetingMinutes) ?? d.maxMeetingMinutes
+        meetingConsentShown = try c.decodeIfPresent(Bool.self, forKey: .meetingConsentShown) ?? d.meetingConsentShown
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this

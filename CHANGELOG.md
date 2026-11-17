@@ -4,10 +4,21 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 
 ## Unreleased
 
+### Added
+- "Record this meeting?": when a meeting app (Zoom, Teams, Slack, Webex, Discord, FaceTime, or a browser for Meet and other web calls) starts using the microphone, Cado asks, with Record and Not Now. It asks in a notification, in the menu (the menu bar shows "Record?") and with the mascot, so it works with notifications off too. Cado never records by itself. Needs macOS 14.4 or later; turn it off in Settings › Meetings.
+- "Stop recording?": when the recorded app stops using the microphone, Cado asks whether to stop. It never stops by itself.
+- Meeting hotkey: ⌃⌥M starts and stops a meeting recording. Change it in Settings › Meetings.
+- The mascot and meetings: click it while a meeting records to stop; click it when it asks to record. Its right-click menu starts with Record Meeting or Stop Recording.
+- Right-click the mascot for Hide Mascot and Settings…; VoiceOver reads it as a button and can press it.
+- A one-time reminder before your first meeting recording that getting everyone's consent to be recorded is up to you.
+- Settings › Meetings › Max meeting length: 30 minutes to 4 hours (default 2 hours, as before) or Off. A meeting that reaches it stops with a notification, and its note is saved as usual.
+
 ### Changed
 - Settings has tabs along the top: General, Dictation, Speech Model and Meetings, with the hotkeys first under Dictation. Notes folder and Keep meeting audio moved to Meetings; the mascot, sounds and Keep recent dictations to Dictation.
 - Settings remembers where you left its window, and long folder paths and model names no longer cut off.
 - The hotkey button that said "Record" now says "Change…", so it can't be mistaken for Record Meeting.
+- Settings shows letter keys in hotkeys by name ("⇧⌘R" instead of a key number), using your keyboard layout.
+- Settings warns when two hotkeys overlap (for example Record meeting ⌃⇧M and Hold to talk ⌃⇧) or when a hand-edited meeting length is over a day or under a minute.
 - The menu no longer lists permissions that are already granted. Open Config File and Open Models Folder are under Advanced.
 - "About Cado" replaces "Acknowledgements…": it shows the version, and the credits are in the same window.
 - The Library and the menu's Open Last Meeting Note stay quick with a large notes folder: notes that haven't changed aren't read again, and the list is prepared in the background.

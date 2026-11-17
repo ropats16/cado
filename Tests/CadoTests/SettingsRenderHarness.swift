@@ -66,6 +66,7 @@ final class SettingsRenderHarness: XCTestCase {
             ("-apple-speech", [.speechModel], appleSpeech),
             ("-long-list-downloading", [.speechModel], longListDownloading),
             ("-long-list-missing", [.speechModel], longListMissing),
+            ("-meeting-hotkey-clash", [.meetings], meetingHotkeyClash),
         ]
         for (name, tabs, make) in scenes {
             for tab in tabs {
@@ -165,6 +166,13 @@ final class SettingsRenderHarness: XCTestCase {
         }
         vm.commitHotkey(vm.holdBinding, for: .toggle)   // same chord twice → warning
         vm.recorder.startCapture(for: .hold, vm: vm)
+        return vm
+    }
+
+    /// The meeting hotkey set to Hold to talk's keys (#32): the warning by it.
+    private func meetingHotkeyClash() async -> SettingsViewModel {
+        let vm = makeVM(engine: .whisperKit, status: .ready, login: StubLoginItem(enabled: true))
+        vm.commitHotkey(vm.holdBinding, for: .meeting)
         return vm
     }
 

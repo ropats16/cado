@@ -35,7 +35,7 @@ enum NotificationRoute: Equatable {
 /// whoever skipped it or set up before, it's still requested lazily on first use — the system
 /// caches the decision, so repeated calls are cheap and never re-prompt.
 enum Notifier {
-    fileprivate static var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
+    static var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
 
     /// Every permission request goes through this port.
     static let permission: NotificationPermissionPort = SystemNotificationPermission()
@@ -74,16 +74,21 @@ enum Notifier {
 }
 
 /// Receives clicks on Cado's notifications and hands their route to
-/// `onRoute` on main. Clicks with no route (most notices) do nothing.
+/// `onRoute` on main, and a meeting prompt's button to `onMeetingAnswer`
+/// (#32). Clicks with no route (most notices) do nothing.
 final class NotificationClicks: NSObject, UNUserNotificationCenterDelegate {
     var onRoute: ((NotificationRoute) -> Void)?
+    var onMeetingAnswer: ((MeetingPromptAnswer) -> Void)?
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
+        let userInfo = response.notification.request.content.userInfo
         let route = response.actionIdentifier == UNNotificationDefaultActionIdentifier
-            ? NotificationRoute(userInfo: response.notification.request.content.userInfo) : nil
+            ? NotificationRoute(userInfo: userInfo) : nil
+        let answer = MeetingPromptAnswer(action: response.actionIdentifier, userInfo: userInfo)
         DispatchQueue.main.async { [weak self] in
             if let route { self?.onRoute?(route) }
+            if let answer { self?.onMeetingAnswer?(answer) }
             completionHandler()
         }
     }

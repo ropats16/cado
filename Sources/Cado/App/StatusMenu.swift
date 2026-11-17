@@ -151,13 +151,17 @@ struct StatusMenuContent: Equatable {
 
     /// Errors only, all of them hotkey ones (`ConfigValidator`); warnings
     /// are logged, and Settings shows the hotkey ones.
+    /// Each points to the tab with its hotkey (the meeting one is in
+    /// Meetings, #32); several, to every such tab, opening the first's.
     private static func configRow(_ errors: [ConfigIssue]) -> Row? {
         let errors = errors.filter { $0.topic == .hotkeys }
         guard let first = errors.first else { return nil }
+        let tabs = errors.compactMap(\.tabs.first).reduce(into: [SettingsTab]()) { if !$0.contains($1) { $0.append($1) } }
+        let tab = tabs.first ?? .dictation
         let title = errors.count == 1
-            ? "\(first.summary) Fix it in Settings › Dictation."
-            : "\(errors.count) hotkey problems. Fix them in Settings › Dictation."
-        return Row(title: title, action: .openSettings(.dictation))
+            ? "\(first.summary) Fix it in Settings › \(tab.title)."
+            : "\(errors.count) hotkey problems. Fix them in Settings › \(tabs.map(\.title).joined(separator: " and "))."
+        return Row(title: title, action: .openSettings(tab))
     }
 }
 
@@ -204,6 +208,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private var readinessGlyph: StatusGlyph = .ready
     /// While a meeting records: the menu-bar title ("12:34").
     private var meetingElapsed: String?
+    /// By the avocado: the elapsed time, "Record?" (#32).
+    private var meetingBarTitle: String?
 
     override init() {
         super.init()
@@ -247,6 +253,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         statusItem.menu = menu
     }
 
+    /// Opens the menu, as a click on the avocado does (the meeting hotkey
+    /// with several apps to choose from, #32).
+    func open() {
+        statusItem.button?.performClick(nil)
+    }
+
     func render(_ content: StatusMenuContent) {
         header.title = content.header
         set(reason, content.reason)
@@ -272,6 +284,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     func renderMeeting(_ content: MeetingMenuContent) {
         meeting.render(content)
         meetingElapsed = content.elapsed
+        meetingBarTitle = content.barTitle
         renderGlyph()
     }
 
@@ -291,7 +304,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             button.imagePosition = .imageLeading
             button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         }
-        let title = meetingElapsed.map { " " + $0 } ?? ""
+        let title = meetingBarTitle.map { " " + $0 } ?? ""
         if button.title != title { button.title = title }
     }
 

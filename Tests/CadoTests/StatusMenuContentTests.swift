@@ -249,4 +249,19 @@ final class StatusMenuContentTests: XCTestCase {
                        .init(title: "2 hotkey problems. Fix them in Settings › Dictation.", action: .openSettings(.dictation)))
     }
 
+    /// The meeting hotkey is in the Meetings tab (#32): its problems point there.
+    func testAMeetingHotkeyProblemOpensTheMeetingsTab() {
+        var config = Config.defaults
+        config.meetingHotkey = config.hold
+        let clash = ConfigValidator.validate(config).filter { $0.severity == .error }
+        XCTAssertEqual(content(.ready, configIssues: clash).configIssues,
+                       .init(title: "Record meeting and Hold to talk use the same keys (⌃ ⇧). Fix it in Settings › Meetings.",
+                             action: .openSettings(.meetings)))
+        config.toggle = config.hold
+        let both = ConfigValidator.validate(config).filter { $0.severity == .error }
+        XCTAssertEqual(content(.ready, configIssues: both).configIssues,
+                       .init(title: "3 hotkey problems. Fix them in Settings › Dictation and Meetings.",
+                             action: .openSettings(.dictation)))
+    }
+
 }

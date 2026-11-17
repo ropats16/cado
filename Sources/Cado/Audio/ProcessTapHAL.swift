@@ -74,18 +74,41 @@ final class CoreAudioProcessTapHAL: ProcessTapHAL {
     private static let system = AudioObjectID(kAudioObjectSystemObject)
 
     func audioProcesses() -> [AudioProcess] {
-        var address = Self.address(kAudioHardwarePropertyProcessObjectList)
-        var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(Self.system, &address, 0, nil, &size) == noErr, size > 0 else { return [] }
-        var objects = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
-        guard AudioObjectGetPropertyData(Self.system, &address, 0, nil, &size, &objects) == noErr else { return [] }
-        return objects.prefix(Int(size) / MemoryLayout<AudioObjectID>.size).compactMap { object in
-            var pidAddress = Self.address(kAudioProcessPropertyPID)
-            var pid: pid_t = -1
-            var pidSize = UInt32(MemoryLayout<pid_t>.size)
-            guard AudioObjectGetPropertyData(object, &pidAddress, 0, nil, &pidSize, &pid) == noErr, pid > 0 else { return nil }
-            return AudioProcess(object: object, pid: pid, bundleID: Self.bundleID(of: object))
+        Self.processObjects()?.compactMap(Self.process) ?? []
+    }
+
+    /// The processes running input now (`kAudioProcessPropertyIsRunningInput`,
+    /// macOS 14.4+), for meeting detection (#32); nil when Core Audio can't
+    /// list its processes (an error, not "nobody").
+    func inputProcesses() -> [AudioProcess]? {
+        Self.processObjects()?.compactMap { object in
+            var address = Self.address(kAudioProcessPropertyIsRunningInput)
+            var running: UInt32 = 0
+            var size = UInt32(MemoryLayout<UInt32>.size)
+            guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &running) == noErr, running != 0
+            else { return nil }
+            return Self.process(object)
         }
+    }
+
+    /// Every Core Audio process object; nil on an error.
+    private static func processObjects() -> [AudioObjectID]? {
+        var address = address(kAudioHardwarePropertyProcessObjectList)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return nil }
+        guard size > 0 else { return [] }
+        var objects = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &objects) == noErr else { return nil }
+        return Array(objects.prefix(Int(size) / MemoryLayout<AudioObjectID>.size))
+    }
+
+    /// A process object's pid and bundle ID; nil once the process is gone.
+    private static func process(_ object: AudioObjectID) -> AudioProcess? {
+        var pidAddress = address(kAudioProcessPropertyPID)
+        var pid: pid_t = -1
+        var pidSize = UInt32(MemoryLayout<pid_t>.size)
+        guard AudioObjectGetPropertyData(object, &pidAddress, 0, nil, &pidSize, &pid) == noErr, pid > 0 else { return nil }
+        return AudioProcess(object: object, pid: pid, bundleID: bundleID(of: object))
     }
 
     private static func bundleID(of object: AudioObjectID) -> String? {
