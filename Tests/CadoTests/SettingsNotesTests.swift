@@ -77,6 +77,25 @@ final class SettingsNotesTests: XCTestCase {
         XCTAssertEqual(changes, 1)
     }
 
+    func testKeepMeetingAudioInitialStateFromConfig() {
+        store.update { $0.keepMeetingAudio = true }
+        XCTAssertTrue(makeVM().keepMeetingAudio)
+    }
+
+    func testKeepMeetingAudioDefaultsOff() {
+        XCTAssertFalse(makeVM().keepMeetingAudio)
+    }
+
+    func testSetKeepMeetingAudioPersists() {
+        let vm = makeVM()
+        vm.setKeepMeetingAudio(true)
+        XCTAssertTrue(vm.keepMeetingAudio)
+        XCTAssertTrue(ConfigStore(url: configURL).config.keepMeetingAudio)
+        vm.setKeepMeetingAudio(false)
+        XCTAssertFalse(vm.keepMeetingAudio)
+        XCTAssertFalse(ConfigStore(url: configURL).config.keepMeetingAudio)
+    }
+
     func testPickerCancelIsNoOp() {
         let vm = makeVM(pick: { nil })
         let before = vm.notesFolderPath

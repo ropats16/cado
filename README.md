@@ -420,6 +420,7 @@ logs the problem at startup and the menu shows a **Config issue** warning.
 | `mascotPositions`     | Where you dragged Cado, per display (written when you drag it). |
 | `notesFolder`         | Folder for meeting notes (`""` = default `~/Documents/Cado`). |
 | `dictationHistory`    | Keep the last 10 dictations for **Recent Dictations** in the menu (default `false`). |
+| `keepMeetingAudio`    | Keep a meeting's audio after its note is saved (default `false`: deleted). |
 
 ---
 

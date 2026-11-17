@@ -61,6 +61,9 @@ struct Config: Codable {
     /// support folder, not the notes folder) for the menu's copy-again (#28).
     /// Off by default.
     var dictationHistory: Bool
+    /// Keep a meeting's audio after its note is saved (#31). Off (the default):
+    /// the audio is deleted once the note is saved.
+    var keepMeetingAudio: Bool
 
     static var defaults: Config {
         Config(
@@ -85,7 +88,8 @@ struct Config: Codable {
             usagePing: false,
             notesFolder: "",
             notesFolderBookmark: nil,
-            dictationHistory: false
+            dictationHistory: false,
+            keepMeetingAudio: false
         )
     }
 
@@ -98,7 +102,7 @@ struct Config: Codable {
          mascotPositions: [String: MascotPosition] = [:], onboardingDone: Bool = false,
          usagePing: Bool = false,
          notesFolder: String = "", notesFolderBookmark: String? = nil,
-         dictationHistory: Bool = false) {
+         dictationHistory: Bool = false, keepMeetingAudio: Bool = false) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -123,6 +127,7 @@ struct Config: Codable {
         self.notesFolder = notesFolder
         self.notesFolderBookmark = notesFolderBookmark
         self.dictationHistory = dictationHistory
+        self.keepMeetingAudio = keepMeetingAudio
     }
 
     init(from decoder: Decoder) throws {
@@ -157,6 +162,7 @@ struct Config: Codable {
         notesFolder = try c.decodeIfPresent(String.self, forKey: .notesFolder) ?? d.notesFolder
         notesFolderBookmark = try c.decodeIfPresent(String.self, forKey: .notesFolderBookmark)
         dictationHistory = try c.decodeIfPresent(Bool.self, forKey: .dictationHistory) ?? d.dictationHistory
+        keepMeetingAudio = try c.decodeIfPresent(Bool.self, forKey: .keepMeetingAudio) ?? d.keepMeetingAudio
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this

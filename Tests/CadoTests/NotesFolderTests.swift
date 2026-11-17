@@ -18,6 +18,7 @@ final class NotesFolderTests: XCTestCase {
     func testUnsetConfigResolvesToDefault() {
         XCTAssertEqual(NotesFolder.resolve(.defaults, defaultURL: dir), dir)
         XCTAssertFalse(Config.defaults.dictationHistory)
+        XCTAssertFalse(Config.defaults.keepMeetingAudio)
     }
 
     func testStoredFolderSurvivesEncodeDecode() throws {
@@ -49,5 +50,13 @@ final class NotesFolderTests: XCTestCase {
         XCTAssertEqual(config.notesFolder, "")
         XCTAssertNil(config.notesFolderBookmark)
         XCTAssertFalse(config.dictationHistory)
+        XCTAssertFalse(config.keepMeetingAudio)
+    }
+
+    func testKeepMeetingAudioSurvivesEncodeDecode() throws {
+        var config = Config.defaults
+        config.keepMeetingAudio = true
+        let reloaded = try JSONDecoder().decode(Config.self, from: JSONEncoder().encode(config))
+        XCTAssertTrue(reloaded.keepMeetingAudio)
     }
 }

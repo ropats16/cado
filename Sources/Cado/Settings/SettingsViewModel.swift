@@ -81,6 +81,7 @@ final class SettingsViewModel: ObservableObject {
     /// The notes folder, `~`-abbreviated for display (SettingsViewModel+Notes.swift).
     @Published private(set) var notesFolderPath: String
     @Published private(set) var dictationHistory: Bool
+    @Published private(set) var keepMeetingAudio: Bool
 
     // MARK: - Model display state
 
@@ -196,6 +197,7 @@ final class SettingsViewModel: ObservableObject {
         self.maxDictationSeconds = max(0, cfg.maxRecordingSeconds)
         self.notesFolderPath = Self.displayPath(NotesFolder.resolve(cfg))
         self.dictationHistory = cfg.dictationHistory
+        self.keepMeetingAudio = cfg.keepMeetingAudio
         let selected = ModelSelection.select(cfg, environment: self.environment, engines: engines,
                                              modelsDir: modelsDir, presentFilenames: presentModelFilenames(), facts: engineFacts())
         let engine = selected.spec.engine
@@ -265,6 +267,12 @@ final class SettingsViewModel: ObservableObject {
         configStore.update { $0.dictationHistory = on }
         dictationHistory = on
         onDictationHistoryChange()
+    }
+
+    /// Persists whether a meeting's audio is kept after its note is saved (#31).
+    func setKeepMeetingAudio(_ on: Bool) {
+        configStore.update { $0.keepMeetingAudio = on }
+        keepMeetingAudio = on
     }
 
     /// Lets the user pick the notes folder; cancelling changes nothing.

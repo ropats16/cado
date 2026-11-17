@@ -124,6 +124,16 @@ struct SettingsView: View {
                     }
                     StatusLine(text: "Keeps your last \(RecentDictations.limit) dictations on this Mac, so you can copy one again from the menu. They aren't saved to the notes folder.")
                         .padding(.bottom, 8)
+                    CardDivider()
+                    SettingsRow("Keep meeting audio") {
+                        Toggle("Keep meeting audio",
+                               isOn: Binding(
+                                   get: { viewModel.keepMeetingAudio },
+                                   set: { viewModel.setKeepMeetingAudio($0) }
+                               ))
+                    }
+                    StatusLine(text: "Off: a meeting's audio is deleted once its note is saved. On: it's kept on this Mac in Cado's Meeting Audio folder, about 115 MB per hour for each side.")
+                        .padding(.bottom, 8)
                 }
 
                 // MARK: Microphone
