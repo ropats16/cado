@@ -12,7 +12,7 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - "About Cado" replaces "Acknowledgements…": it shows the version, and the credits are in the same window.
 
 ### Added
-- Right-click the mascot for Hide Mascot and Settings…. VoiceOver reads it as a button and can press it.
+- Right-click the mascot for Hide Mascot and Settings…; VoiceOver reads it as a button and can press it.
 
 ## 0.3.0 - 2026-11-17
 

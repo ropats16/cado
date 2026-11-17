@@ -36,7 +36,7 @@
          PUBLIC half of the Ed25519 key in the maintainer's login keychain (Sparkle
          generate_keys, account "cado"); the app refuses to start the updater while it
          is the placeholder SPARKLE_PUBLIC_ED_KEY_PLACEHOLDER. Checks: daily, on by
-         default (no first-run prompt), toggled in Settings > Updates; installs only
+         default (no first-run prompt), toggled in Settings > General; installs only
          after the user agrees; no system profile is sent. -->
     <key>SUFeedURL</key>
     <string>https://github.com/ropats16/cado/releases/latest/download/appcast.xml</string>

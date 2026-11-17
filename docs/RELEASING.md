@@ -167,7 +167,7 @@ let it relaunch. Then confirm: Finder's Get Info on Cado.app shows N+1; Micropho
 Accessibility are still granted (System Settings › Privacy & Security, and the
 menu rows) and dictation pastes without a new prompt. They should survive: the
 Developer ID designated requirement (team ID + bundle ID) is the same for both
-builds. Also confirm Settings › Updates' switch, off, stops the daily check
+builds. Also confirm Settings › General's update switch, off, stops the daily check
 (`defaults read com.ropats16.Cado SUEnableAutomaticChecks` = 0).
 
 What was verified locally without Developer ID (rehearsal builds signed with an

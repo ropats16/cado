@@ -165,8 +165,9 @@ it any time; it opens again at the next launch until you press **Done** (or
 **Finish Later**), and **Set Up Cado…** in the avocado menu reopens it. The steps below are the same
 thing by hand.
 
-Cado needs two macOS permissions. Click the avocado menu-bar icon to see their
-status; both must say **Granted** before dictation works.
+Cado needs two macOS permissions. Click the avocado menu-bar icon to see which
+still need granting; each one still missing is listed there. When neither is
+listed, both are granted and dictation works.
 
 1. **Microphone** — so it can hear you. The first time you dictate, macOS asks
    for permission; click **Allow**.
@@ -426,7 +427,7 @@ Other good no-character options (edit the `modifiers` list):
 Modifier names are case-insensitive and accept aliases: `control`/`ctrl`,
 `option`/`alt`, `shift`, `command`/`cmd`, `function`/`fn`/`globe`. Single-key
 holds work with the sided modifiers: Left/Right ⌃ (59/62), ⌥ (58/61), ⇧ (56/60),
-⌘ (55/54). Easiest of all: Settings → Dictation → Hotkeys → Change.
+⌘ (55/54). Easiest of all: Settings → Dictation → Hotkeys → Change….
 
 **Change the toggle key.** `toggle` is the press-to-start / press-to-stop hotkey.
 Unlike `hold`, it fires on a single press, so it usually pairs a normal key with
