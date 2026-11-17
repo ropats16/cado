@@ -43,7 +43,7 @@ final class LibraryRenderHarness: XCTestCase {
         Scene(name: "plain-note", select: "Idea: offline summaries"),
         Scene(name: "wide", size: NSSize(width: 1440, height: 800), select: "Weekly sync"),
         Scene(name: "narrow", size: NSSize(width: 600, height: 420), select: "Weekly sync"),
-        Scene(name: "site-hero", seed: "hero", size: NSSize(width: 800, height: 520), select: "Team check-in"),
+        Scene(name: "site-hero", seed: "site", size: NSSize(width: 860, height: 560), select: "Launch sync"),
         Scene(name: "summary", seed: "summary", size: NSSize(width: 860, height: 760), select: "Launch planning",
               summaries: true),
         Scene(name: "summary-offer", seed: "hero", select: "Team check-in", summaries: true),
@@ -69,6 +69,7 @@ final class LibraryRenderHarness: XCTestCase {
                 case "many": try seed(library); try seedMany(library)
                 case "long": try seed(library); try seedLong(library)
                 case "hero": try seedHero(library)
+                case "site": try seedSite(library)
                 case "summary": try seedSummary(library)
                 default: try seed(library)
                 }
@@ -171,6 +172,29 @@ final class LibraryRenderHarness: XCTestCase {
         draft.body = SummarySection.applying(SummarySection.markdown(outcome, provider: .onDevice), to: draft.body)
         try library.create(draft)
         try seedHero(library)
+    }
+
+    private func seedSite(_ library: NotesLibrary) throws {
+        let note = MeetingNote(appName: "Zoom", start: Date().addingTimeInterval(-1800), duration: 1440, turns: [
+            .init(speaker: .me, text: "So the main thing is whether we hold the date or move it."),
+            .init(speaker: .them, text: "I'd move it. Two of the beta folks got stuck in setup."),
+            .init(speaker: .me, text: "Let's move to the 14th. I'll send revised copy to design."),
+            .init(speaker: .them, text: "I'll confirm the support rota before we ship the beta on Monday.")
+        ])
+        var draft = note.draft()
+        draft.title = "Launch sync"
+        let outcome = SummaryOutcome(summary: MeetingSummary(
+            keyPoints: ["Launch moves to the 14th; beta feedback is mostly about onboarding.",
+                        "Pricing page copy needs one more pass before it goes out."],
+            decisions: ["Ship the beta to the waitlist on Monday."],
+            actionItems: ["Me: send the revised copy to design", "Others: confirm the support rota"]))
+        draft.body = SummarySection.applying(SummarySection.markdown(outcome, provider: .onDevice), to: draft.body)
+        try library.create(draft)
+        for (index, title) in ["Design review", "1:1", "Customer call", "Roadmap"].enumerated() {
+            try library.create(NoteDraft(title: title, date: Date().addingTimeInterval(-86_400 * Double(index + 1)),
+                                         kind: "meeting", duration: Double([2460, 1080, 1980, 3120][index]),
+                                         body: "**Me:** Let's review the next steps.\n\n**Others:** Sounds good."))
+        }
     }
 
     private func seedHero(_ library: NotesLibrary) throws {

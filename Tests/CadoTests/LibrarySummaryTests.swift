@@ -1,5 +1,6 @@
 import XCTest
 import ServiceManagement
+import Combine
 @testable import Cado
 
 /// #34: the summary in the Library's reading view, and its Settings switch.
@@ -85,6 +86,58 @@ final class LibrarySummaryTests: XCTestCase {
         XCTAssertEqual(vm.summaryPanel?.blocks?.contains(.bullet("Budget?", depth: 0)), true)
         XCTAssertEqual(vm.summaryPanel?.buttonTitle, "Regenerate Summary")
         XCTAssertEqual(vm.reading?.turns.map(\.text), ["Budget?"], "The transcript reads as before")
+    }
+
+    func testSummaryFirstAndTranscriptChoiceSurvivesReloadButResetsForAnotherNote() async throws {
+        let first = try saveMeeting()
+        let second = try library.create(NoteDraft(title: "Another meeting", date: start.addingTimeInterval(60),
+                                                 kind: "meeting", body: "**Me:** Next steps."))
+        await vm.reload()
+        await vm.select(first.id)
+        XCTAssertEqual(vm.detailTab, .summary)
+        vm.selectedDetailTab = .transcript
+        await vm.reload()
+        XCTAssertEqual(vm.detailTab, .transcript)
+        await vm.select(second.id)
+        XCTAssertEqual(vm.detailTab, .summary)
+    }
+
+    func testUnavailableSummaryAndPlainNotesAlwaysKeepTheirBodyReadable() async throws {
+        vm.summaries = nil
+        let meeting = try saveMeeting()
+        let plain = try library.create(NoteDraft(title: "Ideas", date: start, body: "## Notes\nKeep this readable."))
+        await vm.reload()
+        await vm.select(meeting.id)
+        XCTAssertEqual(vm.detailTab, .transcript)
+        XCTAssertFalse(vm.showsDetailTabs)
+        await vm.select(plain.id)
+        XCTAssertEqual(vm.detailTab, .transcript)
+        XCTAssertFalse(vm.showsDetailTabs)
+        XCTAssertFalse(vm.reading!.items.isEmpty)
+    }
+
+    func testCoordinatorPublishesEligibilityChangesForTheSameSelectedNote() async throws {
+        catalog.availability = .unavailable(.needsNewerMacOS)
+        let note = try saveMeeting()
+        await vm.reload()
+        await vm.select(note.id)
+        XCTAssertFalse(vm.showsDetailTabs)
+        XCTAssertEqual(vm.detailTab, .transcript)
+
+        var publications = 0
+        let subscription = vm.objectWillChange.sink { publications += 1 }
+        defer { subscription.cancel() }
+        // A request outside the reading pane can make a summary panel
+        // appear while its child view is not mounted (working, then error).
+        summaries.summarize(note.summary.url)
+        XCTAssertGreaterThan(publications, 0)
+        XCTAssertEqual(vm.selection, note.id)
+        XCTAssertTrue(vm.showsDetailTabs)
+        XCTAssertEqual(vm.detailTab, .summary)
+        XCTAssertEqual(vm.summaryPanel?.isWorking, true)
+        await summaries.settled()
+        XCTAssertNotNil(vm.summaryPanel?.problem)
+        XCTAssertEqual(vm.selection, note.id)
     }
 
     func testWithoutSummariesTheButtonNeverShows() async throws {

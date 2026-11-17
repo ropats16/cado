@@ -21,7 +21,7 @@ struct LibraryView: View {
             } else {
                 HSplitView {
                     sidebar
-                        .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
+                        .frame(minWidth: 210, idealWidth: 230, maxWidth: 240)
                         .background(Brand.Palette.surfaceSecondary)
                     LibraryDetailView(viewModel: viewModel)
                         .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
@@ -46,6 +46,12 @@ struct LibraryView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "tray.full").foregroundStyle(Brand.Palette.accentText)
+                Text("Library").font(Brand.Typography.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 18).padding(.top, 18).padding(.bottom, 4)
             searchField
             switch viewModel.listState {
             case .loading, .empty:

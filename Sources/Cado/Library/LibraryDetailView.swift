@@ -7,15 +7,15 @@ import SwiftUI
 /// would be Liquid Glass on macOS 26, which Cado doesn't adopt).
 struct LibraryDetailView: View {
     @ObservedObject var viewModel: LibraryViewModel
-    /// About 75 characters of body text (SF Pro 13 pt averages ~6 pt).
-    static let readingWidth: CGFloat = 460
+    /// Keep wide windows readable while giving summaries room to breathe.
+    static let readingWidth: CGFloat = 640
 
     var body: some View {
         Group {
             if let reading = viewModel.reading, let id = viewModel.selection {
                 ScrollView {
                     note(reading)
-                        .padding(.horizontal, 32).padding(.top, 28).padding(.bottom, 40)
+                        .padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 40)
                         .frame(maxWidth: .infinity)
                 }
                 .id(id)   // a different note starts at the top
@@ -38,26 +38,38 @@ struct LibraryDetailView: View {
     private func note(_ reading: NoteReading) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header(reading.header)
-            // The calendar event's title goes here, between the meta line
-            // and the actions, when notes have it (later). The summary
-            // (#34) sits above the transcript.
-            actions.padding(.top, 14)
-            Divider().padding(.top, 20).padding(.bottom, 20)
+            actions.padding(.top, 12)
+            if viewModel.showsDetailTabs {
+                Picker("Note content", selection: $viewModel.selectedDetailTab) {
+                    ForEach(LibraryDetailTab.allCases, id: \.self) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 210)
+                .padding(.top, 20).padding(.bottom, 20)
+            } else {
+                Divider().padding(.vertical, 20)
+            }
             if !reading.notices.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(reading.notices, id: \.self) { NoticeView(text: $0) }
                 }
                 .padding(.bottom, 20)
             }
-            LibrarySummarySlot(viewModel: viewModel)   // LibrarySummaryView.swift (#34)
-            ForEach(Array(reading.items.enumerated()), id: \.offset) { index, item in
-                Group {
-                    switch item {
-                    case .turn(let turn): TurnView(turn: turn)
-                    case .block(let block): MarkdownBlockView(block: block)
+            if viewModel.detailTab == .summary {
+                LibrarySummarySlot(viewModel: viewModel)
+            } else {
+                ForEach(Array(reading.items.enumerated()), id: \.offset) { index, item in
+                    Group {
+                        switch item {
+                        case .turn(let turn): TurnView(turn: turn)
+                        case .block(let block): MarkdownBlockView(block: block)
+                        }
                     }
+                    .padding(.top, index == 0 ? 0 : Self.gap(reading.items[index - 1], item))
                 }
-                .padding(.top, index == 0 ? 0 : Self.gap(reading.items[index - 1], item))
             }
         }
         .frame(maxWidth: Self.readingWidth, alignment: .leading)
@@ -79,14 +91,10 @@ struct LibraryDetailView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(header.title).font(Brand.Typography.pageTitle).foregroundStyle(Brand.Palette.ink)
                 .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-            Text(header.dateText).font(Brand.Typography.body)
+            Text(([header.dateText, header.duration, header.app].compactMap { $0 }).joined(separator: " · "))
+                .font(Brand.Typography.caption)
                 .foregroundStyle(Brand.Palette.inkSecondary)
-            if header.duration != nil || header.app != nil {
-                HStack(spacing: 14) {
-                    if let duration = header.duration { meta("clock", duration) }
-                    if let app = header.app { meta("macwindow", app) }
-                }
-            }
+                .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(header.accessibilityLabel)
@@ -113,10 +121,6 @@ struct LibraryDetailView: View {
         .controlSize(.small)
     }
 
-    private func meta(_ symbol: String, _ text: String) -> some View {
-        Label(text, systemImage: symbol)
-            .font(Brand.Typography.body).foregroundStyle(Brand.Palette.inkSecondary)
-    }
 }
 
 extension View {

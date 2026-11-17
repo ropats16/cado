@@ -1,10 +1,8 @@
 import SwiftUI
 
-/// A meeting's summary in the reading view (#34), between the notices and
-/// the transcript: a card with the note's Summary section, Summarize or
-/// Regenerate Summary, progress while one is written, and why the last try
-/// failed. Then a "Transcript" heading, when there is a summary to set the
-/// transcript apart from. Nothing for other notes.
+/// The Summary tab: saved content, generation progress, provider disclosure,
+/// and retry actions. Other notes and unavailable summaries retain their body
+/// through the detail view's transcript fallback.
 struct LibrarySummarySlot: View {
     @ObservedObject var viewModel: LibraryViewModel
 
@@ -35,15 +33,7 @@ struct SummaryCard: View {
     @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            card
-            if panel.blocks != nil {
-                MarkdownBlockView(block: .heading(level: 3, text: SummarySection.transcriptHeading))
-                    .padding(.top, 24).padding(.bottom, 12)
-            } else {
-                Spacer().frame(height: 20)
-            }
-        }
+        card
     }
 
     private var card: some View {
@@ -67,7 +57,7 @@ struct SummaryCard: View {
                         Group {
                             if let note = Self.aside(block) {
                                 // The attribution and "part couldn't be summarized": about the summary, not in it.
-                                MarkdownInline.text(note).font(Brand.Typography.caption)
+                                MarkdownInline.text(note.replacingOccurrences(of: "the transcript below", with: "the transcript")).font(Brand.Typography.caption)
                                     .foregroundStyle(Brand.Palette.inkSecondary)
                                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                             } else {
@@ -93,7 +83,7 @@ struct SummaryCard: View {
                 StatusLine(text: problem, tone: .problem)
             }
         }
-        .padding(14)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Brand.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Brand.Palette.outline(contrast)))

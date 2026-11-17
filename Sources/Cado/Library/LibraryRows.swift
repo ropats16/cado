@@ -72,10 +72,6 @@ struct LibraryRowView: View {
             Text([row.time, row.day, row.duration, row.app].compactMap { $0 }.joined(separator: " · "))
                 .font(Brand.Typography.font(.subheadline))
                 .foregroundStyle(Brand.Palette.inkSecondary).lineLimit(1)
-            if !row.preview.isEmpty {
-                Text(row.preview).font(Brand.Typography.font(.subheadline))
-                    .foregroundStyle(Brand.Palette.inkSecondary).lineLimit(1)
-            }
         }
         .padding(.vertical, 7)
         .padding(.horizontal, 10)
