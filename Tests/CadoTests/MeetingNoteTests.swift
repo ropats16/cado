@@ -93,6 +93,19 @@ final class MeetingNoteTests: XCTestCase {
         XCTAssertTrue(note.body.hasSuffix("_Nothing was transcribed._\n"))
     }
 
+    /// The app is read back from the note's first line (#42), never from a
+    /// new front-matter key.
+    func testTheRecordedAppReadsBackFromTheBody() {
+        for app in ["Zoom", "Microsoft Teams (work)", "Google Chrome"] {
+            let note = MeetingNote(appName: app, start: start, duration: 60, turns: [Turn(speaker: .me, text: "Hi.")])
+            XCTAssertEqual(MeetingNote.recordedApp(inBody: note.body), app)
+        }
+        XCTAssertEqual(MeetingNote.recordedApp(inBody: "\r\n  Recorded from Zoom (Them) and your microphone (Me).\r\n"), "Zoom")
+        XCTAssertNil(MeetingNote.recordedApp(inBody: "Hello\nRecorded from Zoom (Them) and your microphone (Me)."))
+        XCTAssertNil(MeetingNote.recordedApp(inBody: "Recorded from  (Them) and your microphone (Me)."))
+        XCTAssertNil(MeetingNote.recordedApp(inBody: ""))
+    }
+
     func testClock() {
         XCTAssertEqual(MeetingNote.clock(0), "0:00")
         XCTAssertEqual(MeetingNote.clock(754.9), "12:34")

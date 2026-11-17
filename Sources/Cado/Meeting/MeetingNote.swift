@@ -89,7 +89,7 @@ struct MeetingNote: Equatable {
     }
 
     var body: String {
-        var lines = ["Recorded from \(appName) (Them) and your microphone (Me)."]
+        var lines = [Self.introPrefix + appName + Self.introSuffix]
         if !caveats.isEmpty {
             lines.append("")
             lines += caveats.map { "> " + text(for: $0) }
@@ -103,6 +103,29 @@ struct MeetingNote: Equatable {
             lines.append("_Nothing was transcribed._")
         }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    // MARK: Reading back (#42)
+
+    /// The body's first line: "Recorded from Zoom (Them) and your microphone (Me)."
+    private static let introPrefix = "Recorded from "
+    private static let introSuffix = " (Them) and your microphone (Me)."
+
+    /// The app named in `body`'s first line as this note writes it; nil when
+    /// that line isn't there (another note, or edited). Read from the text,
+    /// so the file format is unchanged.
+    static func recordedApp(inBody body: String) -> String? {
+        guard let first = body.split(whereSeparator: \.isNewline)
+            .first(where: { !$0.allSatisfy(\.isWhitespace) }) else { return nil }
+        return recordedApp(inLine: first.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// The app if `line` is the intro line.
+    static func recordedApp(inLine line: String) -> String? {
+        guard line.hasPrefix(introPrefix), line.hasSuffix(introSuffix),
+              line.count > introPrefix.count + introSuffix.count else { return nil }
+        let app = line.dropFirst(introPrefix.count).dropLast(introSuffix.count)
+        return app.allSatisfy(\.isWhitespace) ? nil : String(app)
     }
 
     private func side(_ speaker: MeetingSpeaker) -> String {

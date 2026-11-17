@@ -224,6 +224,42 @@ final class NotesLibraryTests: XCTestCase {
         XCTAssertThrowsError(try lib.note(id: "x.txt"))
     }
 
+    // MARK: meetings (#42)
+
+    func testAMeetingListsItsAppAndPreviewsFromTheFirstTurn() throws {
+        let lib = makeLibrary()
+        let meeting = MeetingNote(appName: "Google Chrome", start: t0, duration: 60,
+                                  turns: [.init(speaker: .me, text: "Hello there."), .init(speaker: .them, text: "Hi.")],
+                                  caveats: [.capReached(7200)])
+        try lib.create(meeting.draft(locale: Locale(identifier: "en_GB"), timeZone: utc))
+        let summary = try XCTUnwrap(lib.list().first)
+        XCTAssertEqual(summary.recordedApp, "Google Chrome")
+        XCTAssertEqual(summary.preview, "**Me:** Hello there. **Them:** Hi.")
+    }
+
+    func testAPlainNoteOrAnEditedMeetingHasNoApp() throws {
+        let lib = makeLibrary()
+        let intro = "Recorded from Zoom (Them) and your microphone (Me).\n\nhi"
+        try lib.create(draft("Plain", kind: "note", body: intro))
+        try lib.create(draft("Edited", at: 10, body: "My own intro\n\n**Me:** hi"))
+        let byTitle = Dictionary(uniqueKeysWithValues: lib.list().map { ($0.title, $0) })
+        XCTAssertNil(byTitle["Plain"]?.recordedApp)
+        XCTAssertEqual(byTitle["Plain"]?.preview, "Recorded from Zoom (Them) and your microphone (Me). hi")
+        XCTAssertNil(byTitle["Edited"]?.recordedApp)
+        XCTAssertEqual(byTitle["Edited"]?.preview, "My own intro **Me:** hi")
+    }
+
+    func testLatestMeetingNoteSkipsOtherKinds() throws {
+        let lib = makeLibrary()
+        XCTAssertNil(lib.latestNote(kind: NoteKind.meeting))
+        try lib.create(draft("Early", at: 0))
+        try lib.create(draft("Later", at: 50))
+        try lib.create(draft("Newest note", at: 100, kind: "note"))
+        XCTAssertEqual(lib.latestNote(kind: NoteKind.meeting)?.title, "Later")
+        try write("Hand made.md", "---\nkind: Meeting\ndate: 2027-01-15T09:00:00Z\n---\nhi")
+        XCTAssertEqual(lib.latestNote(kind: NoteKind.meeting)?.title, "Hand made", "kind ignores case")
+    }
+
     // MARK: search
 
     func testSearchTitleAndBodyCaseAndDiacriticInsensitive() throws {

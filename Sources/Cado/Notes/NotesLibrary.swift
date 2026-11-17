@@ -173,6 +173,11 @@ final class NotesLibrary {
         }.map(\.summary)
     }
 
+    /// The newest note of `kind` (ignoring case), e.g. the last meeting.
+    func latestNote(kind: String) -> NoteSummary? {
+        list().first { $0.kind.lowercased() == kind.lowercased() }
+    }
+
     /// Reads the file as it is now (so an edit since `list()` shows up).
     func note(id: String) throws -> Note {
         guard let url = fileURL(id), let note = load(url) else { throw NotesLibraryError.notFound(id) }
@@ -270,9 +275,19 @@ final class NotesLibrary {
             ?? values?.contentModificationDate ?? Date(timeIntervalSince1970: 0)
         let kind = parsed.value(for: "kind").flatMap { $0.isEmpty ? nil : $0 } ?? NoteKind.note
         let duration = parsed.value(for: "duration").flatMap { TimeInterval($0) }.flatMap { $0 >= 0 ? $0 : nil }
+        let app = kind.lowercased() == NoteKind.meeting ? MeetingNote.recordedApp(inBody: parsed.body) : nil
         let summary = NoteSummary(id: filename, title: title, date: date, kind: kind, duration: duration,
-                                  preview: Self.preview(parsed.body), url: url)
+                                  preview: Self.preview(app == nil ? parsed.body : Self.afterIntro(parsed.body)),
+                                  url: url, recordedApp: app)
         return Note(summary: summary, body: parsed.body)
+    }
+
+    /// A meeting body from its first turn: without the "Recorded from…"
+    /// line and the notices quoted under it.
+    private static func afterIntro(_ body: String) -> String {
+        body.split(whereSeparator: \.isNewline).dropFirst()
+            .drop { $0.allSatisfy(\.isWhitespace) || $0.trimmingCharacters(in: .whitespaces).hasPrefix(">") }
+            .joined(separator: "\n")
     }
 
     private static func preview(_ body: String) -> String {
