@@ -102,7 +102,7 @@ struct OnboardingView: View {
     /// Ready's optional, off-by-default usage-count choice (#26).
     private var usagePingChoice: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // A switch, as in Settings › Usage Count.
+            // A switch, as in Settings › General.
             Toggle(UsagePingCopy.title, isOn: Binding(
                 get: { viewModel.usagePing },
                 set: { viewModel.setUsagePing($0) }))

@@ -30,7 +30,7 @@ final class MeetingController: MeetingActivity {
     /// `activity`: the app-wide feed (the overlay). `notes`: the notes
     /// library meeting notes are saved to. `systemAudio`: the permission as
     /// observed (`Permissions.systemAudio`), read when the menu renders and
-    /// when a meeting ends. `keepAudio`: Settings › Notes › Keep meeting
+    /// when a meeting ends. `keepAudio`: Settings › Meetings › Keep meeting
     /// audio, read when a meeting ends.
     init(engine: TranscriptionEngine, activity: MeetingActivity, microphoneUID: @escaping () -> String?,
          notes: MeetingNoteStore, systemAudio: @escaping () -> SystemAudioPermission,
