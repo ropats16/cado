@@ -390,7 +390,7 @@ final class FolderMeetingSpoolSafetyTests: XCTestCase {
 
         let left = FolderMeetingSpool(root: root).leftovers()
         XCTAssertEqual(left.map(\.handle.meeting), [a, b])
-        XCTAssertEqual(left.map(\.mark), [.noteNotSaved, .audioPending])
+        XCTAssertEqual(left.map(\.marks), [[.noteNotSaved], [.audioPending]])
         XCTAssertEqual(left[0].events, [.sideStarted(.me, origin: 0), .stopped(at: 1, capReached: false)])
         XCTAssertEqual(left[0].handle.sampleCount(of: .me), 3)
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(c.id.uuidString + ".done").path),
@@ -461,7 +461,9 @@ final class FullDiskSpoolHandle: MeetingSpoolHandle {
     let onDisk: Bool
     var journalKeepsWorking = false
     private(set) var writeError: Error?
+    /// Each mark as it was added; `folderMarks` what the name says now.
     private(set) var marks: [SpoolFolderMark] = []
+    private(set) var folderMarks: Set<SpoolFolderMark> = []
     init(_ meeting: SpooledMeeting, room: Int, onDisk: Bool = false) {
         inner = InMemorySpoolHandle(meeting); self.room = room; self.onDisk = onDisk
     }
@@ -483,19 +485,20 @@ final class FullDiskSpoolHandle: MeetingSpoolHandle {
     var hasFolder: Bool { onDisk && !inner.isDiscarded }
     var hasAllAudioOnDisk: Bool { hasFolder }
     var location: URL? {
-        onDisk ? URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)" + (marks.last.map { "." + $0.rawValue } ?? "")) : nil
+        onDisk ? URL(fileURLWithPath: "/spool/" + SpoolFolderMark.folderName(meeting.id.uuidString, folderMarks)) : nil
     }
-    func mark(_ mark: SpoolFolderMark) -> Bool {
+    func setMarks(_ new: Set<SpoolFolderMark>) -> Bool {
         guard hasFolder else { return false }
-        marks.append(mark)
+        marks += SpoolFolderMark.order.filter { new.contains($0) && !folderMarks.contains($0) }
+        folderMarks = new
         return true
     }
     func moveFolder(into folder: URL) -> URL? { nil }
     func discard() { inner.discard() }
     /// What the next launch finds of it: its folder, unless gone or marked written down.
     var leftover: LeftoverMeeting? {
-        guard hasFolder, marks.last != .writtenDown else { return nil }
-        return LeftoverMeeting(handle: self, events: events, mark: marks.last)
+        guard hasFolder, !folderMarks.contains(.writtenDown) else { return nil }
+        return LeftoverMeeting(handle: self, events: events, marks: folderMarks)
     }
 }
 

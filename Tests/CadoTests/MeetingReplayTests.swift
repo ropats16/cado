@@ -192,7 +192,11 @@ final class MeetingReplayTests: XCTestCase {
     private func onlyNote() throws -> String {
         let files = try notes()
         XCTAssertEqual(files.count, 1)
-        return try String(contentsOf: try XCTUnwrap(files.first), encoding: .utf8)
+        let text = try String(contentsOf: try XCTUnwrap(files.first), encoding: .utf8)
+        // The meeting's id (#48) differs every run: checked, then left out of the comparison.
+        let idLine = #"id: "[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}"\n"#
+        XCTAssertNotNil(text.range(of: "\nduration: [0-9]+\n" + idLine + "---\n", options: .regularExpression), text)
+        return text.replacingOccurrences(of: idLine, with: "", options: .regularExpression)
     }
 
     private func contents(_ folder: URL) -> [String] {
@@ -704,7 +708,8 @@ final class MeetingReplayTests: XCTestCase {
         var hasFolder: Bool { inner.hasFolder }
         var hasAllAudioOnDisk: Bool { inner.hasAllAudioOnDisk }
         var location: URL? { inner.location }
-        func mark(_ mark: SpoolFolderMark) -> Bool { inner.mark(mark) }
+        var folderMarks: Set<SpoolFolderMark> { inner.folderMarks }
+        func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool { inner.setMarks(marks) }
         func moveFolder(into folder: URL) -> URL? { inner.moveFolder(into: folder) }
         func discard() { inner.discard() }
     }

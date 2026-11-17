@@ -38,7 +38,15 @@ import Foundation
 ///   needed): a note saved but not journaled marks it written down (the next
 ///   launch just deletes it) or audio pending (only the copy is redone, into
 ///   a new folder: the note's isn't known); a note that couldn't be saved
-///   marks it so, and the late note says that, not "quit unexpectedly".
+///   marks it so, and the late note says that, not "quit unexpectedly"; so
+///   does a quit (#48). Recovery reads marks as the events they stand for
+///   and journals them (the name goes back to plain) once the journal takes
+///   events again. An attempt the journal can't count is marked `.tried`,
+///   once; another, or a give-up it can't journal, waits for a launch with
+///   room: a full disk never switches off the crash-loop guard.
+/// - A note carries its meeting's id (#48): a leftover without `.noteSaved`
+///   whose note is in the notes folder anyway (Cado died in between) adopts
+///   it; never a second note.
 /// - Recovery that gives up journals `.recoveryGaveUp` before writing the
 ///   note. A leftover that has it with no outcome after (Cado died writing
 ///   that note) isn't tried again: its folder is moved, as it is, into the
@@ -367,21 +375,38 @@ final class MeetingSession {
             whenCopiesAreSafe(done)
         case .finishing(let meeting) where meeting.isRecovery, .transcribing(let meeting) where meeting.isRecovery:
             Log.info("Meeting recovery: Cado is quitting; the meeting with \(meeting.appName) goes on next launch.")
-            meeting.spool.record(.recoveryPaused)
+            pauseForQuit(meeting.spool)
             end()
             whenCopiesAreSafe(done)
         case .recording(let meeting):
-            if meeting.spool.hasFolder { meeting.spool.record(.appQuit) }
+            journalQuit(meeting)
             meeting.quit = done
             finish(meeting)
         case .finishing(let meeting):
-            if meeting.spool.hasFolder { meeting.spool.record(.appQuit) }
+            journalQuit(meeting)
             meeting.quit = done
         case .transcribing(let meeting):
-            if meeting.spool.hasFolder { meeting.spool.record(.appQuit) }
+            journalQuit(meeting)
             meeting.quit = done
             leaveForNextLaunch(meeting)
         }
+    }
+
+    /// `.appQuit`; if the journal can't take it (the disk is full), the
+    /// folder's name says it (#48), so the late note says Cado was quit, not
+    /// that it quit unexpectedly.
+    private func journalQuit(_ meeting: Meeting) {
+        let spool = meeting.spool
+        guard spool.hasFolder, !spool.record(.appQuit) else { return }
+        if !spool.setMarks(spool.folderMarks.union([.quit])) {
+            Log.error("Meeting: couldn't note in the spool that Cado was quit; the late note will say it quit unexpectedly.")
+        }
+    }
+
+    /// A clean quit during a recovery doesn't count against it
+    /// (`.recoveryPaused`); with the journal full, the attempt's mark goes.
+    private func pauseForQuit(_ spool: MeetingSpoolHandle) {
+        if !spool.record(.recoveryPaused) { endAttemptMark(spool) }
     }
 
     /// Recovers the meetings earlier runs left unfinished (crashed, killed,
@@ -734,9 +759,12 @@ final class MeetingSession {
     /// and must not land on top of the complete copy.
     private func journalWrittenDown(_ spool: MeetingSpoolHandle, note: String?, keepAudio: Bool, folder: URL?) {
         let retryFolder = spool.hasAllAudioOnDisk ? folder?.path : nil
-        guard !spool.record(.noteSaved(note: note, keepAudio: keepAudio, audioFolder: retryFolder)), spool.hasFolder else {
+        if spool.record(.noteSaved(note: note, keepAudio: keepAudio, audioFolder: retryFolder)) {
+            // The journal says it all now: a mark left from a full disk goes (#48).
+            if !spool.folderMarks.isEmpty { spool.setMarks([]) }
             return
         }
+        guard spool.hasFolder else { return }
         Log.error("Meeting: the note is saved but the spool's journal didn't take it; marking the spool instead.")
         if !spool.mark(keepAudio ? .audioPending : .writtenDown) {
             Log.error("Meeting: the spool couldn't be marked either; a later launch may write this meeting's note again.")
@@ -781,7 +809,10 @@ final class MeetingSession {
             }
         } else if spool.hasFolder {
             // Stays, whatever failed to write: the next launch finishes it.
-            if !spool.record(.noteSaveFailed(reason: reason)), !spool.mark(.noteNotSaved) {
+            // The attempt (if a recovery) ended here, so its `.tried` mark goes either way.
+            if spool.record(.noteSaveFailed(reason: reason)) {
+                endAttemptMark(spool)
+            } else if !spool.setMarks(spool.folderMarks.subtracting([.tried]).union([.noteNotSaved])) {
                 Log.error("Meeting: couldn't note in the spool that the note wasn't saved.")
             }
             Log.error("Meeting: the note couldn't be saved anywhere; the meeting stays in its spool for the next launch.")
@@ -976,20 +1007,15 @@ final class MeetingSession {
         let handle = leftover.handle
         let info = handle.meeting
         let counts = handle.audio().counts
-        var plan = RecoveryPlan(events: leftover.events, sampleCounts: counts)
+        // What the journal couldn't take, the folder's name says: read as the
+        // events it stands for, after the journal's own (#48).
+        let events = leftover.events + SpoolFolderMark.events(for: leftover.marks)
+        var plan = RecoveryPlan(events: events, sampleCounts: counts)
         let title = MeetingNote.title(appName: info.appName, start: info.startDate, locale: locale, timeZone: timeZone)
-        if plan.concluded == nil {
-            // What the journal couldn't take, the folder's name says.
-            switch leftover.mark {
-            case .audioPending?:
-                // Written down; the note's folder wasn't journaled: a new one, and the user is told where.
-                let copied = leftover.events.contains { if case .audioKept = $0 { return true } else { return false } }
-                plan.concluded = .init(note: nil, audioPending: !copied, audioFolder: nil, keepFailures: 1)
-            case .noteNotSaved?:
-                plan.reason = .noteNotSaved
-            case .writtenDown?, nil:
-                break
-            }
+        if plan.concluded == nil, leftover.marks.contains(.audioPending) {
+            // Written down; the note's folder wasn't journaled: a new one, and the user is told where.
+            let copied = leftover.events.contains { if case .audioKept = $0 { return true } else { return false } }
+            plan.concluded = .init(note: nil, audioPending: !copied, audioFolder: nil, keepFailures: 1)
         }
         if let concluded = plan.concluded {
             return finishCopy(handle, concluded, title: title)
@@ -997,9 +1023,10 @@ final class MeetingSession {
         if let note = notes.existingNote(id: info.id.uuidString, since: info.startDate) {
             return adopt(note, handle, plan, title: title)
         }
-        if leftover.mark != .noteNotSaved, Self.diedAfterGivingUp(leftover.events) {
-            return putAside(handle, leftover.events, title: title)
+        if Self.diedAfterGivingUp(events) {
+            return putAside(handle, events, title: title)
         }
+        journalMarks(handle)
         meetingCount += 1
         let meeting = Meeting(id: meetingCount, appName: info.appName, startedAt: clock.now,
                               startDate: info.startDate, spool: handle, me: nil, them: nil, recovery: plan.reason)
@@ -1018,7 +1045,7 @@ final class MeetingSession {
         meeting.total = plan.done
         meeting.capReached = plan.capReached
         meeting.recoveredDuration = plan.duration
-        meeting.toldMeetingIsSafe = leftover.events.contains(.toldUser(.meetingIsSafe))
+        meeting.toldMeetingIsSafe = events.contains(.toldUser(.meetingIsSafe))
         state = .finishing(meeting)
         report()
         Log.info("Meeting recovery: the meeting with \(info.appName) from \(info.startDate) "
@@ -1027,8 +1054,62 @@ final class MeetingSession {
         guard !plan.shouldGiveUp else {
             return giveUp(meeting, reason: "recovery was begun \(plan.stalledAttempts) times without getting further")
         }
-        handle.record(.recoveryStarted)
+        guard beginAttempt(handle) else { return waitForRoom(meeting) }
         readBack(meeting.id)
+    }
+
+    // A full disk must not switch off the crash-loop guard (#48): an attempt
+    // the journal can't count is counted by the folder's name (`.tried`),
+    // once; one more, or a give-up the journal can't take, waits for a
+    // launch with room. And a mark has no place in time, so once the journal
+    // takes events again the marks go into it and the name goes back to
+    // plain: a later `.recoveryGaveUp` is then read in its right place.
+
+    /// The marks that stand for journal events go into the journal, and off
+    /// the name. The name goes first: if the journal then refuses, the name
+    /// says again what it couldn't take (never a mark journaled twice).
+    private func journalMarks(_ handle: MeetingSpoolHandle) {
+        let marks = handle.folderMarks.filter { $0.event != nil }
+        guard !marks.isEmpty, handle.setMarks(handle.folderMarks.subtracting(marks)) else { return }
+        var left = Set(marks)
+        for mark in SpoolFolderMark.order where left.contains(mark) {
+            guard let event = mark.event, handle.record(event) else { break }
+            left.remove(mark)
+        }
+        guard !left.isEmpty else { return }
+        Log.info("Meeting recovery: the journal is still full; the spool's name keeps what it couldn't take.")
+        handle.setMarks(handle.folderMarks.union(left))
+    }
+
+    /// Journals that an attempt begins, else marks it `.tried`; false if
+    /// neither (or it was marked already: an attempt the guard can't count).
+    private func beginAttempt(_ handle: MeetingSpoolHandle) -> Bool {
+        if handle.record(.recoveryStarted) { return true }
+        guard !handle.folderMarks.contains(.tried) else { return false }
+        return handle.setMarks(handle.folderMarks.union([.tried]))
+    }
+
+    /// The attempt ended (a note saved or not, a clean quit): its mark goes.
+    private func endAttemptMark(_ spool: MeetingSpoolHandle) {
+        if spool.folderMarks.contains(.tried) { spool.setMarks(spool.folderMarks.subtracting([.tried])) }
+    }
+
+    /// The journal can't take what recovery must write first (the disk is
+    /// full): the meeting waits, untouched, for a launch with room, rather
+    /// than run where the crash-loop guard can't count it. Said unless the
+    /// user heard of this meeting already ("the meeting is safe"); the
+    /// journal can't remember saying it, so a later launch says it again.
+    private func waitForRoom(_ meeting: Meeting) {
+        let title = title(meeting)
+        Log.error("Meeting recovery: the spool's journal can't be written (the disk may be full); "
+                  + "“\(title)” waits for a launch with room.")
+        meeting.queue.removeAll()
+        if !meeting.toldMeetingIsSafe {
+            feedback.notify(title: "Couldn't finish a meeting yet",
+                            body: "Your Mac's disk may be full, so Cado can't finish “\(title)” yet. Its recording is safe; "
+                                + "Cado will try again the next time it starts.")
+        }
+        end()
     }
 
     /// Whether the reopened Others side is all zeros: a whole-file scan, so
@@ -1082,7 +1163,8 @@ final class MeetingSession {
     /// the meeting aside instead of dying the same way again.
     private func giveUp(_ meeting: Meeting, reason: String) {
         Log.error("Meeting recovery: can't finish the meeting with \(meeting.appName): \(reason).")
-        meeting.spool.record(.recoveryGaveUp(reason: reason))
+        // Not journaled, a death writing the note would come back every launch.
+        guard meeting.spool.record(.recoveryGaveUp(reason: reason)) else { return waitForRoom(meeting) }
         meeting.gaveUp = reason
         meeting.queue.removeAll()
         for side in meeting.sides.values { side.ended = true }

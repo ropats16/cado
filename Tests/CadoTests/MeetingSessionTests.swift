@@ -1072,7 +1072,8 @@ final class UnreadableSpoolHandle: MeetingSpoolHandle {
     var hasFolder: Bool { !inner.isDiscarded }
     var hasAllAudioOnDisk: Bool { hasFolder }
     var location: URL? { URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)") }
-    func mark(_ mark: SpoolFolderMark) -> Bool { false }
+    var folderMarks: Set<SpoolFolderMark> { [] }
+    func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool { false }
     func moveFolder(into folder: URL) -> URL? { nil }
     func discard() { inner.discard() }
 }
@@ -1101,7 +1102,8 @@ final class ToneSpoolHandle: MeetingSpoolHandle {
     var hasFolder: Bool { true }
     var hasAllAudioOnDisk: Bool { true }
     var location: URL? { nil }
-    func mark(_ mark: SpoolFolderMark) -> Bool { true }
+    private(set) var folderMarks: Set<SpoolFolderMark> = []
+    func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool { folderMarks = marks; return true }
     func moveFolder(into folder: URL) -> URL? { nil }
     func discard() { counts = [:] }
 }
@@ -1121,17 +1123,21 @@ extension MeetingSessionTests {
 /// spool: what the session leaves for the next launch stays in it. From the
 /// first event `refuses` picks, its journal takes nothing more (the folder
 /// spool after a failed write: a full disk); `reopen()` (the next launch)
-/// lets it write again. Marks and moves are remembered.
+/// lets it write again. Marks and moves are remembered: `folderMarks` what
+/// the name says now, `marks` each mark as it was added.
 final class DurableSpoolHandle: MeetingSpoolHandle {
     let inner: InMemorySpoolHandle
     var refuses: (SpoolEvent) -> Bool = { _ in false }
     var canMark = true, canMove = true
     private(set) var journalFailed = false
     private(set) var marks: [SpoolFolderMark] = []
+    private(set) var folderMarks: Set<SpoolFolderMark> = []
     private(set) var movedTo: URL?
-    init(_ inner: InMemorySpoolHandle, refuses: @escaping (SpoolEvent) -> Bool = { _ in false }) {
+    init(_ inner: InMemorySpoolHandle, refuses: @escaping (SpoolEvent) -> Bool = { _ in false },
+         marks: Set<SpoolFolderMark> = []) {
         self.inner = inner
         self.refuses = refuses
+        folderMarks = marks
     }
     var meeting: SpooledMeeting { inner.meeting }
     var writeError: Error? { journalFailed ? FullDiskSpoolHandle.DiskFull() : nil }
@@ -1148,11 +1154,12 @@ final class DurableSpoolHandle: MeetingSpoolHandle {
     var hasFolder: Bool { !inner.isDiscarded && movedTo == nil }
     var hasAllAudioOnDisk: Bool { hasFolder }
     var location: URL? {
-        movedTo ?? URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)" + (marks.last.map { "." + $0.rawValue } ?? ""))
+        movedTo ?? URL(fileURLWithPath: "/spool/" + SpoolFolderMark.folderName(meeting.id.uuidString, folderMarks))
     }
-    func mark(_ mark: SpoolFolderMark) -> Bool {
+    func setMarks(_ new: Set<SpoolFolderMark>) -> Bool {
         guard hasFolder, canMark else { return false }
-        marks.append(mark)
+        marks += SpoolFolderMark.order.filter { new.contains($0) && !folderMarks.contains($0) }
+        folderMarks = new
         return true
     }
     func moveFolder(into folder: URL) -> URL? {
@@ -1169,8 +1176,8 @@ final class DurableSpoolHandle: MeetingSpoolHandle {
     /// What the next launch finds of it: its folder, unless gone, moved or
     /// marked written down.
     var leftover: LeftoverMeeting? {
-        guard hasFolder, marks.last != .writtenDown else { return nil }
-        return LeftoverMeeting(handle: self, events: events, mark: marks.last)
+        guard hasFolder, !folderMarks.contains(.writtenDown) else { return nil }
+        return LeftoverMeeting(handle: self, events: events, marks: folderMarks)
     }
 }
 
@@ -1592,7 +1599,9 @@ extension MeetingSessionTests {
                           "On the disk part; no folder: a retry never copies over the complete copy")
             XCTAssertEqual(h.marks, [])
         } else {
-            XCTAssertEqual(h.marks, [.audioPending])
+            // #48: the quit the journal couldn't take is in the name first; the note's mark replaces it.
+            XCTAssertEqual(h.marks, quit ? [.quit, .audioPending] : [.audioPending])
+            XCTAssertEqual(h.folderMarks, [.audioPending])
         }
         XCTAssertTrue(h.hasFolder)
         let jobs = engine.jobs.count
@@ -1762,14 +1771,26 @@ extension MeetingSessionTests {
 /// never touched.
 extension MeetingSessionTests {
     /// A leftover for `meeting` with the standard audio and `events`, on disk.
-    private func leftover(of meeting: SpooledMeeting, _ events: [SpoolEvent]) -> DurableSpoolHandle {
+    private func leftover(of meeting: SpooledMeeting, _ events: [SpoolEvent],
+                          marks: Set<SpoolFolderMark> = []) -> DurableSpoolHandle {
         let inner = InMemorySpoolHandle(meeting)
         inner.append(audio(10, [(1, 2, 0.2), (7, 8, 0.4)]), for: .me)
         inner.append(audio(10, [(3, 5, 0.3)]), for: .them)
         for event in events { inner.record(event) }
-        let h = DurableSpoolHandle(inner)
-        spool.left.append(LeftoverMeeting(handle: h, events: events))
+        let h = DurableSpoolHandle(inner, marks: marks)
+        spool.left.append(LeftoverMeeting(handle: h, events: events, marks: marks))
         return h
+    }
+
+    /// The next launch: `h` as it finds it (its journal working again unless
+    /// `stillFull`), recovered by a new session.
+    @discardableResult
+    private func relaunch(_ h: DurableSpoolHandle, stillFull: Bool = false) throws -> MeetingSession {
+        h.reopen(refusing: { _ in stillFull })
+        spool.left = [try XCTUnwrap(h.leftover)]
+        let next = makeSession()
+        next.recoverLeftovers()
+        return next
     }
 
     private func newMeeting() -> SpooledMeeting {
@@ -1860,5 +1881,150 @@ extension MeetingSessionTests {
         _ = leftover(bothStarted + [.noteSaved(note: "/notes/9.md", keepAudio: false, audioFolder: nil)])
         session.recoverLeftovers()
         XCTAssertEqual(notes.lookups, 0)
+    }
+}
+
+/// #48 boxes 2–4: what a full disk leaves in a spool folder's name goes into
+/// the journal once it takes events again, and a full journal never switches
+/// the crash-loop guard off.
+extension MeetingSessionTests {
+    private func meetingWithZoom() -> SpooledMeeting {
+        SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "us.zoom.xos", startDate: crashDate)
+    }
+
+    private var bothSides: [SpoolEvent] { [.sideStarted(.me, origin: 0), .sideStarted(.them, origin: 0)] }
+
+    // MARK: Box 2: an `.unsaved` mark doesn't outlive a working journal
+
+    func testAnUnsavedMarkGoesIntoTheJournalOnceItTakesEventsAgain() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides, marks: [.noteNotSaved])
+        session.recoverLeftovers()
+        XCTAssertEqual(h.folderMarks, [], "The name is plain again")
+        let saveFailed = try XCTUnwrap(h.events.firstIndex(of: SpoolFolderMark.noteNotSaved.event!))
+        XCTAssertEqual(h.events.firstIndex(of: .recoveryStarted), saveFailed + 1, "In its place: before this attempt")
+        engine.finishAll()
+        XCTAssertTrue(notes.saved[0].body.contains("> This note couldn't be saved when the meeting ended; "
+                                                   + "it was finished the next time Cado started."))
+    }
+
+    /// The case from the ticket: with the mark gone, a give-up that dies
+    /// writing its note is set aside next launch, not tried every launch.
+    func testAGiveUpThatDiesAfterAnUnsavedMarkIsSetAsideNotRetried() throws {
+        let meeting = meetingWithZoom()
+        // Two stalled attempts; the third ended in a note that couldn't be saved, on a full disk.
+        let h = leftover(of: meeting, bothSides + [.recoveryStarted, .recoveryStarted, .recoveryStarted],
+                         marks: [.noteNotSaved])
+        var atSave: [SpoolEvent] = [], marksAtSave: Set<SpoolFolderMark> = []
+        notes.onSave = { atSave = h.events; marksAtSave = h.folderMarks }
+        notes.error = Failure("Cado died here.")  // as good as dying: nothing is written
+        archive.noteError = Failure("Cado died here.")
+        try relaunch(h)                           // gives up, and "dies" writing the note
+        XCTAssertEqual(atSave.last, .recoveryGaveUp(reason: "recovery was begun 2 times without getting further"))
+        notes.onSave = nil
+        notes.error = nil
+        archive.noteError = nil
+
+        XCTAssertEqual(marksAtSave, [], "The mark went into the journal before the give-up")
+        let died = leftover(of: meeting, atSave, marks: marksAtSave)  // the folder as Cado died
+        spool.left = [try XCTUnwrap(died.leftover)]
+        makeSession().recoverLeftovers()
+        XCTAssertTrue(notes.saved.isEmpty, "Not given up on again")
+        XCTAssertNotNil(died.movedTo, "Set aside, untouched")
+        XCTAssertEqual(feedback.titles.last, "Couldn't finish a meeting")
+    }
+
+    // MARK: Box 3: a full journal can't switch the crash-loop guard off
+
+    /// An attempt the journal can't count is counted by the name, once;
+    /// another waits for room (and says so); with room it goes on as usual.
+    func testAnAttemptTheJournalCantTakeIsCountedByTheFolderName() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides)
+        try relaunch(h, stillFull: true)          // runs, unjournaled, and dies
+        XCTAssertEqual(h.folderMarks, [.tried])
+        let jobs = engine.jobs.count
+        XCTAssertGreaterThan(jobs, 0)
+
+        for _ in 0..<3 {                          // the disk is still full: no attempt the guard can't count
+            try relaunch(h, stillFull: true)
+            XCTAssertEqual(engine.jobs.count, jobs, "Not tried again")
+            XCTAssertEqual(h.folderMarks, [.tried])
+            XCTAssertTrue(h.hasFolder)
+        }
+        XCTAssertEqual(feedback.titles, Array(repeating: "Couldn't finish a meeting yet", count: 3),
+                       "Said on each launch it waits: the journal can't remember saying it")
+        XCTAssertEqual(feedback.notices[0].body, "Your Mac's disk may be full, so Cado can't finish “\(meetingTitle)” yet. "
+                       + "Its recording is safe; Cado will try again the next time it starts.")
+        UserFacingCopy.assertPlain(feedback.notices[0].body)
+
+        let next = try relaunch(h)                // room again
+        XCTAssertEqual(h.folderMarks, [])
+        XCTAssertEqual(h.events.filter { $0 == .recoveryStarted }.count, 2, "The marked attempt, then this one")
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertTrue(notes.saved[0].body.hasSuffix(allTurns))
+        XCTAssertEqual(next.status, .idle)
+    }
+
+    /// Two stalled attempts and a give-up the journal can't take: nothing is
+    /// written; it waits until the give-up can be journaled first.
+    func testAGiveUpTheJournalCantTakeWaitsForRoom() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides + [.recoveryStarted, .recoveryStarted])
+        try relaunch(h, stillFull: true)
+        XCTAssertTrue(notes.saved.isEmpty, "Not written where a death couldn't be told from a first try")
+        XCTAssertTrue(archive.kept.isEmpty)
+        XCTAssertTrue(h.hasFolder)
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting yet"])
+
+        var atSave: [SpoolEvent] = []
+        notes.onSave = { atSave = h.events }
+        try relaunch(h)
+        XCTAssertEqual(atSave.last, .recoveryGaveUp(reason: "recovery was begun 2 times without getting further"))
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertTrue(notes.saved[0].body.contains("> Cado couldn't finish transcribing this meeting"))
+    }
+
+    /// A clean quit during an attempt the journal can't take doesn't count.
+    func testAQuitDuringAnUnjournaledAttemptLeavesNoMark() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides)
+        let next = try relaunch(h, stillFull: true)
+        XCTAssertEqual(h.folderMarks, [.tried])
+        next.quit {}
+        XCTAssertEqual(h.folderMarks, [])
+    }
+
+    /// The meeting's "is safe" notice was said already: waiting says nothing more.
+    func testWaitingForRoomIsQuietOnceTheUserWasTold() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides + [.noteSaveFailed(reason: "full"), .toldUser(.meetingIsSafe)],
+                         marks: [.tried])
+        try relaunch(h, stillFull: true)
+        XCTAssertTrue(feedback.notices.isEmpty)
+        XCTAssertTrue(h.hasFolder)
+    }
+
+    // MARK: Box 4: a quit the journal can't take is still a quit
+
+    func testAQuitTheJournalCantTakeIsStillAQuitInTheLateNote() throws {
+        spool.durable = true
+        spool.refuses = { $0 == .appQuit }
+        startBoth()
+        recorder.me.deliver(audio(10, [(1, 2, 0.2), (7, 8, 0.4)]))
+        recorder.them.deliver(audio(10, [(3, 5, 0.3)]))
+        clock.advance(by: 10)
+        var done = false
+        session.quit { done = true }
+        recorder.me.finish()
+        recorder.them.finish()
+        XCTAssertTrue(done)
+        let h = try XCTUnwrap(spool.handles.last as? DurableSpoolHandle)
+        XCTAssertFalse(h.events.contains(.appQuit))
+        XCTAssertEqual(h.folderMarks, [.quit], "The name says it")
+
+        let next = try relaunch(h)
+        engine.finishAll()
+        XCTAssertEqual(next.status, .idle)
+        let body = notes.saved[0].body
+        XCTAssertTrue(body.contains("> Cado was quit during this meeting; the note was finished the next time Cado started."), body)
+        XCTAssertFalse(body.contains("quit unexpectedly"))
+        XCTAssertTrue(body.hasSuffix(allTurns))
     }
 }

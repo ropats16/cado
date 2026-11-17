@@ -25,10 +25,13 @@ import AVFoundation
 // accepted.
 //
 // When the journal can't be written (the disk is full) but something must
-// still be remembered, the folder's name says it: `<uuid>.<mark>`
+// still be remembered, the folder's name says it: `<uuid>.<mark>[.<mark>…]`
 // (`SpoolFolderMark`). A rename in place needs no free space. `leftovers()`
 // deletes a folder marked written down, and returns the others with their
-// mark; a folder with a name it doesn't know is left as it is.
+// marks; a folder with a name it doesn't know is left as it is (so an older
+// Cado leaves a name with two marks alone). A mark has no place in time, so
+// recovery reads it as the event it stands for, after the journal's own,
+// and puts it into the journal once the journal takes it again (#48).
 
 /// What identifies a spooled meeting; written once when it starts.
 struct SpooledMeeting: Codable, Equatable {
@@ -186,16 +189,60 @@ enum SpoolNotice: String, Codable, Equatable {
 }
 
 /// What a spool folder's name says when the journal couldn't take it (the
-/// disk is full): `<uuid>.<rawValue>`.
-enum SpoolFolderMark: String, Equatable {
+/// disk is full): `<uuid>.<rawValue>`, several in `order`.
+enum SpoolFolderMark: String, Equatable, CaseIterable {
+    /// Cado was quit during the meeting and `.appQuit` couldn't be journaled
+    /// (#48): the late note says it was quit, not that it quit unexpectedly.
+    case quit = "quit"
     /// The note couldn't be saved anywhere, and `.noteSaveFailed` couldn't be
     /// journaled: recovered as a note that couldn't be saved.
     case noteNotSaved = "unsaved"
+    /// A recovery attempt began and `.recoveryStarted` couldn't be journaled
+    /// (#48): the crash-loop guard still counts it. Cleared when the attempt
+    /// ends (a clean quit, a note saved or not).
+    case tried = "tried"
     /// The note is saved but `.noteSaved` couldn't be journaled, and the audio
     /// still has to be copied: only the copy is done again, never a note.
     case audioPending = "keep-audio"
     /// The note is saved and nothing is left to keep: `leftovers()` deletes it.
     case writtenDown = "done"
+
+    /// How marks are written in a name, which is also the order what they
+    /// stand for happened in: a quit comes before the note that couldn't be
+    /// saved; an attempt that ends in a note clears `.tried`, so with both,
+    /// the attempt came after.
+    static var order: [SpoolFolderMark] { allCases }
+
+    /// The journal event a mark stands for, if the plan reads it as one.
+    var event: SpoolEvent? {
+        switch self {
+        case .quit: return .appQuit
+        case .noteNotSaved: return .noteSaveFailed(reason: "The note couldn't be saved (from the folder's name).")
+        case .tried: return .recoveryStarted
+        case .audioPending, .writtenDown: return nil
+        }
+    }
+
+    /// The events `marks` stand for, in the order they happened.
+    static func events(for marks: Set<SpoolFolderMark>) -> [SpoolEvent] {
+        order.filter(marks.contains).compactMap(\.event)
+    }
+
+    /// `<base>.<mark>…` in `order`; `<base>` with none.
+    static func folderName(_ base: String, _ marks: Set<SpoolFolderMark>) -> String {
+        ([base] + order.filter(marks.contains).map(\.rawValue)).joined(separator: ".")
+    }
+
+    /// A folder name's base and marks; nil if a mark isn't one this Cado knows.
+    static func parse(folderName name: String) -> (base: String, marks: Set<SpoolFolderMark>)? {
+        let parts = name.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        var marks = Set<SpoolFolderMark>()
+        for raw in parts.dropFirst() {
+            guard let mark = SpoolFolderMark(rawValue: raw) else { return nil }
+            marks.insert(mark)
+        }
+        return (parts[0], marks)
+    }
 }
 
 /// On disk a speaker is a stable key, not the user-facing label (`rawValue`),
@@ -242,8 +289,10 @@ protocol MeetingSpoolHandle: AnyObject {
     var hasAllAudioOnDisk: Bool { get }
     /// The spool's folder, if it has one.
     var location: URL? { get }
-    /// Renames the folder in place to say `mark` (`SpoolFolderMark`), for when the journal can't take it. False (logged) if there's no folder or it can't be renamed.
-    @discardableResult func mark(_ mark: SpoolFolderMark) -> Bool
+    /// What the folder's name says now (`SpoolFolderMark`); empty if nothing.
+    var folderMarks: Set<SpoolFolderMark> { get }
+    /// Renames the folder in place to say exactly `marks` (none: its plain name), for when the journal can't take something. False (logged) if there's no folder or it can't be renamed.
+    @discardableResult func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool
     /// Moves the folder, as it is, into `folder`; its new place, or nil (logged) if it stays where it was. The handle writes nothing after.
     func moveFolder(into folder: URL) -> URL?
     /// Deletes the spool folder. Idempotent. A failure is logged and leaves it (a later discard, or the next launch, deletes it).
@@ -251,6 +300,9 @@ protocol MeetingSpoolHandle: AnyObject {
 }
 
 extension MeetingSpoolHandle {
+    /// Renames the folder to say `mark` alone (what it said before goes).
+    @discardableResult func mark(_ mark: SpoolFolderMark) -> Bool { setMarks([mark]) }
+
     /// Writes each non-empty side as a 16 kHz mono 16-bit WAV named `<label>.wav` into `folder` (labels supplied by the caller), streaming — never loading a whole side into memory.
     func exportAudio(to folder: URL, fileName: (MeetingSpeaker) -> String) throws {
         try audio().exportWAVs(to: folder, fileName: fileName)
@@ -299,8 +351,8 @@ struct SpoolAudio {
 struct LeftoverMeeting {
     let handle: MeetingSpoolHandle
     let events: [SpoolEvent]      // in the order recorded; a torn final line is dropped
-    /// What its folder's name says, if it was marked (`SpoolFolderMark`).
-    var mark: SpoolFolderMark?
+    /// What its folder's name says (`SpoolFolderMark`); empty if nothing.
+    var marks: Set<SpoolFolderMark> = []
 }
 
 protocol MeetingSpooling: AnyObject {
@@ -385,7 +437,8 @@ final class InMemorySpoolHandle: MeetingSpoolHandle {
     var hasFolder: Bool { false }
     var hasAllAudioOnDisk: Bool { false }
     var location: URL? { nil }
-    func mark(_ mark: SpoolFolderMark) -> Bool { false }
+    var folderMarks: Set<SpoolFolderMark> { [] }
+    func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool { false }
     func moveFolder(into folder: URL) -> URL? { nil }
     func discard() { stored = [.me: [], .them: []]; events = []; isDiscarded = true }
 }
@@ -472,7 +525,8 @@ final class FallbackSpoolHandle: MeetingSpoolHandle {
     var hasFolder: Bool { primary.hasFolder }
     var hasAllAudioOnDisk: Bool { primary.hasAllAudioOnDisk && !isHoldingAudioInMemory }
     var location: URL? { primary.location }
-    func mark(_ mark: SpoolFolderMark) -> Bool { primary.mark(mark) }
+    var folderMarks: Set<SpoolFolderMark> { primary.folderMarks }
+    func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool { primary.setMarks(marks) }
     func moveFolder(into folder: URL) -> URL? { primary.moveFolder(into: folder) }
 
     func discard() {
@@ -525,20 +579,15 @@ final class FolderMeetingSpool: MeetingSpooling {
         excludeFromBackups()
         var found: [LeftoverMeeting] = []
         for dir in entries where (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            let name = dir.lastPathComponent.split(separator: ".", maxSplits: 1)
-            var mark: SpoolFolderMark?
-            if name.count == 2 {
-                guard let known = SpoolFolderMark(rawValue: String(name[1])) else {
-                    Log.info("Meeting spool \(dir.lastPathComponent) has a name this Cado doesn't know; left as it is")
-                    continue
-                }
-                mark = known
+            guard let marks = SpoolFolderMark.parse(folderName: dir.lastPathComponent)?.marks else {
+                Log.info("Meeting spool \(dir.lastPathComponent) has a name this Cado doesn't know; left as it is")
+                continue
             }
             guard let lock = SpoolLock.take(in: dir) else {
                 Log.info("Meeting spool \(dir.lastPathComponent) is in use by another Cado; skipped")
                 continue
             }
-            if mark == .writtenDown {
+            if marks.contains(.writtenDown) {
                 Log.info("Meeting spool \(dir.lastPathComponent) was written down already; removed")
                 withExtendedLifetime(lock) {
                     do { try fm.removeItem(at: dir) } catch {
@@ -562,7 +611,7 @@ final class FolderMeetingSpool: MeetingSpooling {
                 continue
             }
             let handle = FolderSpoolHandle(meeting: info.meeting, dir: dir, lock: lock)
-            found.append(LeftoverMeeting(handle: handle, events: handle.readEvents(), mark: mark))
+            found.append(LeftoverMeeting(handle: handle, events: handle.readEvents(), marks: marks))
         }
         return found.sorted { $0.handle.meeting.startDate < $1.handle.meeting.startDate }
     }
@@ -805,16 +854,19 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         if !forGood { outputs = [:]; checkedEventsTail = false }
     }
 
-    /// `<uuid>` (or `<uuid>.<old mark>`) → `<uuid>.<mark>`, in place: a rename
-    /// needs no free space. The lock is held throughout (it's on the open file).
-    func mark(_ mark: SpoolFolderMark) -> Bool {
+    var folderMarks: Set<SpoolFolderMark> { SpoolFolderMark.parse(folderName: dir.lastPathComponent)?.marks ?? [] }
+
+    /// `<uuid>[.<old marks>]` → `<uuid>[.<marks>]`, in place: a rename needs
+    /// no free space. The lock is held throughout (it's on the open file).
+    func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool {
         let base = dir.lastPathComponent.split(separator: ".", maxSplits: 1).first.map(String.init) ?? dir.lastPathComponent
-        let target = dir.deletingLastPathComponent().appendingPathComponent("\(base).\(mark.rawValue)", isDirectory: true)
+        let name = SpoolFolderMark.folderName(base, marks)
+        let target = dir.deletingLastPathComponent().appendingPathComponent(name, isDirectory: true)
         guard target.path != dir.path else { return true }
         do {
             try FileManager.default.moveItem(at: dir, to: target)
         } catch {
-            Log.error("Couldn't mark the meeting spool \(dir.lastPathComponent) as \(mark.rawValue) (\(error.localizedDescription))")
+            Log.error("Couldn't rename the meeting spool \(dir.lastPathComponent) to \(name) (\(error.localizedDescription))")
             return false
         }
         closeOutputs(forGood: false)
