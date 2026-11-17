@@ -7,7 +7,7 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 ### Changed
 - The Library and the menu's Open Last Meeting Note stay quick with a large notes folder: notes that haven't changed aren't read again, and the list is prepared in the background.
 - Updated the speech engine (whisper.cpp 1.9.5), which includes a fix for a crash on a damaged model file.
-- A hand-made WhisperKit model folder with a damaged tokenizer file is refused instead of making Cado download a replacement.
+- A hand-made WhisperKit model folder with a damaged tokenizer file (in any place WhisperKit looks) is refused instead of making Cado download a replacement.
 
 ## 0.3.0 - 2026-11-17
 

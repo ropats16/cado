@@ -572,8 +572,9 @@ Downloads from `huggingface.co` are mostly redirected to Hugging Face's CDN
 libraries Cado uses (WhisperKit, FluidAudio) are set up never to download
 anything on their own; they only load model folders already on disk. WhisperKit
 would fetch a tokenizer from `huggingface.co` if a model folder's own
-`tokenizer.json` couldn't be read, so Cado reads that file itself first and
-refuses the model if it can't: that request is never made.
+`tokenizer.json` couldn't be read, so Cado reads every tokenizer file WhisperKit
+could pick in the folder (including any under `models/openai/`) first and
+refuses the model if one can't be read: that request is never made.
 
 **Building from source and developer tools** (not the app) also use the network:
 

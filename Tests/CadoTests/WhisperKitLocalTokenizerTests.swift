@@ -43,6 +43,50 @@ final class WhisperKitLocalTokenizerTests: XCTestCase {
         XCTAssertNoThrow(try WhisperKitLocalTokenizer.verify(folder: folder) { _ in })
     }
 
+    /// WhisperKit looks in `<folder>/models/openai/whisper-*/` before the top level.
+    private func writeNested(_ name: String, _ text: String) throws {
+        let dir = folder.appendingPathComponent("models/openai/\(name)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try text.write(to: dir.appendingPathComponent("tokenizer.json"), atomically: true, encoding: .utf8)
+    }
+
+    func testACorruptNestedTokenizerIsRefusedEvenWithAGoodTopLevelOne() throws {
+        try writeTokenizer("{}")
+        try writeNested("whisper-tiny.en", "not json {{{")
+        let load: @Sendable (URL) async throws -> Void = { dir in
+            // Stand-in for the real parser: only "{}" is valid.
+            let text = try String(contentsOf: dir.appendingPathComponent("tokenizer.json"), encoding: .utf8)
+            if text != "{}" { throw CocoaError(.fileReadCorruptFile) }
+        }
+        XCTAssertThrowsError(try WhisperKitLocalTokenizer.verify(folder: folder, load: load)) { error in
+            XCTAssertTrue(self.isLoadFailure(error), "\(error)")
+        }
+    }
+
+    func testACorruptNestedTokenizerIsRefusedByTheRealLoader() throws {
+        try writeNested("whisper-base", "this is not json {{{")
+        try writeTokenizer("{}")
+        XCTAssertThrowsError(try WhisperKitLocalTokenizer.verify(folder: folder)) { error in
+            XCTAssertTrue(self.isLoadFailure(error), "\(error)")
+        }
+    }
+
+    func testEveryExistingTokenizerLocationIsChecked() throws {
+        try writeTokenizer("{}")
+        try writeNested("whisper-tiny.en", "{}")
+        try writeNested("whisper-base", "{}")
+        let box = Box()
+        XCTAssertNoThrow(try WhisperKitLocalTokenizer.verify(folder: folder) { box.add($0.path) })
+        XCTAssertEqual(Set(box.items.map { URL(fileURLWithPath: $0).lastPathComponent }),
+                       ["whisper-tiny.en", "whisper-base", folder.lastPathComponent])
+    }
+
+    private final class Box: @unchecked Sendable {
+        private let lock = NSLock()
+        private(set) var items: [String] = []
+        func add(_ s: String) { lock.lock(); items.append(s); lock.unlock() }
+    }
+
     func testALoaderFailureIsRefused() throws {
         try writeTokenizer("{}")
         struct Boom: Error {}
