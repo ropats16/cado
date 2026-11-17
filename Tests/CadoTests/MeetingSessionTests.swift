@@ -2220,12 +2220,14 @@ extension MeetingSessionTests {
     /// A whole note for `meeting` in the notes folder, as a save writes it.
     @discardableResult
     private func wholeNote(for meeting: SpooledMeeting, turns: [MeetingTranscript.Turn] = [],
-                           caveats: [MeetingNote.Caveat] = []) -> URL {
-        var draft = MeetingNote(appName: "Zoom", start: crashDate, duration: 10, turns: turns, caveats: caveats)
+                           caveats: [MeetingNote.Caveat] = [], event: MatchedEvent? = nil) -> URL {
+        var draft = MeetingNote(appName: "Zoom", start: crashDate, duration: 10, turns: turns, caveats: caveats,
+                                event: event)
             .draft(locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!)
         draft.id = meeting.id.uuidString
         return notes.add(draft.id, NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind,
-                                                          duration: draft.duration, body: draft.body, id: draft.id))
+                                                          duration: draft.duration, body: draft.body, id: draft.id,
+                                                          event: draft.event, attendees: draft.attendees))
     }
 
     // MARK: Box 1: a note saved but not journaled is found by its id
@@ -2313,6 +2315,49 @@ extension MeetingSessionTests {
         XCTAssertEqual(notes.files.count, 1)
         XCTAssertNil(h.movedTo, "Not set aside")
         XCTAssertEqual(archive.audioKept.map(\.sides), [[.me: 160_000, .them: 160_000]], "A give-up keeps the audio")
+        XCTAssertTrue(h.inner.isDiscarded)
+    }
+
+    /// #48 with #36 and #38: a meeting on laptop speakers (Me passages that
+    /// only repeat Others are left out of its note), named after its
+    /// calendar event (journaled after the start), whose note was saved just
+    /// before Cado died: adopted, never written again, and named by its event.
+    func testACalendarNamedNoteWithoutTheBleedIsAdopted() throws {
+        func passage(_ speaker: MeetingSpeaker, at offset: TimeInterval, _ text: String, end: TimeInterval) -> SpoolEvent {
+            let from = Int(offset * 16_000)
+            return .transcribed(speaker, range: from..<(from + 16_000), offset: offset,
+                                segments: [SpoolSegment(start: 0, text: text, end: end - offset)])
+        }
+        let event = MatchedEvent(title: "Weekly sync", attendees: ["Ada"])
+        let journal = bothStarted + [
+            .calendarEvent(event),
+            passage(.them, at: 0.5, " The quarterly numbers look pretty good overall.", end: 2.5),
+            passage(.me, at: 0.6, " the quarterly number look pretty good", end: 2.4),
+            passage(.them, at: 3, " Let's look at the budget for the next quarter.", end: 5),
+            passage(.me, at: 3.05, " let's look at the budget for the next quarter", end: 5),
+            passage(.them, at: 6, " We can come back to the hiring plan on Monday.", end: 8),
+            passage(.me, at: 6.1, " we can come back to the hiring plan on monday", end: 8.1),
+            passage(.me, at: 8.5, " Great, thanks for pulling them together.", end: 9.5),
+            .settled(.me, through: 160_000), .settled(.them, through: 160_000),
+            .stopped(at: 10, capReached: false),
+        ]
+        let turns = MeetingTranscript.turns(RecoveryPlan(events: journal, sampleCounts: [.me: 160_000, .them: 160_000]).pieces)
+        XCTAssertEqual(turns.map(\.speaker), [.them, .me], "The bleed is left out of the note")
+        let meeting = newMeeting()
+        let note = wholeNote(for: meeting, turns: turns, event: event)
+        let h = leftover(of: meeting, journal)
+        var atAdopt: [SpoolEvent] = []
+        notes.onAdopt = { atAdopt = h.events }
+        session.recoverLeftovers()
+        engine.finishAll()
+        XCTAssertEqual(notes.files.count, 1, "No second note")
+        XCTAssertTrue(notes.saved.isEmpty)
+        XCTAssertEqual(engine.jobs.count, 0, "Nothing transcribed again")
+        XCTAssertEqual(notes.adoptedNotes, [note])
+        XCTAssertTrue(atAdopt.contains { if case .noteSaved(note: note.path, _, _) = $0 { return true } else { return false } },
+                      "Journaled as this meeting's note")
+        XCTAssertEqual(feedback.notices.first?.title, "Meeting note saved")
+        XCTAssertEqual(feedback.notices.first?.body, "Weekly sync", "Named by its event, as the note is")
         XCTAssertTrue(h.inner.isDiscarded)
     }
 

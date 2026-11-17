@@ -188,6 +188,72 @@ final class RecoveryPlanTests: XCTestCase {
                        "Not a meeting note's body")
     }
 
+    /// A journaled passage as `MeetingSession` journals it (segment `end` since #36).
+    private func passage(_ speaker: MeetingSpeaker, at offset: TimeInterval, _ text: String,
+                         end: TimeInterval) -> SpoolEvent {
+        let from = Int(offset * 16_000)
+        return .transcribed(speaker, range: from..<(from + 16_000), offset: offset,
+                            segments: [SpoolSegment(start: 0, text: text, end: end - offset)])
+    }
+
+    /// The note as `MeetingSession` saves it from `plan`'s passages: through
+    /// `MeetingTranscript.turns` (speaker-bleed filter included), with its
+    /// id, calendar event and caveats.
+    private func savedNote(_ plan: RecoveryPlan, event: MatchedEvent? = nil, caveats: [MeetingNote.Caveat] = []) -> String {
+        var draft = MeetingNote(appName: "Zoom", start: Date(timeIntervalSince1970: 0), duration: 600,
+                                turns: MeetingTranscript.turns(plan.pieces), caveats: caveats, event: event).draft()
+        draft.id = "X"
+        return NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind, duration: draft.duration,
+                                      body: draft.body, id: draft.id, event: draft.event, attendees: draft.attendees)
+    }
+
+    /// Laptop speakers (#36): Me passages that only repeat Others aren't in
+    /// the note. They're still in the journal, and the note is whole.
+    func testANoteWithoutTheSpeakerBleedIsWhole() {
+        let full: [MeetingSpeaker: Int] = [.me: 600 * 16_000, .them: 600 * 16_000]
+        let plan = RecoveryPlan(events: [
+            passage(.them, at: 4, " The quarterly numbers look pretty good overall.", end: 6.5),
+            passage(.me, at: 4.4, " the quarterly number look pretty good", end: 6.2),   // bleed, misheard
+            passage(.me, at: 20, " Great, thanks for pulling them together.", end: 22),
+            passage(.them, at: 500, " Let's look at the budget for the next quarter.", end: 503),
+            passage(.me, at: 500.05, " let's look at the budget for the next quarter", end: 503),
+            passage(.them, at: 510, " We can come back to the hiring plan on Monday.", end: 513),
+            passage(.me, at: 510.1, " we can come back to the hiring plan on monday", end: 513.1),
+            .stopped(at: 600, capReached: false),
+        ], sampleCounts: full)
+        let note = savedNote(plan)
+        XCTAssertFalse(note.contains("the quarterly number look pretty good"), "the filter left the bleed out")
+        XCTAssertFalse(note.contains("**Me:** let's look at the budget"))
+        XCTAssertTrue(note.contains("Great, thanks for pulling them together."), "real Me speech stays")
+        XCTAssertTrue(plan.isWholeNote(note))
+        XCTAssertFalse(plan.isWholeNote(note.replacingOccurrences(of: "**Me:** Great, thanks for pulling them together.\n",
+                                                                with: "")), "A kept Me passage missing")
+        XCTAssertFalse(plan.isWholeNote(String(note.prefix(note.count - 30)) + "\n"), "Cut off")
+    }
+
+    /// Named after a calendar event (#38: the event's title is the note's,
+    /// `event`/`attendees` in the front matter, quoted), with the
+    /// fallback-model line (#47) and a summary added afterwards (#34): whole.
+    /// A summary quoting a passage the transcript lacks doesn't make up for it.
+    func testACalendarNamedNoteWithASummaryIsWhole() {
+        let them = SpoolEvent.transcribed(.them, range: 40_000..<56_000, offset: 2.5,
+                                          segments: [SpoolSegment(start: 0, text: "Hi.", end: 0.5)])
+        let plan = RecoveryPlan(events: [hello, them, .ranOnFallbackModel, .stopped(at: 10, capReached: false)],
+                                sampleCounts: full)
+        let event = MatchedEvent(title: "Weekly sync: \"Q3\"\tplan\nnotes", attendees: ["Ana Ruiz", "Bo \"B\" Chen"])
+        let note = savedNote(plan, event: event, caveats: [.finishedLater(.crashed), .ranOnFallbackModel(language: "auto")])
+        XCTAssertEqual(NoteFrontMatter.parse(note).value(for: "title"), "Weekly sync: \"Q3\"\tplan notes")
+        XCTAssertEqual(NoteFrontMatter.parse(note).value(for: "id"), "X")
+        XCTAssertTrue(plan.isWholeNote(note))
+        let summary = SummarySection.markdown(SummaryOutcome(summary: MeetingSummary(keyPoints: ["They said: Hi."])),
+                                              provider: .onDevice)
+        let summarized = NoteText.replacingBody(of: note) { SummarySection.applying(summary, to: $0) }
+        XCTAssertTrue(summarized.contains(SummarySection.startMarker))
+        XCTAssertTrue(plan.isWholeNote(summarized), "a summary added later")
+        let cut = summarized.replacingOccurrences(of: "**Others:** Hi.\n", with: "")
+        XCTAssertFalse(plan.isWholeNote(cut), "the summary's \"Hi.\" doesn't stand in for the transcript's")
+    }
+
     func testAnAdoptedNotesAudioIsAlwaysKeptWhereTheNoteSaysIfFree() {
         let x = URL(fileURLWithPath: "/a/Meeting X", isDirectory: true)
         XCTAssertEqual(RecoveryPlan.adoption(hasAudio: true, namedFolder: nil, namedFolderIsFree: false),
