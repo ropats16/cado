@@ -28,6 +28,8 @@ struct LibraryDetailView: View {
                     }
                 }
                 .tint(Brand.Palette.accentText)   // links
+                // A note can come from anywhere: only web and mail links open (#27).
+                .environment(\.openURL, OpenURLAction { NoteLinkPolicy.opens($0) ? .systemAction : .discarded })
                 .padding(.horizontal, 32).padding(.vertical, 28)
                 .frame(maxWidth: Self.columnWidth, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .center)
