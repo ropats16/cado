@@ -45,8 +45,8 @@ off (see [Privacy](#privacy)).
 - **Menu-bar only** — a small avocado icon, no Dock icon, stays out of your way.
 - **Meeting notes** (macOS 14.2+): **Record Meeting** in the avocado menu
   records you (the mic, "Me") and the meeting app (Zoom, Teams, Meet in a
-  browser…, "Them") until you click **Stop Recording**, then writes a Markdown
-  note with the conversation as Me/Them turns to your notes folder. See
+  browser…, "Others") until you click **Stop Recording**, then writes a Markdown
+  note with the conversation as Me/Others turns to your notes folder. See
   [Meeting notes](#meeting-notes).
 - **100% private.** It only uses the internet to download models: the
   one-time setup download, and Settings › Model's **Download** button, which
@@ -270,7 +270,7 @@ Needs macOS 14.2 or later (on older macOS, **Record Meeting** is greyed out
 and says why).
 
 - **Start:** click **Record Meeting** in the avocado menu. Cado records only
-  the meeting app's audio as "Them" — never everything your Mac plays — plus
+  the meeting app's audio as "Others" — never everything your Mac plays — plus
   your microphone as "Me". One meeting app running (Zoom, Teams, Slack,
   Webex, Discord, FaceTime, or a browser for Meet): it's picked for you and
   named in the menu. Several (e.g. Zoom and Chrome): pick one from the
@@ -281,22 +281,24 @@ and says why).
   press says so).
 - **Stop:** click **Stop Recording**. Cado transcribes on your Mac and saves
   "Meeting with Zoom — date time" to your notes folder, with the date, the
-  length and the Me/Them conversation. A notification says when it's saved.
+  length and the Me/Others conversation. A notification says when it's saved.
 - **First time:** macOS asks to let Cado record system audio. If you don't
   allow it (or it was turned off), the other side records as silence: the
-  note says Them may be missing and how to turn it on (System Settings ›
+  note says Others may be missing and how to turn it on (System Settings ›
   Privacy & Security › Screen & System Audio Recording).
 - **Limits (for now):** a meeting stops by itself after 2 hours (the note is
   still written); it's held in memory until it's transcribed, so quitting
   Cado mid-meeting saves the audio (in Cado's support folder, `Meeting
   Audio`) and a note saying it wasn't transcribed. Without headphones the
   mic also hears the other side, so their words can appear under "Me" too.
+  Notes saved before this label changed say "Them"; they still open and show
+  "Others" (the files aren't changed).
 - **Safari:** Safari plays web audio through WebKit's shared media process,
   which every WebKit-based app uses (Mail, and apps with web views) and which
   macOS gives no public way to tell apart. So with Safari as the meeting app,
-  "Them" can also pick up sound those apps play during the meeting. Every
+  "Others" can also pick up sound those apps play during the meeting. Every
   other app is recorded on its own (Chrome never includes Chrome Canary, Edge
-  never Edge Beta); for a clean "Them", use a meeting app or another browser.
+  never Edge Beta); for a clean "Others", use a meeting app or another browser.
 
 ---
 
