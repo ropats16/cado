@@ -18,6 +18,11 @@ private final class FakeOpener: NoteOpening {
     func open(_ url: URL) { opened.append(url) }
 }
 
+private actor DurationLog {
+    private(set) var all: [Duration] = []
+    func add(_ d: Duration) { all.append(d) }
+}
+
 private final class LibraryFakePasteboard: PasteboardWriting {
     var written: [String] = []
     func write(_ text: String) { written.append(text) }
@@ -365,6 +370,36 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertFalse(vm.transcriptCopied, "Cleared by the next selection")
         vm.copyTranscript()
         XCTAssertEqual(pasteboard.written.last, "Body of Other", "A note without turns copies its body")
+    }
+
+    func testCopiedGoesBackAfterAMoment() async throws {
+        let durations = DurationLog()
+        vm = LibraryViewModel(library: library, opener: opener, pasteboard: pasteboard,
+                              now: { [unowned self] in self.t0 + 3600 },
+                              sleep: { await durations.add($0) })
+        let a = try add("Sync", body: "**Me:** hi")
+        await vm.reload()
+        await vm.select(a.id)
+        vm.copyTranscript()
+        XCTAssertTrue(vm.transcriptCopied)
+        await vm.settled()
+        XCTAssertFalse(vm.transcriptCopied, "Copy Transcript again, not Copied forever")
+        let slept = await durations.all
+        XCTAssertEqual(slept, [.seconds(2)])
+    }
+
+    func testCopyingAnotherRowsTranscriptLeavesTheSelection() async throws {
+        let a = try add("Alpha", body: "**Me:** from alpha")
+        let b = try add("Beta", at: 10, body: "**Them:** from beta")
+        await vm.reload()
+        await vm.select(a.id)
+        await vm.copyTranscript(of: b.id)
+        XCTAssertEqual(pasteboard.written, ["Them: from beta"])
+        XCTAssertEqual(vm.selection, a.id)
+        XCTAssertFalse(vm.transcriptCopied, "The selected note wasn't the one copied")
+        await vm.copyTranscript(of: a.id)
+        XCTAssertEqual(pasteboard.written.last, "Me: from alpha")
+        XCTAssertTrue(vm.transcriptCopied)
     }
 
     // MARK: opening a given note (#42)

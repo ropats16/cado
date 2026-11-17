@@ -82,7 +82,7 @@ struct LibraryRowView: View {
         .contentShape(Rectangle())
         .contextMenu {
             Button("Rename") { Task { await viewModel.select(row.id); viewModel.beginRename(row.id) } }
-            Button("Copy Transcript") { Task { await viewModel.select(row.id); viewModel.copyTranscript() } }
+            Button("Copy Transcript") { Task { await viewModel.copyTranscript(of: row.id) } }
             Button("Show in Finder") { viewModel.reveal(row.id) }
             Button("Open in Default App") { viewModel.openExternally(row.id) }
             Divider()

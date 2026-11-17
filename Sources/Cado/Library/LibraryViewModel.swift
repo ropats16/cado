@@ -54,8 +54,8 @@ final class LibraryViewModel: ObservableObject {
     }
     /// The selected note as the detail pane reads it.
     @Published private(set) var reading: NoteReading?
-    /// Set by `copyTranscript()`, cleared when the selection changes: for a
-    /// brief "Copied" confirmation.
+    /// Set by `copyTranscript()` for a brief "Copied" confirmation: cleared
+    /// after `copiedFor` or when the selection changes.
     @Published private(set) var transcriptCopied = false
     /// The meeting being recorded or transcribed (any search); see `inProgress`.
     @Published private(set) var meetingUnderWay: LibraryInProgressRow?
@@ -74,25 +74,33 @@ final class LibraryViewModel: ObservableObject {
     private let now: () -> Date
     private let calendar: Calendar
     private let notifications: NotificationCenter
+    private let sleep: @Sendable (Duration) async -> Void
     private var generation = 0
     private var pendingReload: Task<Void, Never>?
+    private var copiedReset: Task<Void, Never>?
     private var meetingStatus: MeetingStatus = .idle
     /// Idle with the row still up: the next reload that lands removes it.
     private var rowEndsOnReload = false
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
+    /// How long "Copied" shows.
+    static let copiedFor = Duration.seconds(2)
+
     /// `now` and `calendar` (time zone, locale, first weekday) date the
     /// sections and format rows and the header; the sections regroup when
-    /// `notifications` says the day or the time zone changed.
+    /// `notifications` says the day or the time zone changed. `sleep` times
+    /// the "Copied" confirmation.
     init(library: NotesLibrary, opener: NoteOpening = WorkspaceNoteOpener(),
          pasteboard: PasteboardWriting = SystemClipboard(),
          now: @escaping () -> Date = Date.init, calendar: Calendar = .autoupdatingCurrent,
-         notifications: NotificationCenter = .default) {
+         notifications: NotificationCenter = .default,
+         sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
         self.library = library
         self.opener = opener
         self.pasteboard = pasteboard
         self.now = now
         self.calendar = calendar
+        self.sleep = sleep
         self.notifications = notifications
         for name in [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange] {
             observers.append(notifications.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
@@ -138,8 +146,12 @@ final class LibraryViewModel: ObservableObject {
 
     func stop() { library.stopWatching() }
 
-    /// Resolves once the reload a folder change started is done (tests).
-    func settled() async { await pendingReload?.value }
+    /// Resolves once the reload a folder change started and the "Copied"
+    /// timer are done (tests).
+    func settled() async {
+        await pendingReload?.value
+        await copiedReset?.value
+    }
 
     private func scheduleReload() {
         pendingReload = Task { await reload() }
@@ -269,7 +281,33 @@ final class LibraryViewModel: ObservableObject {
     func copyTranscript() {
         guard let text = reading?.transcriptText, !text.isEmpty else { return }
         pasteboard.write(text)
+        showCopied()
+    }
+
+    /// Copies the note `id`'s transcript (a row's context menu), read from
+    /// disk, without changing the selection. Gone: a quiet message.
+    func copyTranscript(of id: String) async {
+        let library = library, calendar = calendar
+        let result = await Task.detached { Result { NoteReading(try library.note(id: id), calendar: calendar).transcriptText } }.value
+        switch result {
+        case .success(let text) where !text.isEmpty:
+            pasteboard.write(text)
+            if selection == id { showCopied() }
+        case .success:
+            break
+        case .failure(let error):
+            message = Self.describe(error, verb: "copy")
+        }
+    }
+
+    private func showCopied() {
         transcriptCopied = true
+        copiedReset?.cancel()
+        let sleep = sleep
+        copiedReset = Task {
+            await sleep(Self.copiedFor)
+            if !Task.isCancelled { transcriptCopied = false }
+        }
     }
 
     // MARK: Rename
