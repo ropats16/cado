@@ -43,6 +43,9 @@ extension SettingsView {
 
             // Slot: max meeting length
 
+            // Slot: meeting language
+            meetingLanguageSection   // SettingsView+MeetingLanguage.swift (#47)
+
             // Slot: summaries on/off
             summariesSection   // SettingsView+Summaries.swift (#34)
         }
