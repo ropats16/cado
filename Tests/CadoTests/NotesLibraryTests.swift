@@ -420,6 +420,36 @@ final class NotesLibraryTests: XCTestCase {
         XCTAssertEqual(lib.filesParsed, afterFirst, "no file was read again")
     }
 
+    func testATimeZoneChangeDropsTheCache() throws {
+        final class Zone: @unchecked Sendable { var id = "Europe/London" }
+        let zone = Zone()
+        let lib = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
+                               timeZone: utc, currentZone: { zone.id })
+        try write("A.md", "---\ntitle: A\ndate: 2027-01-15\n---\n")
+        _ = lib.list()
+        let before = lib.filesParsed
+        _ = lib.list()
+        XCTAssertEqual(lib.filesParsed, before, "same zone: cached")
+        zone.id = "Asia/Tokyo"
+        _ = lib.list()
+        XCTAssertEqual(lib.filesParsed, before + 1, "new zone: read again")
+    }
+
+    func testAnInvalidationDuringAListingPassWins() throws {
+        var lib: NotesLibrary!
+        var fireOnce = false
+        lib = NotesLibrary(folder: { [unowned self] in
+            if fireOnce { fireOnce = false; lib.invalidateCache() }
+            return self.dir
+        }, trasher: trasher, watcher: watcher, timeZone: utc)
+        try write("A.md", "---\ntitle: A\ndate: 2027-01-15T09:00:00Z\n---\n")
+        fireOnce = true
+        _ = lib.list()          // invalidated mid-pass: nothing cached
+        let before = lib.filesParsed
+        _ = lib.list()
+        XCTAssertEqual(lib.filesParsed, before + 1, "the stale pass did not repopulate the cache")
+    }
+
     func testOnlyAChangedFileIsReparsed() throws {
         let lib = makeLibrary()
         try write("A.md", "---\ntitle: A\ndate: 2027-01-15T09:00:00Z\n---\nbody a")

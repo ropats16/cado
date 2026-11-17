@@ -135,6 +135,11 @@ final class NotesLibrary {
     }
     private let cacheLock = NSLock()
     private var cache: [String: (stamp: Stamp, summary: NoteSummary)] = [:]
+    /// The zone date-only front matter (`date: 2026-11-17`) was read in; a change drops the cache.
+    private var cacheZone: String
+    /// Bumped by `invalidateCache()`: a listing pass that started before it must not store its result.
+    private var cacheEpoch = 0
+    private let currentZone: () -> String
     /// How many note files `list()` has had to read and parse (tests).
     private(set) var filesParsed = 0
 
@@ -142,12 +147,15 @@ final class NotesLibrary {
          trasher: NoteTrashing = SystemTrasher(),
          watcher: FolderWatching = FSEventsFolderWatcher(),
          timeZone: TimeZone = .current,
+         currentZone: @escaping () -> String = { TimeZone.autoupdatingCurrent.identifier },
          sync: @escaping (URL) throws -> Void = Durable.sync) {
         self.sync = sync
         self.folder = folder
         self.trasher = trasher
         self.watcher = watcher
         self.timeZone = timeZone
+        self.currentZone = currentZone
+        self.cacheZone = currentZone()
     }
 
     deinit { watcher.stop() }
@@ -188,10 +196,15 @@ final class NotesLibrary {
 
     /// Newest first (by note date, then filename).
     func list() -> [NoteSummary] {
+        cacheLock.lock()
+        let epoch = cacheEpoch
+        cacheLock.unlock()
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]
         let urls = (try? fileManager.contentsOfDirectory(
             at: folder(), includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles])) ?? []
+        let zone = currentZone()
         cacheLock.lock()
+        if zone != cacheZone { cache = [:]; cacheZone = zone }
         let known = cache
         cacheLock.unlock()
         var kept: [String: (stamp: Stamp, summary: NoteSummary)] = [:]
@@ -216,7 +229,8 @@ final class NotesLibrary {
             summaries.append(note.summary)
         }
         cacheLock.lock()
-        cache = kept
+        // An invalidation during this pass wins (the watcher saw a change this pass may have missed).
+        if epoch == cacheEpoch && zone == cacheZone { cache = kept }
         filesParsed += parsed
         cacheLock.unlock()
         return summaries.sorted(by: Self.newestFirst)
@@ -226,6 +240,7 @@ final class NotesLibrary {
     func invalidateCache() {
         cacheLock.lock()
         cache = [:]
+        cacheEpoch += 1
         cacheLock.unlock()
     }
 
