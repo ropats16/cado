@@ -65,7 +65,7 @@ struct AcknowledgementsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Brand.Palette.background)
-        .tint(Brand.Palette.accent)
+        .tint(Brand.Palette.accentText)   // links: AA on the cards (BrandTests)
     }
 
     private func block(_ markdown: String, color: Color) -> some View {

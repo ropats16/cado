@@ -35,6 +35,17 @@ enum Brand {
         /// light mode so it passes as text (≥4.5:1) on the cream surfaces.
         static let pulse = Color(nsColor: NS.pulse)
 
+        /// The green tint behind a small `accentText` badge (onboarding's
+        /// "Recommended"): `accent` at this opacity. BrandTests checks the
+        /// text on it reaches AA in both appearances.
+        static let badgeTintOpacity = 0.14
+
+        /// The hairline around cards and badge circles: faint, firmer under
+        /// Increase Contrast (`colorSchemeContrast`).
+        static func outline(_ contrast: ColorSchemeContrast) -> Color { ink.opacity(outlineOpacity(contrast)) }
+
+        static func outlineOpacity(_ contrast: ColorSchemeContrast) -> Double { contrast == .increased ? 0.45 : 0.1 }
+
         /// `Palette` as `NSColor`s, for AppKit.
         enum NS {
             static let accent = NSColor.systemGreen

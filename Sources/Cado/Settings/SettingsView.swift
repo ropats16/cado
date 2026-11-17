@@ -11,6 +11,7 @@ struct SettingsView: View {
     /// can reach it via `viewModel.cancelCapture()` from `windowWillClose(_:)`.
     /// Passed explicitly so SwiftUI observes its `@Published` properties.
     @ObservedObject var recorder: HotkeyRecorder
+    @Environment(\.colorSchemeContrast) private var contrast
     /// Room for the longest model and engine names before they truncate.
     private static let pickerWidth: CGFloat = 240
 
@@ -194,7 +195,7 @@ struct SettingsView: View {
                 .frame(width: 60, height: 60)
                 .frame(width: 72, height: 72)
                 .background(Brand.Palette.surface, in: Circle())
-                .overlay(Circle().strokeBorder(Brand.Palette.ink.opacity(0.1)))
+                .overlay(Circle().strokeBorder(Brand.Palette.outline(contrast)))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Cado")

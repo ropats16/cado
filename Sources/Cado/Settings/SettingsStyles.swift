@@ -40,7 +40,7 @@ struct SettingsCard<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Brand.Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Brand.Palette.ink.opacity(contrast == .increased ? 0.45 : 0.1)))
+                .strokeBorder(Brand.Palette.outline(contrast)))
     }
 }
 

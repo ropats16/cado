@@ -218,6 +218,7 @@ private struct StepDots: View {
 /// badge once it's done (or when it can't be).
 private struct StepHero: View {
     let step: OnboardingStep
+    @Environment(\.colorSchemeContrast) private var contrast
 
     /// Parsed once: `Brand.Art.mascot` builds a new image from the SVG per call.
     private static let idle = Brand.Art.mascot(.idle)
@@ -255,7 +256,7 @@ private struct StepHero: View {
             .foregroundStyle(Brand.Palette.accent)
             .frame(width: 64, height: 64)
             .background(Brand.Palette.surface, in: Circle())
-            .overlay(Circle().strokeBorder(Brand.Palette.ink.opacity(0.1)))
+            .overlay(Circle().strokeBorder(Brand.Palette.outline(contrast)))
             .overlay(alignment: .bottomTrailing) { badge.offset(x: 4, y: 4) }
     }
 
@@ -300,10 +301,10 @@ private struct ModelOptionRow: View {
                         if option.isRecommended {
                             Text("Recommended")
                                 .font(Brand.Typography.font(.caption2, weight: .semibold))
-                                .foregroundStyle(Brand.Palette.accent)
+                                .foregroundStyle(Brand.Palette.accentText)   // AA on the tint (BrandTests)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 1)
-                                .background(Brand.Palette.accent.opacity(0.14), in: Capsule())
+                                .background(Brand.Palette.accent.opacity(Brand.Palette.badgeTintOpacity), in: Capsule())
                         }
                     }
                     Text(option.detail)

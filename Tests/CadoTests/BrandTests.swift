@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 @testable import Cado
 
 /// `Brand`: the embedded mascot art loads (in `swift run` and the .app alike,
@@ -64,7 +65,57 @@ final class BrandTests: XCTestCase {
         XCTAssertTrue(font.fontName.localizedCaseInsensitiveContains("rounded"), font.fontName)
     }
 
+    // MARK: - Contrast (#44)
+
+    /// Cards and badge rings: faint, firmer under Increase Contrast, one rule.
+    func testTheOutlineFirmsUpUnderIncreaseContrast() {
+        XCTAssertEqual(Brand.Palette.outlineOpacity(.standard), 0.1)
+        XCTAssertEqual(Brand.Palette.outlineOpacity(.increased), 0.45)
+    }
+
+    /// Green text (the onboarding Recommended badge on its green tint, links
+    /// in Acknowledgements and notes) reaches WCAG AA (4.5:1) on every
+    /// background it sits on, in light and dark.
+    func testGreenTextPassesAAOnItsBackgrounds() {
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            let window = solid(Brand.Palette.NS.background, appearance)
+            let card = over(Brand.Palette.NS.surface, window, appearance)
+            let badge = over(Brand.Palette.NS.accent.withAlphaComponent(Brand.Palette.badgeTintOpacity), card, appearance)
+            let text = solid(Brand.Palette.NS.accentText, appearance)
+            for (name, ground) in [("window", window), ("card", card), ("badge", badge)] {
+                let ratio = contrast(text, ground)
+                print("contrast \(appearance.rawValue) accentText on \(name): \(String(format: "%.2f", ratio)):1")
+                XCTAssertGreaterThanOrEqual(ratio, 4.5, "\(appearance.rawValue) \(name)")
+            }
+        }
+    }
+
     // MARK: - Helpers
+
+    private typealias RGB = (r: Double, g: Double, b: Double)
+
+    private func components(_ colour: NSColor, _ name: NSAppearance.Name) -> (RGB, Double) {
+        let c = resolved(colour, name)!
+        return ((Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent)), Double(c.alphaComponent))
+    }
+
+    /// An opaque colour as drawn (its alpha over white would be wrong: the
+    /// window background is opaque).
+    private func solid(_ colour: NSColor, _ name: NSAppearance.Name) -> RGB { components(colour, name).0 }
+
+    /// `colour` (with its alpha) composited over `ground`.
+    private func over(_ colour: NSColor, _ ground: RGB, _ name: NSAppearance.Name) -> RGB {
+        let (c, a) = components(colour, name)
+        return (c.r * a + ground.r * (1 - a), c.g * a + ground.g * (1 - a), c.b * a + ground.b * (1 - a))
+    }
+
+    /// WCAG 2 contrast ratio of two sRGB colours.
+    private func contrast(_ x: RGB, _ y: RGB) -> Double {
+        func channel(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        func luminance(_ c: RGB) -> Double { 0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b) }
+        let (a, b) = (luminance(x), luminance(y))
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
 
     private func resolved(_ colour: NSColor, _ name: NSAppearance.Name) -> NSColor? {
         var out: NSColor?
