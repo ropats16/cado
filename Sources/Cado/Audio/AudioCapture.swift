@@ -20,6 +20,10 @@ enum AudioCaptureError: LocalizedError {
 ///
 /// Main-thread API: call `begin`, `end` and `cancel` on main; callbacks arrive
 /// on main. None of them waits for the source: a cold mic starts on the queue.
+///
+/// With `onSamples` set, the queue also gathers what's recorded into batches
+/// of `streamBatchSeconds` (whatever size the source writes in) and hands
+/// each to main; the real-time thread does exactly what it does without.
 final class AudioCapture {
     static let sampleRate: Double = 16_000
     /// Audio kept from before `begin` while the source is warm, so speech that
@@ -39,6 +43,11 @@ final class AudioCapture {
     /// Slack past the post-roll before `end` gives up waiting for audio, so a
     /// source that went silent can't leave a recording unfinished.
     static let endGraceSeconds = 0.8
+    /// Size of an `onSamples` delivery (the last one of a recording, or one
+    /// cut short by `streamMaxWaitSeconds`, can be smaller).
+    static let streamBatchSeconds = 0.5
+    /// Longest a partial batch waits, by `now`, while audio trickles in.
+    static let streamMaxWaitSeconds = 1.0
 
     /// 0...1 RMS level of the recording, for the waveform UI.
     var onLevel: ((Float) -> Void)?
@@ -48,6 +57,18 @@ final class AudioCapture {
     /// will be recorded until the next `begin`. Not for stops the capture
     /// makes itself (end, idle). For meetings, whose streams run for hours.
     var onSourceLost: (() -> Void)?
+
+    /// Called on MAIN with the samples recorded since the last call, in
+    /// order, exactly once each — including the silence `keepsTime` inserts
+    /// for a source gap — so the concatenation of every delivery equals what
+    /// `end` would have returned. Delivered at least about once a second while
+    /// recording, and everything still pending is delivered before `end`'s
+    /// completion runs. Set before `begin`. nil (default) = no incremental
+    /// delivery, zero added cost.
+    ///
+    /// Batches are `streamBatchSeconds` long. A lost source delivers what it
+    /// recorded before `onSourceLost` is called; `cancel` drops what's pending.
+    var onSamples: (([Float]) -> Void)?
 
     /// True from `begin` until `end`, `cancel`, or a failed start.
     private(set) var isRecording = false
@@ -65,6 +86,7 @@ final class AudioCapture {
     private let idleStopSamples: Int
     private let maxSeconds: () -> Double
     private let keepsTime: Bool
+    private let retainsSamples: Bool
     private let now: () -> TimeInterval
     private let queue = DispatchQueue(label: "com.ropats16.Cado.capture", qos: .userInitiated)
 
@@ -77,8 +99,15 @@ final class AudioCapture {
     private var outputBuffer: AVAudioPCMBuffer?
     private var timer: DispatchSourceTimer?
     private var preRoll = PreRoll(capacity: Int(preRollSeconds * sampleRate))
+    /// Non-nil while recording; holds the samples only if `retainsSamples`.
     private var recording: SampleBlocks?
+    /// Samples recorded so far, kept or not: what the cap is checked against.
+    private var recordedCount = 0
     private var recordingCap = Int.max
+    /// The recording's `onSamples`, taken at `begin`, and its batch so far.
+    private var stream: (([Float]) -> Void)?
+    private var streamBatch: [Float] = []
+    private var streamBatchStartedAt: TimeInterval = 0
     /// Set by `end`: post-roll samples still to record, and who gets the result.
     private var pendingEnd: (remaining: Int, completion: ([Float]) -> Void)?
     /// Counts `end` calls, so a late end timeout can't finish a newer recording.
@@ -109,14 +138,19 @@ final class AudioCapture {
     /// again is recorded as silence instead of being left out, so two
     /// streams recorded side by side still line up. Off (dictation), the
     /// gap is left out. `now` is the clock that's measured on (seconds).
+    ///
+    /// `retainsSamples` false: the recording is not kept in memory — samples
+    /// only go to `onSamples`, and `end` completes with an empty array.
+    /// Default true (today's behaviour).
     init(source: AudioSource, keepWarm: Bool = false, idleSeconds: Double = AudioCapture.idleSeconds,
          maxSeconds: @escaping () -> Double = { 0 }, keepsTime: Bool = false,
-         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+         retainsSamples: Bool = true, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.source = source
         self.keepWarm = keepWarm
         idleStopSamples = Int(max(0, idleSeconds) * Self.sampleRate)
         self.maxSeconds = maxSeconds
         self.keepsTime = keepsTime
+        self.retainsSamples = retainsSamples
         self.now = now
         // ~1.4 s at 48 kHz: far more than one drain interval.
         ring = vt_ring_create(1 << 16)!
@@ -149,9 +183,10 @@ final class AudioCapture {
         isRecording = true
         beginCount += 1
         let thisBegin = beginCount
+        let stream = onSamples
         queue.async { [self] in
             var failure: Error?
-            do { try beginRecording(cap: cap) } catch { failure = error }
+            do { try beginRecording(cap: cap, stream: stream) } catch { failure = error }
             DispatchQueue.main.async { [self] in
                 if failure != nil && beginCount == thisBegin { isRecording = false }
                 started(failure)
@@ -160,7 +195,8 @@ final class AudioCapture {
     }
 
     /// Ends the recording once the post-roll is in (sooner if the source stops);
-    /// `completion` gets its samples on main. Takes a completion rather than
+    /// `completion` gets its samples on main (none without `retainsSamples`),
+    /// after the last `onSamples` delivery. Takes a completion rather than
     /// being `async` so the end is registered at the call, i.e. at key release.
     func end(_ completion: @escaping ([Float]) -> Void) {
         guard isRecording else {
@@ -188,9 +224,10 @@ final class AudioCapture {
         try queue.sync { if !isRunning { try startSource() } }
     }
 
-    /// Samples held in memory (pre-roll plus recording), for tests.
+    /// Samples held in memory (pre-roll, recording, and a batch not yet
+    /// delivered), for tests.
     var retainedSampleCount: Int {
-        queue.sync { preRoll.count + (recording?.count ?? 0) }
+        queue.sync { preRoll.count + (recording?.count ?? 0) + streamBatch.count }
     }
 
     /// Discards the recording.
@@ -199,6 +236,7 @@ final class AudioCapture {
         isRecording = false
         queue.async { [self] in
             recording = nil
+            endStream()
             gapSince = nil
             idleSamples = 0
         }
@@ -206,7 +244,7 @@ final class AudioCapture {
 
     // MARK: - Recording (on queue)
 
-    private func beginRecording(cap: Int) throws {
+    private func beginRecording(cap: Int, stream: (([Float]) -> Void)?) throws {
         finishRecording()   // a previous recording still in its post-roll ends here
         if isRunning && source.needsRestart { stopSource() }
         if !isRunning { try startSource() }
@@ -214,13 +252,21 @@ final class AudioCapture {
         // recording on a stopped source.
         drainRing()
         recording = SampleBlocks()
+        recordedCount = 0
         gapSince = nil
         recordingCap = cap
+        if let stream {
+            self.stream = stream
+            streamBatch.reserveCapacity(Self.streamBatchSamples)
+            streamBatchStartedAt = now()
+        }
         preRoll.take().withUnsafeBufferPointer { record($0) }
     }
 
     private func finishRecording() {
         guard let completion = pendingEnd?.completion else { return }
+        flushStream()   // before the completion: main runs them in this order
+        endStream()
         let samples = recording?.take() ?? []
         recording = nil
         gapSince = nil
@@ -248,19 +294,31 @@ final class AudioCapture {
     /// Appends `seconds` of silence to the recording, up to its cap.
     private func recordSilence(_ seconds: TimeInterval) {
         guard recording != nil else { return }
-        let samples = min(Int(seconds * Self.sampleRate), recordingCap - recording!.count)
+        let samples = min(Int(seconds * Self.sampleRate), recordingCap - recordedCount)
         guard samples > 0 else { return }
         Log.info("Audio source was silent for \(String(format: "%.2f", seconds)) s across a restart; keeping the gap.")
-        recording!.appendSilence(samples)
+        if retainsSamples { recording!.appendSilence(samples) }
+        recordedCount += samples
+        if stream != nil {
+            var rest = samples
+            while rest > 0 {
+                let take = min(rest, Self.streamBatchSamples - streamBatch.count)
+                streamBatch.append(contentsOf: repeatElement(0, count: take))
+                rest -= take
+                if streamBatch.count == Self.streamBatchSamples { flushStream() }
+            }
+        }
     }
 
     /// Appends to the recording, up to its cap.
     private func record(_ samples: UnsafeBufferPointer<Float>) {
         guard !samples.isEmpty else { return }
-        let room = recordingCap - recording!.count
+        let room = recordingCap - recordedCount
         guard room > 0 else { return }
         let kept = UnsafeBufferPointer(rebasing: samples.prefix(room))
-        recording!.append(kept)
+        if retainsSamples { recording!.append(kept) }
+        recordedCount += kept.count
+        if stream != nil { addToStream(kept) }
 
         var sumSquares: Float = 0
         for s in kept { sumSquares += s * s }
@@ -354,7 +412,40 @@ final class AudioCapture {
 
     /// On queue: the running recording's source is gone.
     private func reportSourceLost() {
+        flushStream()   // what it recorded comes before the news
         DispatchQueue.main.async { [weak self] in self?.onSourceLost?() }
+    }
+
+    // MARK: - Streaming (on queue)
+
+    private static let streamBatchSamples = Int(streamBatchSeconds * sampleRate)
+
+    /// Adds recorded samples to the batch, handing each full one to main.
+    private func addToStream(_ samples: UnsafeBufferPointer<Float>) {
+        var rest = samples[...]
+        while !rest.isEmpty {
+            let take = min(rest.count, Self.streamBatchSamples - streamBatch.count)
+            streamBatch.append(contentsOf: rest.prefix(take))
+            rest = rest.dropFirst(take)
+            if streamBatch.count == Self.streamBatchSamples { flushStream() }
+        }
+    }
+
+    /// Hands the batch so far, if any, to `onSamples` on main.
+    private func flushStream() {
+        guard let stream, !streamBatch.isEmpty else { return }
+        let batch = streamBatch
+        streamBatch = []
+        streamBatch.reserveCapacity(Self.streamBatchSamples)
+        streamBatchStartedAt = now()
+        DispatchQueue.main.async { stream(batch) }
+    }
+
+    /// The recording is over: nothing more goes to its `onSamples`.
+    private func endStream() {
+        guard stream != nil else { return }
+        stream = nil
+        streamBatch = []
     }
 
     // MARK: - Draining + resampling (on queue)
@@ -363,6 +454,10 @@ final class AudioCapture {
     /// stalled, then stops it if it has idled past `idleSeconds`.
     private func drainRingAndStopIfIdle() {
         drainRing()
+        if stream != nil, !streamBatch.isEmpty,
+           now() - streamBatchStartedAt >= Self.streamMaxWaitSeconds {
+            flushStream()
+        }
         // E.g. AirPods switching to call quality as the mic opens: the device
         // changes format under the mic, which can go silent without the
         // change ever looking like one when it's reported.
