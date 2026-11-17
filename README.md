@@ -8,12 +8,14 @@ and the Claude Code CLI. No audio or text is ever sent to the internet; the
 only network use is downloading models and a daily update check you can turn
 off (see [Privacy](#privacy)).
 
-> **Status:** v1. You install it by building it on your own Mac (steps below).
-> A ready-made download will come later. Models (whisper.cpp, WhisperKit,
-> Parakeet) download from Settings › Model (only when you click Download).
->
-> **Homebrew** (available once the first release is published; not yet):
+> **Install:** download the latest `Cado-<version>.dmg` from
+> [Releases](https://github.com/ropats16/cado/releases/latest), open it and
+> drag Cado to Applications. Or with Homebrew:
 > `brew install --cask ropats16/tap/cado`
+>
+> Requires macOS 14 or later (meeting notes need 14.2). You can also build it
+> yourself (steps below). Models (whisper.cpp, WhisperKit, Parakeet) download
+> from Settings › Model (only when you click Download).
 
 ---
 
