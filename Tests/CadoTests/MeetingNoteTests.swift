@@ -83,7 +83,7 @@ final class MeetingNoteTests: XCTestCase {
         XCTAssertEqual(lines[3], "> Zoom's audio stopped recording at 12:34; after that only your microphone was recorded.")
         XCTAssertEqual(lines[4], "> Recording stopped at the 2-hour limit.")
         XCTAssertEqual(lines[5], "> 2 of 9 passages couldn't be transcribed: No model.")
-        XCTAssertEqual(lines[6], "> The meeting's audio is kept in `/tmp/a b`.")
+        XCTAssertEqual(lines[6], "> The meeting's audio is kept in `/tmp/a b`. If it isn't there yet, Cado copies it to its Meeting Audio folder the next time it starts.")
         XCTAssertEqual(MarkdownBlock.parse(note.body).filter { if case .quote = $0 { return true } else { return false } }.count, 1)
     }
 

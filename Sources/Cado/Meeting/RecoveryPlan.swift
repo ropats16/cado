@@ -137,8 +137,7 @@ struct RecoveryPlan: Equatable {
                 saveFailed = true
                 reachedSaving = true
                 transcriptionComplete = true
-            default:
-                break
+            case .recoveryGaveUp, .toldUser: break   // `MeetingSession` reads these itself
             }
         }
         closeAttempt()

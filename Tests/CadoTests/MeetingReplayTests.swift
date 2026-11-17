@@ -113,7 +113,7 @@ final class MeetingReplayTests: XCTestCase {
     }
 
     private func makeRun(me: URL, them: URL, permission: SystemAudioPermission = .unconfirmed,
-                         keepAudio: Bool = false, date: Date? = nil,
+                         keepAudio: Bool = false, date: Date? = nil, spooling: MeetingSpooling? = nil,
                          background: @escaping (@escaping () -> Void, @escaping () -> Void) -> Void = { work, done in
                              DispatchQueue.global(qos: .utility).async {
                                  work()
@@ -129,7 +129,7 @@ final class MeetingReplayTests: XCTestCase {
             recorder: recorder, engine: engine,
             notes: NotesLibrary(folder: { [notesDir] in notesDir }, timeZone: TimeZone(identifier: "UTC")!),
             archive: FolderMeetingArchive(root: archiveDir),
-            spool: FolderMeetingSpool(root: spoolDir), feedback: notices, activity: notices, clock: clock,
+            spool: spooling ?? FolderMeetingSpool(root: spoolDir), feedback: notices, activity: notices, clock: clock,
             date: { start },
             systemAudioPermission: { permission }, keepAudio: { keepAudio },
             locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!, background: background)
@@ -664,5 +664,157 @@ final class MeetingReplayTests: XCTestCase {
         XCTAssertEqual(try onlyNote(), saved)
         XCTAssertEqual(next.engine.submitted, 0)
         XCTAssertEqual(next.notices.titles, [], "Told only after a failed copy")
+    }
+
+    // MARK: - A full disk (#31 review 2)
+
+    /// The folder spool, except that from the first event `refuses` picks
+    /// its journal takes nothing more, as on a disk that just filled up
+    /// (audio, renames and reads are the real thing).
+    private final class FullJournalSpooling: MeetingSpooling {
+        private let inner: FolderMeetingSpool
+        private let refuses: (SpoolEvent) -> Bool
+        init(root: URL, refuses: @escaping (SpoolEvent) -> Bool) {
+            inner = FolderMeetingSpool(root: root)
+            self.refuses = refuses
+        }
+        func create(_ meeting: SpooledMeeting) throws -> MeetingSpoolHandle {
+            FullJournalHandle(try inner.create(meeting), refuses: refuses)
+        }
+        func leftovers() -> [LeftoverMeeting] { inner.leftovers() }
+    }
+
+    private final class FullJournalHandle: MeetingSpoolHandle {
+        struct DiskFull: LocalizedError { var errorDescription: String? { "No space left on device" } }
+        private let inner: MeetingSpoolHandle
+        private let refuses: (SpoolEvent) -> Bool
+        private var full = false
+        init(_ inner: MeetingSpoolHandle, refuses: @escaping (SpoolEvent) -> Bool) { self.inner = inner; self.refuses = refuses }
+        var meeting: SpooledMeeting { inner.meeting }
+        func append(_ samples: [Float], for speaker: MeetingSpeaker) { inner.append(samples, for: speaker) }
+        func record(_ event: SpoolEvent) -> Bool {
+            if !full, refuses(event) { full = true }
+            return full ? false : inner.record(event)
+        }
+        var writeError: Error? { full ? DiskFull() : inner.writeError }
+        func sampleCount(of speaker: MeetingSpeaker) -> Int { inner.sampleCount(of: speaker) }
+        func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] { try inner.samples(range, of: speaker) }
+        func isSilent(_ speaker: MeetingSpeaker) -> Bool { inner.isSilent(speaker) }
+        func audio() -> SpoolAudio { inner.audio() }
+        var hasFolder: Bool { inner.hasFolder }
+        var hasAllAudioOnDisk: Bool { inner.hasAllAudioOnDisk }
+        var location: URL? { inner.location }
+        func mark(_ mark: SpoolFolderMark) -> Bool { inner.mark(mark) }
+        func moveFolder(into folder: URL) -> URL? { inner.moveFolder(into: folder) }
+        func discard() { inner.discard() }
+    }
+
+    /// The journal is full from the stop on.
+    private func fullAfterStop() -> FullJournalSpooling {
+        var stopped = false
+        return FullJournalSpooling(root: spoolDir) { event in
+            if case .stopped = event { stopped = true; return false }
+            return stopped
+        }
+    }
+
+    /// N1 (a): after the stop the journal fails, and neither the notes
+    /// folder nor the archive can be written: the whole meeting stays on
+    /// disk (its folder's name says why), and the next launch writes it,
+    /// saying why it's late.
+    func testAFullJournalAndNowhereToSaveLeavesTheWholeMeetingForTheNextLaunch() async throws {
+        let (me, them) = try standardWavs()
+        try Data().write(to: notesDir)     // a file where the folders should be: they can't be made
+        try Data().write(to: archiveDir)
+        var run: Run? = try makeRun(me: me, them: them, spooling: fullAfterStop())
+        try await start(run!)
+        run!.recorder.me.push(seconds: 9.5)
+        run!.recorder.them.push(seconds: 9.5)
+        run!.clock.advance(by: 9.5)
+        run!.session.stop()
+        run!.recorder.me.push(seconds: 0.3)
+        run!.recorder.them.push(seconds: 0.3)
+        try await waitFor("the attempt") { run!.session.status == .idle && !run!.notices.titles.isEmpty }
+        XCTAssertEqual(run!.notices.titles, ["Couldn't save the meeting note"], "No false \"isn't being saved to disk\"")
+        XCTAssertTrue(run!.notices.bodies[0].hasSuffix(" The meeting is safe: Cado will finish it the next time it starts."),
+                      run!.notices.bodies[0])
+        let left = contents(spoolDir)
+        XCTAssertEqual(left.count, 1)
+        XCTAssertTrue(left.first?.hasSuffix(".unsaved") == true, "\(left)")
+        XCTAssertGreaterThanOrEqual(spooled("me"), 9 * 16_000, "All the audio is still there")
+        XCTAssertEqual(journaled("noteSaveFailed"), 0, "The journal didn't take it")
+        drop(&run)
+
+        try FileManager.default.removeItem(at: notesDir)
+        try FileManager.default.removeItem(at: archiveDir)
+        let relaunched = try await relaunch()
+        XCTAssertEqual(try onlyNote(), Self.note(duration: 10, caveat:
+            "This note couldn't be saved when the meeting ended; it was finished the next time Cado started."))
+        XCTAssertEqual(relaunched.notices.titles, ["Meeting note saved"])
+        XCTAssertEqual(contents(spoolDir), [])
+    }
+
+    /// N1 (d): the note is saved but `.noteSaved` can't be journaled, and Cado
+    /// dies before the audio copy is done: the next launch only copies (into
+    /// a folder of its own, and says where); never a second note.
+    func testANoteSavedButNotJournaledIsNeverWrittenTwiceWhenCadoDiesDuringTheCopy() async throws {
+        let (me, them) = try standardWavs()
+        var run: Run? = try makeRun(me: me, them: them, keepAudio: true, spooling: fullAfterStop(),
+                                    background: { _, _ in })   // the copy never runs
+        try await start(run!)
+        run!.recorder.me.push(seconds: 9.5)
+        run!.recorder.them.push(seconds: 9.5)
+        run!.clock.advance(by: 9.5)
+        let saved = try await stop(run!)
+        XCTAssertEqual(saved, Self.note(duration: 10))
+        XCTAssertEqual(run!.notices.titles, ["Meeting note saved"])
+        let left = contents(spoolDir)
+        XCTAssertTrue(left.count == 1 && left[0].hasSuffix(".keep-audio"), "\(left)")
+        XCTAssertEqual(journaled("noteSaved"), 0)
+        drop(&run)
+
+        let next = try freshRun(keepAudio: true)
+        next.session.recoverLeftovers()
+        try await waitFor("the copy") { contents(spoolDir).isEmpty && !next.notices.titles.isEmpty }
+        let folder = "Meeting with Zoom — 16 Nov 2026 at 14 32"
+        XCTAssertEqual(try notes().count, 1, "Never a second note")
+        XCTAssertEqual(try onlyNote(), saved)
+        XCTAssertEqual(next.engine.submitted, 0)
+        XCTAssertEqual(contents(archiveDir.appendingPathComponent(folder + " 2")), ["Me.wav", "Others.wav"])
+        XCTAssertEqual(next.notices.titles, ["Meeting audio kept"])
+        XCTAssertEqual(next.notices.bodies, ["The audio of “Meeting with Zoom — 16 Nov 2026 at 14:32” is now in "
+                                             + archiveDir.appendingPathComponent(folder + " 2").path + "."])
+    }
+
+    /// N3: a launch gave up on a leftover and died writing its note: the
+    /// next one sets the recording aside in the archive, untouched, says
+    /// where, and never tries again.
+    func testAMeetingThatDiedAfterRecoveryGaveUpIsSetAsideInTheArchive() async throws {
+        _ = try standardWavs()
+        var h: MeetingSpoolHandle? = try FolderMeetingSpool(root: spoolDir)
+            .create(SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "us.zoom.xos", startDate: meetingDate))
+        h!.append([Float](repeating: 0.25, count: 16_000), for: .me)
+        for event: SpoolEvent in [.sideStarted(.me, origin: 0), .recoveryStarted, .recoveryStarted,
+                                  .recoveryGaveUp(reason: "stalled")] {
+            XCTAssertTrue(h!.record(event))
+        }
+        let id = h!.meeting.id.uuidString
+        h = nil   // died
+
+        let run = try await relaunch()
+        let folder = archiveDir.appendingPathComponent("Meeting with Zoom — 16 Nov 2026 at 14 32")
+        XCTAssertEqual(run.notices.titles, ["Couldn't finish a meeting"])
+        XCTAssertEqual(run.notices.bodies, ["Cado couldn't finish “Meeting with Zoom — 16 Nov 2026 at 14:32” and has stopped "
+                                            + "trying. Its recording is kept, unchanged, in \(folder.path)."])
+        XCTAssertEqual(contents(spoolDir), [])
+        XCTAssertEqual(contents(folder), [id])
+        XCTAssertEqual(contents(folder.appendingPathComponent(id)), ["events.jsonl", "lock", "me.f32", "meeting.json", "them.f32"])
+        XCTAssertEqual(run.engine.submitted, 0)
+        XCTAssertEqual(try notes(), [])
+
+        let next = try freshRun()
+        next.session.recoverLeftovers()
+        XCTAssertEqual(next.session.status, .idle)
+        XCTAssertEqual(next.notices.titles, [], "Told once")
     }
 }

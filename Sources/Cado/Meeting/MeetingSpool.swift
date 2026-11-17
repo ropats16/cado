@@ -23,6 +23,12 @@ import AVFoundation
 // (`isMilestone`: stop, quit, note saved…) and otherwise `synchronize()`d at
 // most every 5 seconds. Power loss may lose the last few seconds; that's
 // accepted.
+//
+// When the journal can't be written (the disk is full) but something must
+// still be remembered, the folder's name says it: `<uuid>.<mark>`
+// (`SpoolFolderMark`). A rename in place needs no free space. `leftovers()`
+// deletes a folder marked written down, and returns the others with their
+// mark; a folder with a name it doesn't know is left as it is.
 
 /// What identifies a spooled meeting; written once when it starts.
 struct SpooledMeeting: Codable, Equatable {
@@ -54,17 +60,20 @@ enum SpoolEvent: Codable, Equatable {
     case audioKept(folder: String)                                  // the audio copy succeeded
     case audioKeepFailed(reason: String)                            // the audio copy failed (the user was told on the first)
     case noteSaveFailed(reason: String)                             // the note couldn't be saved anywhere; finish it next launch
+    case recoveryGaveUp(reason: String)                             // recovery stopped trying; journaled before the note is written
+    case toldUser(SpoolNotice)                                      // said once per meeting, not again on a later launch
 
     /// Worth flushing to the disk itself, not just the OS.
     var isMilestone: Bool {
         switch self {
-        case .stopped, .appQuit, .recoveryPaused, .noteSaved, .audioKept, .noteSaveFailed: return true
+        case .stopped, .appQuit, .recoveryPaused, .noteSaved, .audioKept, .noteSaveFailed, .recoveryGaveUp, .toldUser:
+            return true
         default: return false
         }
     }
 
     private enum Key: String, CodingKey {
-        case type, speaker, origin, reason, at, through, from, to, offset, segments, capReached, note, keepAudio, folder
+        case type, speaker, origin, reason, at, through, from, to, offset, segments, capReached, note, keepAudio, folder, about
     }
 
     func encode(to encoder: Encoder) throws {
@@ -108,6 +117,10 @@ enum SpoolEvent: Codable, Equatable {
             try c.encode("audioKeepFailed", forKey: .type); try c.encode(reason, forKey: .reason)
         case let .noteSaveFailed(reason):
             try c.encode("noteSaveFailed", forKey: .type); try c.encode(reason, forKey: .reason)
+        case let .recoveryGaveUp(reason):
+            try c.encode("recoveryGaveUp", forKey: .type); try c.encode(reason, forKey: .reason)
+        case let .toldUser(notice):
+            try c.encode("toldUser", forKey: .type); try c.encode(notice, forKey: .about)
         }
     }
 
@@ -154,10 +167,35 @@ enum SpoolEvent: Codable, Equatable {
             self = .audioKeepFailed(reason: try c.decode(String.self, forKey: .reason))
         case "noteSaveFailed":
             self = .noteSaveFailed(reason: try c.decode(String.self, forKey: .reason))
+        case "recoveryGaveUp":
+            self = .recoveryGaveUp(reason: try c.decode(String.self, forKey: .reason))
+        case "toldUser":
+            self = .toldUser(try c.decode(SpoolNotice.self, forKey: .about))
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown event \(other)")
         }
     }
+}
+
+/// A notice the user gets once per meeting (`SpoolEvent.toldUser`).
+enum SpoolNotice: String, Codable, Equatable {
+    /// The note couldn't be saved; the meeting is safe and finished next launch.
+    case meetingIsSafe
+    /// Recovery gave up and the recording was set aside, untouched.
+    case recordingSetAside
+}
+
+/// What a spool folder's name says when the journal couldn't take it (the
+/// disk is full): `<uuid>.<rawValue>`.
+enum SpoolFolderMark: String, Equatable {
+    /// The note couldn't be saved anywhere, and `.noteSaveFailed` couldn't be
+    /// journaled: recovered as a note that couldn't be saved.
+    case noteNotSaved = "unsaved"
+    /// The note is saved but `.noteSaved` couldn't be journaled, and the audio
+    /// still has to be copied: only the copy is done again, never a note.
+    case audioPending = "keep-audio"
+    /// The note is saved and nothing is left to keep: `leftovers()` deletes it.
+    case writtenDown = "done"
 }
 
 /// On disk a speaker is a stable key, not the user-facing label (`rawValue`),
@@ -186,7 +224,8 @@ protocol MeetingSpoolHandle: AnyObject {
     var meeting: SpooledMeeting { get }
     /// Appends the next samples of one side. Never throws: a write failure is logged once and remembered in `writeError`.
     func append(_ samples: [Float], for speaker: MeetingSpeaker)
-    func record(_ event: SpoolEvent)
+    /// Appends to the journal. True if it's in it (a folder spool: written to the file); false if it couldn't be written (the disk is full, the folder is gone…).
+    @discardableResult func record(_ event: SpoolEvent) -> Bool
     /// First write/record failure, if any (disk full, folder gone…): after it, `samples(_:of:)` may throw and recovery may be incomplete.
     var writeError: Error? { get }
     /// Samples appended so far for one side.
@@ -197,10 +236,16 @@ protocol MeetingSpoolHandle: AnyObject {
     func isSilent(_ speaker: MeetingSpeaker) -> Bool
     /// The audio appended so far, as an immutable view that may be read off the main thread (exports, scans).
     func audio() -> SpoolAudio
-    /// Survives the app quitting: on disk, and nothing failed to write.
-    var isDurable: Bool { get }
+    /// Its folder is on disk, whatever `writeError` says: a later launch finds what's in it. Such a spool must not be discarded before its note is saved and any audio to keep is copied.
+    var hasFolder: Bool { get }
+    /// `hasFolder`, and no audio is held only in memory: everything recorded survives the app quitting (the journal may still have gaps).
+    var hasAllAudioOnDisk: Bool { get }
     /// The spool's folder, if it has one.
     var location: URL? { get }
+    /// Renames the folder in place to say `mark` (`SpoolFolderMark`), for when the journal can't take it. False (logged) if there's no folder or it can't be renamed.
+    @discardableResult func mark(_ mark: SpoolFolderMark) -> Bool
+    /// Moves the folder, as it is, into `folder`; its new place, or nil (logged) if it stays where it was. The handle writes nothing after.
+    func moveFolder(into folder: URL) -> URL?
     /// Deletes the spool folder. Idempotent. A failure is logged and leaves it (a later discard, or the next launch, deletes it).
     func discard()
 }
@@ -254,12 +299,14 @@ struct SpoolAudio {
 struct LeftoverMeeting {
     let handle: MeetingSpoolHandle
     let events: [SpoolEvent]      // in the order recorded; a torn final line is dropped
+    /// What its folder's name says, if it was marked (`SpoolFolderMark`).
+    var mark: SpoolFolderMark?
 }
 
 protocol MeetingSpooling: AnyObject {
     /// Starts a spool for a new meeting.
     func create(_ meeting: SpooledMeeting) throws -> MeetingSpoolHandle
-    /// Spools left behind by earlier runs (oldest first); unreadable ones are logged and skipped (and left on disk untouched).
+    /// Spools left behind by earlier runs (oldest first); unreadable ones are logged and skipped (and left on disk untouched). One marked written down is deleted, not returned.
     func leftovers() -> [LeftoverMeeting]
 }
 
@@ -324,7 +371,7 @@ final class InMemorySpoolHandle: MeetingSpoolHandle {
         stored[speaker, default: []].append(contentsOf: samples)
         if silent[speaker] == true, samples.contains(where: { $0 != 0 }) { silent[speaker] = false }
     }
-    func record(_ event: SpoolEvent) { events.append(event) }
+    func record(_ event: SpoolEvent) -> Bool { events.append(event); return true }
     func sampleCount(of speaker: MeetingSpeaker) -> Int { stored[speaker]?.count ?? 0 }
     func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] {
         let all = stored[speaker] ?? []
@@ -335,8 +382,11 @@ final class InMemorySpoolHandle: MeetingSpoolHandle {
         let copy = stored
         return SpoolAudio(counts: copy.mapValues(\.count)) { speaker, range in Array(copy[speaker]![range]) }
     }
-    var isDurable: Bool { false }
+    var hasFolder: Bool { false }
+    var hasAllAudioOnDisk: Bool { false }
     var location: URL? { nil }
+    func mark(_ mark: SpoolFolderMark) -> Bool { false }
+    func moveFolder(into folder: URL) -> URL? { nil }
     func discard() { stored = [.me: [], .them: []]; events = []; isDiscarded = true }
 }
 
@@ -347,7 +397,8 @@ final class InMemorySpoolHandle: MeetingSpoolHandle {
 /// audio is held in memory instead, so the meeting still transcribes and its
 /// audio can still be kept. Only crash recovery loses what's in memory. Reads
 /// and exports join the two seamlessly. Events still go to the disk spool
-/// (which drops them once it fails).
+/// (which drops them once it fails). Its folder, and the audio in it, are
+/// the disk spool's (`hasFolder`); only `hasAllAudioOnDisk` counts the memory part.
 final class FallbackSpoolHandle: MeetingSpoolHandle {
     private let primary: MeetingSpoolHandle
     /// Per side, once the disk refused: the index the memory part starts at.
@@ -383,7 +434,7 @@ final class FallbackSpoolHandle: MeetingSpoolHandle {
         if memorySilent[speaker] == true, samples.contains(where: { $0 != 0 }) { memorySilent[speaker] = false }
     }
 
-    func record(_ event: SpoolEvent) { primary.record(event) }
+    func record(_ event: SpoolEvent) -> Bool { primary.record(event) }
 
     func sampleCount(of speaker: MeetingSpeaker) -> Int {
         guard let start = memoryStart[speaker] else { return primary.sampleCount(of: speaker) }
@@ -418,8 +469,11 @@ final class FallbackSpoolHandle: MeetingSpoolHandle {
         }
     }
 
-    var isDurable: Bool { primary.isDurable && !isHoldingAudioInMemory }
+    var hasFolder: Bool { primary.hasFolder }
+    var hasAllAudioOnDisk: Bool { primary.hasAllAudioOnDisk && !isHoldingAudioInMemory }
     var location: URL? { primary.location }
+    func mark(_ mark: SpoolFolderMark) -> Bool { primary.mark(mark) }
+    func moveFolder(into folder: URL) -> URL? { primary.moveFolder(into: folder) }
 
     func discard() {
         primary.discard()
@@ -463,14 +517,34 @@ final class FolderMeetingSpool: MeetingSpooling {
     /// Spools no open handle holds (another instance's live meeting is
     /// locked), each now locked by its returned handle. A folder without a
     /// readable meeting.json is deleted if it holds no audio, else skipped.
+    /// A folder marked written down is deleted (its note is saved, nothing
+    /// is left to keep); one with a mark this build doesn't know is skipped.
     func leftovers() -> [LeftoverMeeting] {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return [] }
         excludeFromBackups()
         var found: [LeftoverMeeting] = []
         for dir in entries where (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            let name = dir.lastPathComponent.split(separator: ".", maxSplits: 1)
+            var mark: SpoolFolderMark?
+            if name.count == 2 {
+                guard let known = SpoolFolderMark(rawValue: String(name[1])) else {
+                    Log.info("Meeting spool \(dir.lastPathComponent) has a name this Cado doesn't know; left as it is")
+                    continue
+                }
+                mark = known
+            }
             guard let lock = SpoolLock.take(in: dir) else {
                 Log.info("Meeting spool \(dir.lastPathComponent) is in use by another Cado; skipped")
+                continue
+            }
+            if mark == .writtenDown {
+                Log.info("Meeting spool \(dir.lastPathComponent) was written down already; removed")
+                withExtendedLifetime(lock) {
+                    do { try fm.removeItem(at: dir) } catch {
+                        Log.error("Couldn't delete the meeting spool \(dir.lastPathComponent) (\(error.localizedDescription))")
+                    }
+                }
                 continue
             }
             guard let data = try? Data(contentsOf: dir.appendingPathComponent(FolderSpoolHandle.infoName)),
@@ -488,7 +562,7 @@ final class FolderMeetingSpool: MeetingSpooling {
                 continue
             }
             let handle = FolderSpoolHandle(meeting: info.meeting, dir: dir, lock: lock)
-            found.append(LeftoverMeeting(handle: handle, events: handle.readEvents()))
+            found.append(LeftoverMeeting(handle: handle, events: handle.readEvents(), mark: mark))
         }
         return found.sorted { $0.handle.meeting.startDate < $1.handle.meeting.startDate }
     }
@@ -555,7 +629,8 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
 
     let meeting: SpooledMeeting
     private(set) var writeError: Error?
-    private let dir: URL
+    /// Changes when the folder is marked or moved.
+    private var dir: URL
     /// Held for as long as this handle is open.
     private var lock: SpoolLock?
     private var outputs: [String: Output] = [:]
@@ -650,13 +725,14 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         if silent[speaker] == true, samples.contains(where: { $0 != 0 }) { silent[speaker] = false }
     }
 
-    func record(_ event: SpoolEvent) {
-        guard var data = try? encoder.encode(event) else { return }
+    func record(_ event: SpoolEvent) -> Bool {
+        guard var data = try? encoder.encode(event) else { return false }
         data.append(0x0A)
-        guard let out = output(Self.eventsName) else { return }
+        guard let out = output(Self.eventsName) else { return false }
         if out.handle != nil, !endsWithNewline(out.url) { data.insert(0x0A, at: 0) }   // a torn line from a crash
-        _ = write(data, to: out)
+        guard write(data, to: out) else { return false }
         if event.isMilestone { syncIfDue(full: true) }
+        return true
     }
 
     private var checkedEventsTail = false
@@ -718,11 +794,50 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         return SpoolAudio(counts: counts) { speaker, r in try Self.read(r, from: urls[speaker]!) }
     }
 
-    var isDurable: Bool { writeError == nil && FileManager.default.fileExists(atPath: dir.path) }
+    var hasFolder: Bool { FileManager.default.fileExists(atPath: dir.path) }
+    /// Nothing is held in memory here: an append that failed was never counted.
+    var hasAllAudioOnDisk: Bool { hasFolder }
     var location: URL? { dir }
 
+    /// Closes the files; they're reopened at the folder's new place on the next write.
+    private func closeOutputs(forGood: Bool) {
+        for o in outputs.values { try? o.handle?.close(); o.handle = nil; o.failed = forGood }
+        if !forGood { outputs = [:]; checkedEventsTail = false }
+    }
+
+    /// `<uuid>` (or `<uuid>.<old mark>`) → `<uuid>.<mark>`, in place: a rename
+    /// needs no free space. The lock is held throughout (it's on the open file).
+    func mark(_ mark: SpoolFolderMark) -> Bool {
+        let base = dir.lastPathComponent.split(separator: ".", maxSplits: 1).first.map(String.init) ?? dir.lastPathComponent
+        let target = dir.deletingLastPathComponent().appendingPathComponent("\(base).\(mark.rawValue)", isDirectory: true)
+        guard target.path != dir.path else { return true }
+        do {
+            try FileManager.default.moveItem(at: dir, to: target)
+        } catch {
+            Log.error("Couldn't mark the meeting spool \(dir.lastPathComponent) as \(mark.rawValue) (\(error.localizedDescription))")
+            return false
+        }
+        closeOutputs(forGood: false)
+        dir = target
+        return true
+    }
+
+    func moveFolder(into folder: URL) -> URL? {
+        let target = folder.appendingPathComponent(dir.lastPathComponent, isDirectory: true)
+        do {
+            try FileManager.default.moveItem(at: dir, to: target)
+        } catch {
+            Log.error("Couldn't move the meeting spool \(dir.lastPathComponent) (\(error.localizedDescription)); left where it is")
+            return nil
+        }
+        closeOutputs(forGood: true)
+        dir = target
+        lock = nil
+        return target
+    }
+
     func discard() {
-        for o in outputs.values { try? o.handle?.close(); o.handle = nil; o.failed = true }
+        closeOutputs(forGood: true)
         guard FileManager.default.fileExists(atPath: dir.path) else { lock = nil; return }
         do {
             try FileManager.default.removeItem(at: dir)

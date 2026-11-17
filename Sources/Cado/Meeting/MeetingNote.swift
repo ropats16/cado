@@ -80,7 +80,9 @@ struct MeetingNote: Equatable {
         case finishedLater(RecoveryPlan.Reason)
         /// Recovery gave up: the note has only what was transcribed before.
         case unfinished
-        /// Where the meeting's audio was kept (after a failure or quit).
+        /// Where the meeting's audio is kept (after a failure). Written only
+        /// when all of it is on disk: copied there, or still in the spool for
+        /// the next launch to copy (the words cover both).
         case audioKept(URL)
     }
 
@@ -180,7 +182,8 @@ struct MeetingNote: Equatable {
         case .unfinished:
             return "Cado couldn't finish transcribing this meeting, so this note has only what was transcribed before."
         case .audioKept(let url):
-            return "The meeting's audio is kept in `\(url.path)`."
+            return "The meeting's audio is kept in `\(url.path)`. If it isn't there yet, "
+                + "Cado copies it to its Meeting Audio folder the next time it starts."
         }
     }
 
