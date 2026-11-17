@@ -77,3 +77,16 @@ enum MarkdownBlock: Equatable {
         return nil
     }
 }
+
+/// Which links in a rendered note a click may open (#27). A note can come
+/// from anywhere (a synced or shared vault, a file edited elsewhere) and
+/// its link text hides the target, so a click opens only web and mail
+/// links; `file:`, app and other schemes (which could launch an app or
+/// open a local file) do nothing.
+enum NoteLinkPolicy {
+    static let schemes: Set<String> = ["https", "http", "mailto"]
+
+    static func opens(_ url: URL) -> Bool {
+        url.scheme.map { schemes.contains($0.lowercased()) } ?? false
+    }
+}

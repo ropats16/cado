@@ -120,6 +120,7 @@ version, and the app only starts Sparkle inside a `.app` with an https feed and 
 valid key (`UpdaterAvailability`).
 
 - `CFBundleShortVersionString` = `VERSION`. `CFBundleVersion` = git commit count on HEAD (monotonic along main; override with `CADO_BUILD=<int>`). Needs full git history, not a shallow clone.
+- **Pinned dependencies:** `Package.resolved` is committed and the release resolves and builds with `--force-resolved-versions`, so a DMG holds exactly the reviewed revisions of FluidAudio, WhisperKit and Sparkle, never a newer upstream release within `Package.swift`'s ranges (#27). To update one: `swift package update <name>`, review the upstream diff, commit `Package.resolved`.
 - **Clean tree:** the DMG is built from the working tree but `gh release create --target` tags HEAD, so a real release refuses uncommitted changes (tracked files, or untracked ones under `Sources`, `Resources`, `scripts`, `Package.swift`/`.resolved`, `Makefile`). A rehearsal lists them as a warning and goes on.
 - **Rehearsal** (no Apple credentials needed, any signing identity or `-`; result is *not* distributable):
   `SKIP_NOTARIZE=1 CADO_SIGN_IDENTITY="-" make release VERSION=0.2.0`

@@ -140,7 +140,8 @@ enum MarkdownInline {
     }
 }
 
-/// Markdown blocks as readable, selectable SwiftUI text.
+/// Markdown blocks as readable, selectable SwiftUI text. Links open only
+/// if `NoteLinkPolicy` allows them.
 struct MarkdownBodyView: View {
     let markdown: String
 
@@ -151,6 +152,7 @@ struct MarkdownBodyView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .environment(\.openURL, OpenURLAction { NoteLinkPolicy.opens($0) ? .systemAction : .discarded })
     }
 }
 

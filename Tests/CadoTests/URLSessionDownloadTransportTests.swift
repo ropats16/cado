@@ -76,11 +76,33 @@ final class URLSessionDownloadTransportTests: XCTestCase {
         }
     }
 
+    /// A server sending more than the pinned size (a bad or hostile CDN)
+    /// is cut off at the limit, so it can't fill the disk.
+    func testABodyPastTheLimitStopsAtTheLimit() async throws {
+        StubHTTP.respond = { [body] _ in .init(status: 200, body: body + body) }
+
+        do {
+            try await transport.fetch(url, from: 0, upTo: Int64(body.count), appendingTo: file) { _ in }
+            XCTFail("oversized")
+        } catch {
+            XCTAssertEqual(error as? ModelDownloadError, .oversized(bytes: Int64(body.count)))
+        }
+        XCTAssertLessThanOrEqual(try Data(contentsOf: file).count, body.count)
+    }
+
+    func testABodyOfExactlyTheLimitIsKept() async throws {
+        serveRanges()
+
+        try await transport.fetch(url, from: 0, upTo: Int64(body.count), appendingTo: file) { _ in }
+
+        XCTAssertEqual(try Data(contentsOf: file), body)
+    }
+
     func testResumesFromTheOffsetWithARange() async throws {
         serveRanges()
         try body.prefix(120).write(to: file)
 
-        try await transport.fetch(url, from: 120, appendingTo: file) { _ in }
+        try await transport.fetch(url, from: 120, upTo: Int64(body.count), appendingTo: file) { _ in }
 
         XCTAssertEqual(try Data(contentsOf: file), body)
         XCTAssertEqual(StubHTTP.requests.map { $0.value(forHTTPHeaderField: "Range") }, ["bytes=120-"])
@@ -95,7 +117,7 @@ final class URLSessionDownloadTransportTests: XCTestCase {
         }
         try body.prefix(120).write(to: file)
 
-        try await transport.fetch(url, from: 120, appendingTo: file) { _ in }
+        try await transport.fetch(url, from: 120, upTo: Int64(body.count), appendingTo: file) { _ in }
 
         XCTAssertEqual(try Data(contentsOf: file), body, "not 120 bytes + the whole body again")
     }
@@ -107,7 +129,7 @@ final class URLSessionDownloadTransportTests: XCTestCase {
         }
         try Data(repeating: 9, count: 120).write(to: file)   // a prefix it can't vouch for
 
-        try await transport.fetch(url, from: 120, appendingTo: file) { _ in }
+        try await transport.fetch(url, from: 120, upTo: Int64(body.count), appendingTo: file) { _ in }
 
         XCTAssertEqual(try Data(contentsOf: file), body)
     }
@@ -119,7 +141,7 @@ final class URLSessionDownloadTransportTests: XCTestCase {
         let task = Task { [transport, url, file] in
             withUnsafeCurrentTask { $0?.cancel() }
             do {
-                try await transport.fetch(url, from: 0, appendingTo: file!) { _ in }
+                try await transport.fetch(url, from: 0, upTo: 300, appendingTo: file!) { _ in }
                 XCTFail("cancelled")
             } catch {
                 XCTAssertTrue(error is CancellationError, "\(error)")
@@ -133,7 +155,7 @@ final class URLSessionDownloadTransportTests: XCTestCase {
 
     func testCancellingAHangingFetchEndsIt() async throws {
         StubHTTP.respond = { _ in .init(status: 200, hangs: true) }
-        let task = Task { [transport, url, file] in try await transport.fetch(url, from: 0, appendingTo: file!) { _ in } }
+        let task = Task { [transport, url, file] in try await transport.fetch(url, from: 0, upTo: 300, appendingTo: file!) { _ in } }
         for _ in 0..<500 where StubHTTP.requests.isEmpty { try await Task.sleep(nanoseconds: 2_000_000) }
 
         task.cancel()

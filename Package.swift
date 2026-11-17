@@ -36,7 +36,7 @@ let headerPaths = [
 let versionDefines: [(String, String)] = [
     ("GGML_VERSION", "\"0.15.3\""),
     ("GGML_COMMIT", "\"0ae02cd\""),
-    ("WHISPER_VERSION", "\"1.8.0\""),
+    ("WHISPER_VERSION", "\"1.9.1\""),
 ]
 
 // Arch-agnostic sources: whisper + ggml core + the shared CPU backend +

@@ -35,10 +35,17 @@ fi
 echo "==> Embedding Metal shader"
 bash "$ROOT/scripts/embed_metal_shader.sh"
 
-echo "==> Building $APP_NAME (release)"
-swift build -c release --package-path "$ROOT"
+# A release builds exactly the dependency revisions in the committed
+# Package.resolved (#27): never a newer upstream release within Package.swift's
+# version ranges. SwiftPM fails instead if the file is missing or out of date.
+# (Bash 3.2-safe empty-array expansion.)
+PINNED=()
+[[ -z "${CADO_VERSION:-}" ]] || PINNED=(--force-resolved-versions)
 
-BIN_DIR="$(swift build -c release --package-path "$ROOT" --show-bin-path)"
+echo "==> Building $APP_NAME (release)"
+swift build -c release --package-path "$ROOT" ${PINNED[@]+"${PINNED[@]}"}
+
+BIN_DIR="$(swift build -c release --package-path "$ROOT" ${PINNED[@]+"${PINNED[@]}"} --show-bin-path)"
 BIN="$BIN_DIR/$APP_NAME"
 if [[ ! -x "$BIN" ]]; then
   echo "error: built binary not found at $BIN" >&2

@@ -19,11 +19,14 @@ final class FolderModelDownloaderTests: XCTestCase {
         var cut: [URL: Int] = [:]
         var hang: Set<URL> = []
         var short: Set<URL> = []
+        private var _limits: [URL: Int64] = [:]
+        /// The `upTo` each URL was last fetched with.
+        var limits: [URL: Int64] { lock.withLock { _limits } }
         private let lock = NSLock()
 
-        func fetch(_ url: URL, from offset: Int64, appendingTo file: URL,
+        func fetch(_ url: URL, from offset: Int64, upTo limit: Int64, appendingTo file: URL,
                    progress: @escaping @Sendable (Int64) -> Void) async throws {
-            lock.withLock { _requests.append((url, offset)) }
+            lock.withLock { _requests.append((url, offset)); _limits[url] = limit }
             var body = Data(bodies[url, default: Data()].dropFirst(Int(offset)))
             if short.contains(url) { body = body.dropLast(1) }
             let dropAfter = lock.withLock { cut.removeValue(forKey: url) }
@@ -106,6 +109,15 @@ final class FolderModelDownloaderTests: XCTestCase {
 
         try assertInstalled()
         XCTAssertEqual(transport.requests.map(\.offset), [0, 0])
+    }
+
+    /// Each fetch is capped at the file's pinned size (#27), so a server
+    /// can't stream more than that to disk.
+    func testEachFileIsFetchedUpToItsPinnedSize() async throws {
+        try await run()
+
+        XCTAssertEqual(transport.limits, [url("vocab.json"): Int64(vocab.count),
+                                          url("Encoder.mlmodelc/weights/weight.bin"): Int64(encoder.count)])
     }
 
     func testProgressCountsBytesAcrossFilesUpToTheTotal() async throws {

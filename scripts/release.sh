@@ -199,7 +199,10 @@ plist_get() { /usr/libexec/PlistBuddy -c "Print :$1" "$ROOT/Resources/Info.plist
 # public half must be the one the app ships (else every update is rejected).
 stage_preflight_sparkle() {
   say "Preflight: Sparkle update key (keychain account '$SPARKLE_ACCOUNT')"
-  swift package --package-path "$ROOT" resolve >/dev/null
+  # Exactly the committed pins (#27); package_app.sh builds with them too.
+  [[ -f "$ROOT/Package.resolved" ]] || die "Package.resolved missing: a release builds only the committed dependency pins"
+  swift package --package-path "$ROOT" --force-resolved-versions resolve >/dev/null \
+    || die "Package.resolved doesn't satisfy Package.swift; run 'swift package resolve', review and commit it"
   [[ -x "$SPARKLE_BIN/sign_update" ]] || die "Sparkle tools not found in $SPARKLE_BIN (swift package resolve)"
   local shipped keychain
   shipped="$(plist_get SUPublicEDKey)"

@@ -10,6 +10,9 @@ import Foundation
 /// asked for; any other 206 (or one without the header) restarts the file
 /// from zero: bytes from elsewhere in the file would pass the size check
 /// and only fail the hash, losing the whole prefix anyway.
+///
+/// The file never grows past the caller's limit (its pinned size): a body
+/// that would is stopped there (`ModelDownloadError.oversized`).
 final class URLSessionDownloadTransport: DownloadTransport, @unchecked Sendable {
     private let session: URLSession
 
@@ -18,21 +21,21 @@ final class URLSessionDownloadTransport: DownloadTransport, @unchecked Sendable 
         session = URLSession(configuration: configuration)
     }
 
-    func fetch(_ url: URL, from offset: Int64, appendingTo file: URL,
+    func fetch(_ url: URL, from offset: Int64, upTo limit: Int64, appendingTo file: URL,
                progress: @escaping @Sendable (Int64) -> Void) async throws {
         do {
-            try await fetchOnce(url, from: offset, appendingTo: file, progress: progress)
+            try await fetchOnce(url, from: offset, upTo: limit, appendingTo: file, progress: progress)
         } catch is RangeMismatch where offset > 0 {
             // The writer already emptied the file: fetch it whole.
-            try await fetchOnce(url, from: 0, appendingTo: file, progress: progress)
+            try await fetchOnce(url, from: 0, upTo: limit, appendingTo: file, progress: progress)
         }
     }
 
-    private func fetchOnce(_ url: URL, from offset: Int64, appendingTo file: URL,
+    private func fetchOnce(_ url: URL, from offset: Int64, upTo limit: Int64, appendingTo file: URL,
                            progress: @escaping @Sendable (Int64) -> Void) async throws {
         var request = URLRequest(url: url)
         if offset > 0 { request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range") }
-        let writer = try FileWriter(file: file, offset: offset, progress: progress)
+        let writer = try FileWriter(file: file, offset: offset, limit: limit, progress: progress)
         let task = session.dataTask(with: request)
         task.delegate = writer
         try await withTaskCancellationHandler {
@@ -60,17 +63,19 @@ final class URLSessionDownloadTransport: DownloadTransport, @unchecked Sendable 
 
         private let handle: FileHandle
         private let offset: Int64
+        private let limit: Int64
         private var written: Int64
         private let progress: @Sendable (Int64) -> Void
         private var failure: Error?
 
-        init(file: URL, offset: Int64, progress: @escaping @Sendable (Int64) -> Void) throws {
+        init(file: URL, offset: Int64, limit: Int64, progress: @escaping @Sendable (Int64) -> Void) throws {
             if !FileManager.default.fileExists(atPath: file.path) {
                 FileManager.default.createFile(atPath: file.path, contents: nil)
             }
             handle = try FileHandle(forWritingTo: file)
             try handle.seekToEnd()
             self.offset = offset
+            self.limit = limit
             self.written = offset
             self.progress = progress
         }
@@ -150,6 +155,11 @@ final class URLSessionDownloadTransport: DownloadTransport, @unchecked Sendable 
         }
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            guard failure == nil else { return }
+            guard Int64(data.count) <= limit - written else {
+                failure = ModelDownloadError.oversized(bytes: limit)
+                return dataTask.cancel()
+            }
             do {
                 try handle.write(contentsOf: data)
                 written += Int64(data.count)
