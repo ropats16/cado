@@ -176,8 +176,8 @@ final class UserFacingCopyTests: XCTestCase {
                                      hotkeyTap: .installed)
         let menu = StatusMenuContent(status: AppReadiness.status(for: inputs), inputs: inputs, hold: "⌃⇧",
                                      toggle: "⌃⇧", configIssues: ConfigValidator.validate(config))
-        for text in [menu.header, menu.reason?.title, menu.modelHint?.title, menu.microphone.title,
-                     menu.accessibility.title, menu.hold, menu.toggle, menu.configIssues?.title] {
+        for text in [menu.header, menu.reason?.title, menu.modelHint?.title, menu.microphone?.title,
+                     menu.accessibility?.title, menu.hold, menu.toggle, menu.configIssues?.title] {
             UserFacingCopy.assertPlain(text)
         }
         XCTAssertNotNil(menu.configIssues)

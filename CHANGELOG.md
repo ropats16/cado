@@ -2,6 +2,18 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
+## Unreleased
+
+### Changed
+- Settings has tabs along the top: General, Dictation, Speech Model and Meetings, with the hotkeys first under Dictation. Notes folder and Keep meeting audio moved to Meetings; the mascot, sounds and Keep recent dictations to Dictation.
+- Settings remembers where you left its window, and long folder paths and model names no longer cut off.
+- The hotkey button that said "Record" now says "Change…", so it can't be mistaken for Record Meeting.
+- The menu no longer lists permissions that are already granted. Open Config File and Open Models Folder are under Advanced.
+- "About Cado" replaces "Acknowledgements…": it shows the version, and the credits are in the same window.
+
+### Added
+- Right-click the mascot for Hide Mascot and Settings…; VoiceOver reads it as a button and can press it.
+
 ## 0.3.0 - 2026-11-17
 
 ### Added

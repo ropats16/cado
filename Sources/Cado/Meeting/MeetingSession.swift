@@ -270,7 +270,7 @@ final class MeetingSession {
     /// `FolderMeetingSpool`); if it can't make one, the meeting is kept in
     /// memory instead. `systemAudioPermission` is read when a meeting ends,
     /// to tell a silent Others apart from an unconfirmed permission;
-    /// `keepAudio` (Settings › Notes › Keep meeting audio) too. `later` runs
+    /// `keepAudio` (Settings › Meetings › Keep meeting audio) too. `later` runs
     /// the next step of a recovery's read-back on a later main-loop turn;
     /// `background` runs slow file work off main, then its completion on main.
     init(recorder: MeetingRecorder, engine: MeetingEngine, notes: MeetingNoteStore, archive: MeetingArchive,

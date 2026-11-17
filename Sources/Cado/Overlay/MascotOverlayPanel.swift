@@ -54,6 +54,10 @@ final class MascotOverlayPanel: MascotSurface {
     /// The window, once shown and until discarded.
     private(set) var window: NSPanel?
     var onClick: (() -> Void)?
+    /// The right-click menu's items (#45). Hide (offered while the mascot
+    /// rests) turns "Always show the mascot" off, so it goes until the next dictation; Settings… opens the Settings window.
+    var onHide: (() -> Void)?
+    var onOpenSettings: (() -> Void)?
     /// Applied live, and re-asserted on every show.
     var showsInScreenShares = false {
         didSet { if let window { applySharing(window) } }
@@ -128,6 +132,22 @@ final class MascotOverlayPanel: MascotSurface {
         orderOut()
         window = nil
     }
+
+    /// The right-click menu (#45), built per click so it follows the callbacks.
+    func contextMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let hide = NSMenuItem(title: MascotAccessibility.hideTitle, action: #selector(menuHide), keyEquivalent: "")
+        let settings = NSMenuItem(title: MascotAccessibility.settingsTitle, action: #selector(menuSettings), keyEquivalent: "")
+        for item in [hide, settings] { item.target = self; menu.addItem(item) }
+        hide.isEnabled = canHide
+        return menu
+    }
+    /// Hide only does something while the mascot rests on screen: during a
+    /// dictation or meeting the mascot shows regardless of the setting.
+    var canHide: Bool { model.isMini }
+    @objc private func menuHide() { onHide?() }
+    @objc private func menuSettings() { onOpenSettings?() }
 
     func render(_ visual: OverlayVisual) {
         model.pose = Brand.Pose(visual)
@@ -295,6 +315,34 @@ final class MascotHostingView: NSHostingView<MascotView> {
         return isOnBody(local) ? self : nil
     }
 
+    /// Right-click on the body (Control-click too): Hide, Settings… (#45).
+    override func menu(for event: NSEvent) -> NSMenu? { owner?.contextMenu() }
+
+    // VoiceOver (#45): one button. Pressing it does what a click does; Hide
+    // and Settings… are its actions, as the right-click menu has them.
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? {
+        let pose = rootView.model.pose
+        return pose == .idle ? MascotAccessibility.label : MascotView.accessibilityLabel(for: pose)
+    }
+    override func accessibilityHelp() -> String? { MascotAccessibility.help }
+    override func accessibilityPerformPress() -> Bool {
+        guard let onClick = owner?.onClick else { return false }
+        onClick()
+        return true
+    }
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        var actions: [NSAccessibilityCustomAction] = []
+        if owner?.canHide == true {
+            actions.append(NSAccessibilityCustomAction(name: MascotAccessibility.hideTitle) { [weak self] in
+                self?.owner?.onHide?(); return true })
+        }
+        actions.append(NSAccessibilityCustomAction(name: MascotAccessibility.settingsTitle) { [weak self] in
+            self?.owner?.onOpenSettings?(); return true })
+        return actions
+    }
+
     /// The app is never active, so every click is a first click.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -304,6 +352,14 @@ final class MascotHostingView: NSHostingView<MascotView> {
     override func mouseMoved(with event: NSEvent) { owner?.pointerMovedFreely(to: NSEvent.mouseLocation) }
     override func mouseEntered(with event: NSEvent) { owner?.pointerMoved(to: NSEvent.mouseLocation) }
     override func mouseExited(with event: NSEvent) { owner?.pointerMoved(to: NSEvent.mouseLocation) }
+}
+
+/// The mascot's words for the right-click menu and VoiceOver.
+enum MascotAccessibility {
+    static let label = "Cado mascot"
+    static let help = "Click to start or stop dictating."
+    static let hideTitle = "Hide Mascot"
+    static let settingsTitle = "Settings…"
 }
 
 private extension CGPoint {

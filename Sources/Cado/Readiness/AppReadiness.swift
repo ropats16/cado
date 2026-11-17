@@ -19,9 +19,9 @@ enum ReadinessAction: Equatable {
     case requestMicrophone
     /// Where the model files are, to delete a broken download.
     case openModelsFolder
-    /// Settings' Speech Model section: its Download buttons (or Apple
+    /// Settings, at the tab named: Speech Model has its Download buttons (or Apple
     /// Speech's OS-managed model), or another model to pick.
-    case openSettings
+    case openSettings(SettingsTab)
 }
 
 /// One reason the app can't dictate (yet).
@@ -114,7 +114,7 @@ enum ReadinessIssue: Equatable {
         // Settings downloads it, or picks another; a broken download is
         // deleted from the Models folder first (`ModelHints.failed`).
         case .modelMissing, .modelFailed(_, .command?), .modelFailed(_, .instructions?), .modelFailed(_, nil):
-            return .openSettings
+            return .openSettings(.speechModel)
         case .modelFailed(_, .inApp?): return .openModelsFolder
         case .hotkeysStarting, .modelVerifying, .modelLoading, .modelPreparing: return nil
         }

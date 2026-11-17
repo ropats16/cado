@@ -33,6 +33,13 @@ final class MainMenuTests: XCTestCase {
         XCTAssertEqual(keys["h"], #selector(NSApplication.hide(_:)))
     }
 
+    /// The app menu leads with About and Settings, as every Mac app's does.
+    func testAppMenuHasAboutAndSettings() {
+        let items = MainMenu.build(appName: "Cado").items[0].submenu?.items.filter { !$0.isSeparatorItem }
+        XCTAssertEqual(items?.map(\.title), ["About Cado", "Settings…", "Hide Cado", "Hide Others", "Show All", "Quit Cado"])
+        XCTAssertEqual(items?[1].keyEquivalent, ",")
+    }
+
     func testItHasAnAppEditAndWindowMenu() {
         let menu = MainMenu.build(appName: "Cado")
         XCTAssertEqual(menu.items.map { $0.submenu?.title }, ["Cado", "Edit", "Window"])

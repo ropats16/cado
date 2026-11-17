@@ -33,11 +33,11 @@ off (see [Privacy](#privacy)).
   while it transcribes and hops when your text lands, then gets out of the
   way. Drag it anywhere, even mid-dictation; each display remembers its own
   spot. It never takes focus, clicks next to it pass straight through, and
-  it's hidden from screen shares and recordings (Settings › Mascot can show
+  it's hidden from screen shares and recordings (Settings › Dictation can show
   it).
-- **Always-visible option** (Settings › Mascot › Always show the mascot, off by
+- **Always-visible option** (Settings › Dictation › Always show the mascot, off by
   default): a small resting Cado stays on screen; click it to start
-  dictating, click again to stop.
+  dictating, click again to stop. Right-click it for **Hide Mascot** and **Settings…**.
 - **Works everywhere** by pasting (and restoring your clipboard afterward), so it
   works in browsers, native apps, terminals, and CLIs alike.
 - **Notifies you** on errors (mic unavailable, model missing, transcription
@@ -51,7 +51,7 @@ off (see [Privacy](#privacy)).
 - **100% private.** It only uses the internet to download models: the
   one-time setup download, and Settings › Speech Model's **Download** button, which
   fetches pinned files from `huggingface.co` only when you click it — plus a
-  once-a-day update check on GitHub (Settings › Updates turns it off).
+  once-a-day update check on GitHub (Settings › General turns it off).
 
 ---
 
@@ -165,8 +165,9 @@ it any time; it opens again at the next launch until you press **Done** (or
 **Finish Later**), and **Set Up Cado…** in the avocado menu reopens it. The steps below are the same
 thing by hand.
 
-Cado needs two macOS permissions. Click the avocado menu-bar icon to see their
-status; both must say **Granted** before dictation works.
+Cado needs two macOS permissions. Click the avocado menu-bar icon to see which
+still need granting; each one still missing is listed there. When neither is
+listed, both are granted and dictation works.
 
 1. **Microphone** — so it can hear you. The first time you dictate, macOS asks
    for permission; click **Allow**.
@@ -175,7 +176,7 @@ status; both must say **Granted** before dictation works.
    in the list, and turn its switch **on**. (The menu's "Accessibility: Not
    granted" line opens this screen for you.)
 
-When both show **Granted**, the menu status changes to **Ready**. 🎉
+Each permission's line leaves the menu once it's granted; when both are gone, the menu status changes to **Ready**. 🎉
 
 A third permission, **Screen & System Audio Recording**, is only for
 [meeting notes](#meeting-notes): macOS asks for it the first time you click
@@ -251,7 +252,7 @@ Cado was called VoiceType. If you had VoiceType installed, quit it first
 Lost a dictation, or want it somewhere else too? Cado can keep your last 10 so
 you can copy one again. It's off by default.
 
-- Turn it on in **Settings → Notes → Keep recent dictations**.
+- Turn it on in **Settings → Dictation → Keep recent dictations**.
 - **Recent Dictations** then appears in the avocado menu. Click one to copy it.
 - Only the last 10 are kept, in a small file in Cado's own support folder on
   your Mac. Turn the setting off and they're deleted.
@@ -260,7 +261,7 @@ Everyday dictations are never written to your notes folder.
 
 ### Notes folder
 
-**Settings → Notes** also picks a notes folder (default `~/Documents/Cado`).
+**Settings → Meetings** also picks a notes folder (default `~/Documents/Cado`).
 Meeting notes are saved there as plain Markdown, so you can point it at an
 Obsidian vault. **Library…** in the menu lists and opens them.
 
@@ -308,7 +309,7 @@ and says why).
   next time Cado started." Two copies of Cado on one Mac never touch each
   other's meetings.
 - **Keep meeting audio:** off by default, the meeting's audio is deleted once
-  the note is saved. To keep it, turn on **Settings → Notes → Keep meeting
+  the note is saved. To keep it, turn on **Settings → Meetings → Keep meeting
   audio**: each meeting's audio is then kept as `Me.wav` and `Others.wav`
   (about 115 MB per hour each, even for a meeting where no speech was heard) in
   `~/Library/Application Support/Cado/Meeting Audio/<note title>/`. Whatever the
@@ -352,7 +353,7 @@ and says why).
 ## Changing the model or hotkey
 
 Settings live in a plain text file you can open from the menu
-(**Open Config File…**) or at:
+(**Advanced › Open Config File…**) or at:
 
 ```
 ~/Library/Application Support/Cado/config.json
@@ -373,9 +374,9 @@ Settings' Automatic row names the engine it picked and why it isn't Turbo
 set `engine`) to override it. Why these defaults: [`plans/bench-results/15`](plans/bench-results/15/README.md).
 
 **Switch to a different model.** By default the app picks one for your chip +
-RAM (**Automatic** in Settings). To use another, download it (Settings → Model
+RAM (**Automatic** in Settings). To use another, download it (Settings → Speech Model
 → **Download a model**, or the command below), then pick it in
-**Settings → Model** — it switches right away, no restart (a dictation already
+**Settings → Speech Model** — it switches right away, no restart (a dictation already
 being transcribed finishes on the old model):
 
 ```sh
@@ -426,7 +427,7 @@ Other good no-character options (edit the `modifiers` list):
 Modifier names are case-insensitive and accept aliases: `control`/`ctrl`,
 `option`/`alt`, `shift`, `command`/`cmd`, `function`/`fn`/`globe`. Single-key
 holds work with the sided modifiers: Left/Right ⌃ (59/62), ⌥ (58/61), ⇧ (56/60),
-⌘ (55/54). Easiest of all: Settings → Hotkeys → Record.
+⌘ (55/54). Easiest of all: Settings → Dictation → Hotkeys → Change….
 
 **Change the toggle key.** `toggle` is the press-to-start / press-to-stop hotkey.
 Unlike `hold`, it fires on a single press, so it usually pairs a normal key with
@@ -534,7 +535,7 @@ the engine's Automatic pick (add `--engine parakeet`, `whisperkit` or
 Everything runs on your Mac. No accounts, no tracking, and no audio or text
 ever leaves your machine. The only things that touch the network are model
 downloads (when you run setup or click **Download**), the update check (once
-a day; off in Settings › Updates) and an optional, off-by-default anonymous
+a day; off in Settings › General) and an optional, off-by-default anonymous
 usage count you can switch on — see
 [Network activity](#network-activity) for the full list.
 
@@ -564,8 +565,8 @@ file.
 | `huggingface.co` | `make setup` (`scripts/download_model.sh`) and the other `scripts/download_*_model.sh` scripts | Downloads whisper.cpp model files (and the VAD model for benchmarks), WhisperKit and Parakeet model folders. Each file is checked against a pinned SHA-256; WhisperKit/Parakeet files are also pinned to one repo commit. | You run the script |
 | `huggingface.co` | In the app, only when you click **Download** in Settings › Speech Model | Downloads whisper.cpp model files (from the same place as `make model`, pinned by SHA-256 only, like the script) and WhisperKit/Parakeet model files (pinned by commit and SHA-256), each verified before use. A plain file request: no cookies, no account. | Yes, per click |
 | Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Speech Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
-| `github.com` | Release builds of the app: about once a day while Cado runs, and when you choose **Check for Updates…** in the menu (or **Check Now** in Settings › Updates) | Fetches the update feed, `github.com/ropats16/cado/releases/latest/download/appcast.xml` ([Sparkle](https://sparkle-project.org)). If there's a newer version, Cado asks before installing it (unless you tick "Automatically download and install updates" in that prompt), then downloads its DMG from the same GitHub release (GitHub redirects both the feed and the DMG to `release-assets.githubusercontent.com`); the download must match the release's Ed25519 signature and Cado's code signature, or it's discarded. No system profile or identifier is sent (just a normal HTTPS request, with Cado's version in the User-Agent). Builds made with `make install`/`make package` never check. | On by default; turn off **Automatically check for updates** in Settings › Updates |
-| `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Send anonymous usage count** (onboarding, or Settings › Usage Count) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. Only sent by a build with a TelemetryDeck app ID; Cado 0.1.0 has none, so this switch sends nothing yet. | Yes, **off by default** |
+| `github.com` | Release builds of the app: about once a day while Cado runs, and when you choose **Check for Updates…** in the menu (or **Check Now** in Settings › General) | Fetches the update feed, `github.com/ropats16/cado/releases/latest/download/appcast.xml` ([Sparkle](https://sparkle-project.org)). If there's a newer version, Cado asks before installing it (unless you tick "Automatically download and install updates" in that prompt), then downloads its DMG from the same GitHub release (GitHub redirects both the feed and the DMG to `release-assets.githubusercontent.com`); the download must match the release's Ed25519 signature and Cado's code signature, or it's discarded. No system profile or identifier is sent (just a normal HTTPS request, with Cado's version in the User-Agent). Builds made with `make install`/`make package` never check. | On by default; turn off **Automatically check for updates** in Settings › General |
+| `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Send anonymous usage count** (onboarding, or Settings › General) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. Only sent by a build with a TelemetryDeck app ID; Cado 0.1.0 has none, so this switch sends nothing yet. | Yes, **off by default** |
 
 Downloads from `huggingface.co` are mostly redirected to Hugging Face's CDN
 (`*.hf.co`, e.g. `us.aws.cdn.hf.co`; the host varies by region). The speech
@@ -668,4 +669,4 @@ means, the JSON schema, fixture licenses, and how to add an engine.
 Cado is MIT-licensed — see [`LICENSE`](LICENSE). The open-source projects and
 models it builds on, and their licenses, are listed in
 [`ACKNOWLEDGEMENTS.md`](ACKNOWLEDGEMENTS.md) and in the app's menu-bar menu
-under **Acknowledgements…**.
+under **About Cado**.

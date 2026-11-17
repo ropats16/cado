@@ -89,7 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// One for Settings and onboarding (made on first need by either), so a
     /// download started in one window shows in the other.
     private var settingsViewModel: SettingsViewModel?
-    private var acknowledgementsWindowController: AcknowledgementsWindowController?
+    private var aboutWindowController: AboutWindowController?
     /// Sparkle auto-update (#24); made and started at launch (it stays off
     /// outside a release .app: `UpdaterAvailability`).
     private var updater: SparkleUpdater?
@@ -183,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.onOpenLastMeetingNote = { [weak self] in
             self?.openLibrary { await $0.showLatestMeetingNote() }
         }
-        menu.onOpenAcknowledgements = { [weak self] in self?.openAcknowledgements() }
+        menu.onOpenAbout = { [weak self] in self?.openAbout() }
         menu.onCheckForUpdates = { [weak self] in
             MainActor.assumeIsolated { self?.updater?.checkForUpdates() }   // menu actions run on main
         }
@@ -383,8 +383,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .openModelsFolder:
             Paths.ensureDirectories()
             NSWorkspace.shared.open(Paths.modelsDir)
-        case .openSettings:
-            openSettings()
+        case .openSettings(let tab):
+            openSettings(tab: tab)
         }
     }
 
@@ -527,7 +527,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// is a toggle-hotkey press.
     private func makeOverlay() -> MascotOverlay {
         let placement = MascotPlacement(store: ConfigMascotPositionStore(configStore), displays: OverlayDisplay.current)
-        return MascotOverlay(feed: activity, panel: MascotOverlayPanel(placement: placement),
+        let panel = MascotOverlayPanel(placement: placement)
+        // Right-click menu (#45): Hide turns "Always show the mascot" off.
+        panel.onHide = { [weak self] in
+            MainActor.assumeIsolated { self?.sharedSettingsViewModel().setMascotAlwaysVisible(false) }
+        }
+        panel.onOpenSettings = { [weak self] in self?.openSettings() }
+        return MascotOverlay(feed: activity, panel: panel,
                              settings: MascotOverlay.Settings(configStore.config),
                              onToggleDictation: { [weak self] in
                                  self?.appleSpeechWatch.check()
@@ -562,14 +568,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Menu actions
 
-    private func openSettings() {
+    private func openSettings(tab: SettingsTab? = nil) {
         // Menu actions are always dispatched on the main thread; assume main
         // actor so we can create @MainActor-isolated types synchronously.
         MainActor.assumeIsolated {
             if settingsWindowController == nil {
                 settingsWindowController = SettingsWindowController(viewModel: sharedSettingsViewModel())
             }
-            settingsWindowController?.show()
+            settingsWindowController?.show(tab: tab)
         }
     }
 
@@ -662,14 +668,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func openAcknowledgements() {
+    private func openAbout() {
         MainActor.assumeIsolated {   // menu actions run on the main thread
-            if acknowledgementsWindowController == nil {
-                acknowledgementsWindowController = AcknowledgementsWindowController()
-            }
-            acknowledgementsWindowController?.show()
+            if aboutWindowController == nil { aboutWindowController = AboutWindowController() }
+            aboutWindowController?.show()
         }
     }
+
+    /// The main menu's "About Cado" and "Settings…" (while the Dock icon
+    /// shows) reach these through the responder chain.
+    @objc func showAbout(_ sender: Any?) { openAbout() }
+    @objc func showSettings(_ sender: Any?) { openSettings() }
 
     private func openConfig() {
         if !FileManager.default.fileExists(atPath: Paths.configFile.path) { configStore.save() }
