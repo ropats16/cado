@@ -133,12 +133,13 @@ private extension MarkdownBlock {
 
 /// A meeting's caveat ("Recording stopped at the 2-hour limit."): a symbol
 /// and secondary text, so it reads as a note about the recording, not body.
+/// Inline Markdown renders (a caveat can quote an audio path in backticks).
 private struct NoticeView: View {
     let text: String
 
     var body: some View {
         Label {
-            Text(text).fixedSize(horizontal: false, vertical: true)
+            MarkdownInline.text(text).fixedSize(horizontal: false, vertical: true)
         } icon: {
             Image(systemName: "info.circle").accessibilityHidden(true)
         }
