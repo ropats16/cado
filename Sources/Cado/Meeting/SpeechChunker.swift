@@ -40,6 +40,15 @@ enum SpeechChunker {
         /// Kept around the speech, so first and last syllables aren't clipped.
         var padBeforeSeconds: Double = 0.2
         var padAfterSeconds: Double = 0.3
+        /// `StreamingSpeechChunker` only: the noise floor is the 10th
+        /// percentile of this many most recent seconds (the batch chunker
+        /// uses the whole recording).
+        var noiseWindowSeconds: Double = 30
+
+        /// Speech threshold for a noise floor (RMS of the quiet frames).
+        func threshold(noise: Float) -> Float {
+            max(floorRMS, min(noise * noiseMultiplier, ceilingRMS))
+        }
     }
 
     static func chunks(_ samples: [Float], settings s: Settings = Settings()) -> [Chunk] {
@@ -52,7 +61,7 @@ enum SpeechChunker {
             return (sum / Float(end - start)).squareRoot()
         }
         let noise = rms.sorted()[rms.count / 10]
-        let threshold = max(s.floorRMS, min(noise * s.noiseMultiplier, s.ceilingRMS))
+        let threshold = s.threshold(noise: noise)
         let frames = { (seconds: Double) in max(1, Int((seconds / s.frameSeconds).rounded())) }
         let pause = frames(s.pauseSeconds), minSpeech = frames(s.minSpeechSeconds)
         let maxLength = frames(s.maxChunkSeconds), cutWindow = min(frames(s.cutWindowSeconds), maxLength - 1)
