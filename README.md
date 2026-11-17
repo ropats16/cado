@@ -12,6 +12,7 @@ off (see [Privacy](#privacy)).
 > [Releases](https://github.com/ropats16/cado/releases/latest), open it and
 > drag Cado to Applications. Or with Homebrew:
 > `brew install --cask ropats16/tap/cado`
+> (if Homebrew says the tap is untrusted, run `brew trust ropats16/tap` first).
 >
 > Requires macOS 14 or later (meeting notes need 14.2). You can also build it
 > yourself (steps below). Models (whisper.cpp, WhisperKit, Parakeet) download
