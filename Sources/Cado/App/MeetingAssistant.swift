@@ -166,8 +166,9 @@ final class MeetingAssistant {
     private var context: MeetingDetector.Context {
         let busy: Bool
         switch meetings.status {
-        case .idle, .recording: busy = dictating()
-        case .transcribing, .recovering: busy = true
+        // A meeting can start during a recovery (#48): only a dictation holds the question then.
+        case .idle, .recording, .recovering: busy = dictating()
+        case .transcribing: busy = true
         }
         return MeetingDetector.Context(enabled: enabled(), recording: meetings.recordingBundleID, busy: busy)
     }
