@@ -93,6 +93,11 @@ final class UserFacingCopyTests: XCTestCase {
         }
     }
 
+    /// One name for the usage-count setting, in onboarding and Settings.
+    func testTheUsageCountSettingHasOneName() {
+        XCTAssertEqual(UsagePingCopy.title, "Send anonymous usage count")
+    }
+
     /// The menu's lines, including a config problem.
     func testTheMenuIsPlain() {
         var config = Config.defaults

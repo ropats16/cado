@@ -84,11 +84,11 @@ final class OnboardingViewModel: ObservableObject {
 
     var canGoBack: Bool { current != .welcome }
 
-    /// Continue, or "Skip for now" past an unfinished step; nil on Ready,
+    /// Continue, or "Skip for Now" past an unfinished step; nil on Ready,
     /// where the step's own button is the way out.
     var forwardTitle: String? {
         guard current != .ready else { return nil }
-        return step.state.isFinished ? "Continue" : "Skip for now"
+        return step.state.isFinished ? "Continue" : "Skip for Now"
     }
 
     // MARK: - Updates

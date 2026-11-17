@@ -41,8 +41,8 @@ FluidAudio's ThirdPartyLicenses/) or at the linked URL.
   code (© 2023 Jeffrey Quesnelle and Bowen Peng, MIT).
 - **Whisper models** — OpenAI. MIT License (MIT). https://github.com/openai/whisper
   Model weights, converted to ggml format and published at
-  https://huggingface.co/ggerganov/whisper.cpp; downloaded by `make setup` /
-  `make model`, not bundled.
+  https://huggingface.co/ggerganov/whisper.cpp; downloaded in Settings ›
+  Speech Model, not bundled.
 - **Silero VAD** — Silero Team. MIT License (MIT).
   https://github.com/snakers4/silero-vad
   Voice-activity model, in ggml format from
@@ -63,8 +63,8 @@ FluidAudio's ThirdPartyLicenses/) or at the linked URL.
   https://github.com/openai/whisper
   Converted to Core ML by Argmax and published (MIT) at
   https://huggingface.co/argmaxinc/whisperkit-coreml, with OpenAI's tokenizer
-  files from https://huggingface.co/openai; downloaded from Settings › Model
-  or by `make whisperkit-model`, not bundled.
+  files from https://huggingface.co/openai; downloaded in Settings › Speech
+  Model, not bundled.
 
 ## Turbo (English/EU)
 
@@ -73,7 +73,7 @@ FluidAudio's ThirdPartyLicenses/) or at the linked URL.
   License: https://creativecommons.org/licenses/by/4.0/. Used unmodified, in
   the Core ML conversion by FluidInference
   (https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml);
-  downloaded from Settings › Model or by `make parakeet-model`, not bundled.
+  downloaded in Settings › Speech Model, not bundled.
 - **FluidAudio** — FluidInference. Apache License 2.0 (Apache-2.0).
   https://github.com/FluidInference/FluidAudio
   Runs Parakeet on Core ML (Neural Engine); linked into the app.

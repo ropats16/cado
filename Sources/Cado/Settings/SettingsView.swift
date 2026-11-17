@@ -32,31 +32,31 @@ struct SettingsView: View {
 
                 // MARK: Mascot (#20)
                 SettingsSection(title: "Mascot", systemImage: "face.smiling") {
-                    SettingsRow("Always show Cado") {
-                        Toggle("Always show Cado",
+                    SettingsRow("Always show the mascot") {
+                        Toggle("Always show the mascot",
                                isOn: Binding(
                                    get: { viewModel.mascotAlwaysVisible },
                                    set: { viewModel.setMascotAlwaysVisible($0) }
                                ))
                     }
-                    StatusLine(text: "A small Cado stays on screen. Click it to start or stop dictating; drag it anywhere.")
+                    StatusLine(text: "The mascot stays on screen. Click it to start or stop dictating; drag it anywhere.")
                         .padding(.bottom, 8)
                     CardDivider()
-                    SettingsRow("Show Cado in screen shares") {
-                        Toggle("Show Cado in screen shares",
+                    SettingsRow("Show the mascot in screen shares") {
+                        Toggle("Show the mascot in screen shares",
                                isOn: Binding(
                                    get: { viewModel.mascotInScreenShares },
                                    set: { viewModel.setMascotInScreenShares($0) }
                                ))
                     }
-                    StatusLine(text: "Off: Cado is hidden from screen sharing and recordings.")
+                    StatusLine(text: "Off: the mascot is hidden from screen shares and recordings.")
                         .padding(.bottom, 8)
                 }
 
                 // MARK: Usage count (#26)
                 SettingsSection(title: "Usage Count", systemImage: "chart.bar") {
-                    SettingsRow("Send an anonymous launch count") {
-                        Toggle("Send an anonymous launch count",
+                    SettingsRow(UsagePingCopy.title) {
+                        Toggle(UsagePingCopy.title,
                                isOn: Binding(
                                    get: { viewModel.usagePing },
                                    set: { viewModel.setUsagePing($0) }
@@ -359,7 +359,7 @@ private struct ModelDownloadRow: View {
                 Button("Cancel") { viewModel.cancelModelDownload(key) }
             } else {
                 if viewModel.hasPartialDownload(key) {
-                    Button("Discard partial download") { viewModel.discardPartialDownload(key) }
+                    Button("Discard Partial Download") { viewModel.discardPartialDownload(key) }
                 }
                 Button(viewModel.hasPartialDownload(key) ? "Resume" : "Download") { viewModel.downloadModel(key) }
                     .disabled(!viewModel.canDownloadModel(key))
@@ -400,7 +400,7 @@ private struct HotkeyRow: View {
             // handled inside SettingsViewModel.resetHotkey, which calls
             // recorder.cancelCapture first.
             if !isCapturing {
-                Button("Reset to default") { onReset() }
+                Button("Reset to Default") { onReset() }
             }
         }
         .settingsRowPadding()

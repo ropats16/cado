@@ -67,8 +67,8 @@ final class SparkleUpdater: NSObject, AppUpdater, SPUStandardUserDriverDelegate 
                 return
             }
             setPending(version)
-            Notifier.notify(title: "Cado \(version) is available",
-                            body: "Choose “Update Available” in the Cado menu to install it.")
+            Notifier.notify(title: "Update available",
+                            body: "Cado \(version) is ready. Choose “Update Available” in the Cado menu to install it.")
         }
     }
 

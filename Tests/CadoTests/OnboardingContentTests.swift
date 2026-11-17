@@ -178,15 +178,15 @@ final class OnboardingContentTests: XCTestCase {
     func testAVerifyingOrLoadingModelIsSettling() {
         let verifying = content(engine: .verifying).step(.model)
         XCTAssertEqual(verifying.state, .settling)
-        XCTAssertEqual(verifying.note, "Checking the model…")
+        XCTAssertEqual(verifying.note, "Checking the speech model…")
         XCTAssertNil(verifying.primary)
 
         let preparing = content(engine: .loading, firstLoad: true).step(.model)
         XCTAssertEqual(preparing.state, .settling)
-        XCTAssertEqual(preparing.note, "Preparing the model — the first time takes a minute.")
+        XCTAssertEqual(preparing.note, "Preparing the speech model. The first time takes a minute.")
 
         XCTAssertEqual(content(engine: .notLoaded).step(.model).state, .settling)
-        XCTAssertEqual(content(engine: .loading).step(.model).note, "Loading the model…")
+        XCTAssertEqual(content(engine: .loading).step(.model).note, "Loading the speech model…")
     }
 
     func testAReadyModelIsDone() {
@@ -254,13 +254,13 @@ final class OnboardingContentTests: XCTestCase {
         XCTAssertTrue(step.detail.contains(c.step(.model).title), step.detail)
         XCTAssertFalse(step.detail.contains(c.step(.accessibility).title), step.detail)
         XCTAssertFalse(step.detail.contains("Hold"), step.detail)
-        XCTAssertEqual(step.primary, OnboardingButton(title: "Finish later", action: .finish))
+        XCTAssertEqual(step.primary, OnboardingButton(title: "Finish Later", action: .finish))
     }
 
     func testTheReadyScreenSaysTheFirstDictationWaitsForAPreparingModel() {
         let c = content(engine: .loading, firstLoad: true)
         XCTAssertTrue(c.isSetUp, "A settling model doesn't hold the user up")
-        XCTAssertEqual(c.step(.ready).note, "Preparing the model… you can start now; your first dictation waits for it.")
+        XCTAssertEqual(c.step(.ready).note, "Preparing the speech model. You can start now; your first dictation waits for it.")
         XCTAssertNil(allSet.step(.ready).note)
     }
 

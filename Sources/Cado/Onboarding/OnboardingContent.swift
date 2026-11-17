@@ -178,10 +178,11 @@ struct OnboardingContent: Equatable {
             }
         case .verifying:
             step.state = .settling
-            step.note = "Checking the model…"
+            step.note = "Checking the speech model…"
         case .notLoaded, .loading:
             step.state = .settling
-            step.note = engine.isFirstLoad ? "Preparing the model — the first time takes a minute." : "Loading the model…"
+            step.note = engine.isFirstLoad ? "Preparing the speech model. The first time takes a minute."
+                : "Loading the speech model…"
         case .missing, .failed:
             guard let chosen else {
                 if case .failed(let reason) = engine.status { step.note = reason }
@@ -196,7 +197,7 @@ struct OnboardingContent: Equatable {
                 } else {
                     // Just downloaded; the engine picks it up in a moment.
                     step.state = .settling
-                    step.note = "Loading the model…"
+                    step.note = "Loading the speech model…"
                 }
                 return step
             }
@@ -242,13 +243,13 @@ struct OnboardingContent: Equatable {
                               cancelKeyCode: Int) -> OnboardingStep {
         let unfinished = setup.filter { !$0.state.isFinished }
         let modelSettling = setup.contains { $0.id == .model && $0.state == .settling }
-        let note = modelSettling ? "Preparing the model… you can start now; your first dictation waits for it." : nil
+        let note = modelSettling ? "Preparing the speech model. You can start now; your first dictation waits for it." : nil
         guard unfinished.isEmpty else {
             return OnboardingStep(
                 id: .ready, state: .todo, title: "Almost there",
                 detail: "Still needed: \(unfinished.map(\.title).joined(separator: ", ")).\n"
                     + "You can finish setting up later from Cado in the menu bar.",
-                primary: OnboardingButton(title: "Finish later", action: .finish), note: note)
+                primary: OnboardingButton(title: "Finish Later", action: .finish), note: note)
         }
         var lines = ["Hold \(hold.description) and speak; release to paste.",
                      "Or press \(toggle.description) to start, and again to stop."]

@@ -209,7 +209,7 @@ final class OnboardingViewModelTests: XCTestCase {
         XCTAssertEqual(vm.forwardTitle, "Continue")
         vm.forward()
         XCTAssertEqual(vm.current, .microphone)
-        XCTAssertEqual(vm.forwardTitle, "Skip for now", "Unfinished")
+        XCTAssertEqual(vm.forwardTitle, "Skip for Now", "Unfinished")
         vm.back()
         XCTAssertEqual(vm.current, .welcome)
     }

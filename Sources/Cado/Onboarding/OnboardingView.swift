@@ -79,9 +79,11 @@ struct OnboardingView: View {
     /// Ready's optional, unchecked-by-default launch-count choice (#26).
     private var usagePingChoice: some View {
         VStack(alignment: .leading, spacing: 4) {
+            // A switch, as in Settings › Usage Count.
             Toggle(UsagePingCopy.title, isOn: Binding(
                 get: { viewModel.usagePing },
                 set: { viewModel.setUsagePing($0) }))
+                .toggleStyle(.switch)
                 .foregroundStyle(Brand.Palette.ink)
             Text(UsagePingCopy.onboardingDetail)
                 .font(Brand.Typography.caption)
@@ -176,7 +178,7 @@ struct OnboardingView: View {
                     }
                 }
             }
-            Button("More models in Settings…") { viewModel.perform(.readiness(.openSettings)) }
+            Button("More Models in Settings…") { viewModel.perform(.readiness(.openSettings)) }
                 .buttonStyle(.link)
                 .font(Brand.Typography.caption)
         }

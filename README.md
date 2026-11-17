@@ -18,7 +18,7 @@ off (see [Privacy](#privacy)).
 >
 > Requires macOS 14 or later (meeting notes need 14.2). You can also build it
 > yourself (steps below). Models (whisper.cpp, WhisperKit, Parakeet) download
-> from Settings › Model (only when you click Download).
+> from Settings › Speech Model (only when you click Download).
 
 ---
 
@@ -35,7 +35,7 @@ off (see [Privacy](#privacy)).
   spot. It never takes focus, clicks next to it pass straight through, and
   it's hidden from screen shares and recordings (Settings › Mascot can show
   it).
-- **Always-visible option** (Settings › Mascot › Always show Cado, off by
+- **Always-visible option** (Settings › Mascot › Always show the mascot, off by
   default): a small resting Cado stays on screen; click it to start
   dictating, click again to stop.
 - **Works everywhere** by pasting (and restoring your clipboard afterward), so it
@@ -49,7 +49,7 @@ off (see [Privacy](#privacy)).
   note with the conversation as Me/Others turns to your notes folder. See
   [Meeting notes](#meeting-notes).
 - **100% private.** It only uses the internet to download models: the
-  one-time setup download, and Settings › Model's **Download** button, which
+  one-time setup download, and Settings › Speech Model's **Download** button, which
   fetches pinned files from `huggingface.co` only when you click it — plus a
   once-a-day update check on GitHub (Settings › Updates turns it off).
 
@@ -162,7 +162,7 @@ permissions, offers the speech model recommended for your Mac (download with
 progress, Cancel and Retry; checksum-verified before use — optional if
 `make setup` already installed one) and shows how to dictate. It updates by itself as you grant things in System Settings. Close
 it any time; it opens again at the next launch until you press **Done** (or
-**Finish later**), and **Set Up Cado…** in the avocado menu reopens it. The steps below are the same
+**Finish Later**), and **Set Up Cado…** in the avocado menu reopens it. The steps below are the same
 thing by hand.
 
 Cado needs two macOS permissions. Click the avocado menu-bar icon to see their
@@ -237,7 +237,7 @@ Cado was called VoiceType. If you had VoiceType installed, quit it first
   10 min, or "No limit", which still stops at 30 min) so a forgotten recording
   can't run forever. A notification tells you when that happens.
 - The avocado shows **listening → transcribing → done**. Drag it where you
-  like (it remembers the spot per display). With **Always show Cado** on,
+  like (it remembers the spot per display). With **Always show the mascot** on,
   click the small resting one to start, click again to stop.
 - Your existing clipboard is restored after each dictation, so dictating never
   overwrites something you copied. (A password-manager copy isn't put back, so
@@ -317,7 +317,7 @@ anything by itself:
 
 | Mac / language | Engine |
 |---|---|
-| Apple Silicon, a Turbo language (English + 24 EU languages), Turbo's model downloaded (Settings › Model › Download, or `make parakeet-model`) | **Turbo** (Parakeet) |
+| Apple Silicon, a Turbo language (English + 24 EU languages), Turbo's model downloaded (Settings › Speech Model › Download, or `make parakeet-model`) | **Turbo** (Parakeet) |
 | Apple Silicon, macOS 26, no Turbo for it (not downloaded, or a language like Japanese, Chinese, Korean), Apple Speech takes the language and its model is downloaded | **Apple Speech** |
 | Auto-detect language, Intel, or anything else (incl. a model that fails to load) | **Whisper** (whisper.cpp), with its own Automatic model for your RAM |
 
@@ -401,7 +401,7 @@ logs the problem at startup and the menu shows a **Config issue** warning.
 
 | Setting               | What it does                                        |
 |-----------------------|-----------------------------------------------------|
-| `engine`              | Speech engine: `auto` (default, also when the key is missing — unless an older config hand-set a whisper `model`/`modelPath`, which stays on `whisper`: Turbo, else Apple Speech, else whisper, among engines already downloaded — see **Speech engine** above); `whisper` (whisper.cpp, any Mac, the fallback); `whisperkit` (Core ML, Apple Silicon; models via Settings › Model › Download, or `make whisperkit-model WHISPERKIT=<id>`); `parakeet` ("Turbo": Apple Silicon, English + 24 EU languages, picked explicitly, not under auto-detect; model via Settings › Model › Download, or `make parakeet-model`). A Core ML model's first load on a Mac (and after a macOS update) compiles it: "Preparing model for this Mac" meanwhile; `apple-speech` (macOS 26; models managed by macOS, downloaded from Settings). If it can't run on this Mac or in the chosen language, Cado uses whisper and says why (the setting is kept). |
+| `engine`              | Speech engine: `auto` (default, also when the key is missing — unless an older config hand-set a whisper `model`/`modelPath`, which stays on `whisper`: Turbo, else Apple Speech, else whisper, among engines already downloaded — see **Speech engine** above); `whisper` (whisper.cpp, any Mac, the fallback); `whisperkit` (Core ML, Apple Silicon; models via Settings › Speech Model › Download, or `make whisperkit-model WHISPERKIT=<id>`); `parakeet` ("Turbo": Apple Silicon, English + 24 EU languages, picked explicitly, not under auto-detect; model via Settings › Speech Model › Download, or `make parakeet-model`). A Core ML model's first load on a Mac (and after a macOS update) compiles it: "Preparing the speech model for this Mac" meanwhile; `apple-speech` (macOS 26; models managed by macOS, downloaded from Settings). If it can't run on this Mac or in the chosen language, Cado uses whisper and says why (the setting is kept). |
 | `model`               | whisper's model: `auto` (default: pick for this Mac) or a model id, e.g. `small.en-q5_1`. |
 | `modelPath`           | A specific whisper model `.bin` file; overrides `model` when set (default empty). |
 | `engineModels`        | Other engines' model picks by engine id, e.g. `{"whisperkit": "auto"}` (unset = `auto`). |
@@ -447,14 +447,15 @@ combo still doesn't fire, try a different one (see *Changing the hotkey*). For
 `hold`, prefer a pure-modifier combo — a bare normal key gets typed into your
 text. For `toggle`, keep at least one modifier with the key for the same reason.
 
-**“Model missing” in the menu.**
-The model the app wants isn't downloaded. Click it to open Settings › Model and
-**Download** it, or run the `make model MODEL=…` it shows (or pick a downloaded
-model in Settings). If you set `modelPath`, confirm it points at a real file.
+**“Speech model missing” in the menu.**
+The model the app wants isn't downloaded. Click it to open Settings › Speech Model and
+**Download** it (or pick a downloaded model there). From a source checkout,
+`make model MODEL=…` fetches the same file. If you set `modelPath`, confirm it
+points at a real file.
 
-**“Model failed to load.”**
+**“Speech model failed to load.”**
 Usually a corrupt or incomplete download (it failed its checksum). Delete the
-file from the models folder and download it again in Settings › Model (or run
+file from the models folder and download it again in Settings › Speech Model (or run
 `make model MODEL=<name>`).
 
 **Text doesn't appear after I speak.**
@@ -486,7 +487,7 @@ Everything runs on your Mac. No accounts, no tracking, and no audio or text
 ever leaves your machine. The only things that touch the network are model
 downloads (when you run setup or click **Download**), the update check (once
 a day; off in Settings › Updates) and an optional, off-by-default anonymous
-launch count you can switch on — see
+usage count you can switch on — see
 [Network activity](#network-activity) for the full list.
 
 Dictated text isn't kept after it's pasted, unless you turn on
@@ -509,10 +510,10 @@ file.
 | Host | When | What's sent / received | Opt-in? |
 | --- | --- | --- | --- |
 | `huggingface.co` | `make setup` (`scripts/download_model.sh`) and the other `scripts/download_*_model.sh` scripts | Downloads whisper.cpp model files (and the VAD model for benchmarks), WhisperKit and Parakeet model folders. Each file is checked against a pinned SHA-256; WhisperKit/Parakeet files are also pinned to one repo commit. | You run the script |
-| `huggingface.co` | In the app, only when you click **Download** in Settings › Model | Downloads whisper.cpp model files (from the same place as `make model`, pinned by SHA-256 only, like the script) and WhisperKit/Parakeet model files (pinned by commit and SHA-256), each verified before use. A plain file request: no cookies, no account. | Yes, per click |
-| Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
+| `huggingface.co` | In the app, only when you click **Download** in Settings › Speech Model | Downloads whisper.cpp model files (from the same place as `make model`, pinned by SHA-256 only, like the script) and WhisperKit/Parakeet model files (pinned by commit and SHA-256), each verified before use. A plain file request: no cookies, no account. | Yes, per click |
+| Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Speech Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
 | `github.com` | Release builds of the app: about once a day while Cado runs, and when you choose **Check for Updates…** in the menu (or **Check Now** in Settings › Updates) | Fetches the update feed, `github.com/ropats16/cado/releases/latest/download/appcast.xml` ([Sparkle](https://sparkle-project.org)). If there's a newer version, Cado asks before installing it (unless you tick "Automatically download and install updates" in that prompt), then downloads its DMG from the same GitHub release (GitHub redirects both the feed and the DMG to `release-assets.githubusercontent.com`); the download must match the release's Ed25519 signature and Cado's code signature, or it's discarded. No system profile or identifier is sent (just a normal HTTPS request, with Cado's version in the User-Agent). Builds made with `make install`/`make package` never check. | On by default; turn off **Automatically check for updates** in Settings › Updates |
-| `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Help count Cado's users** (onboarding, or Settings › Usage Count) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. Only sent by a build with a TelemetryDeck app ID; Cado 0.1.0 has none, so this switch sends nothing yet. | Yes, **off by default** |
+| `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Send anonymous usage count** (onboarding, or Settings › Usage Count) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. Only sent by a build with a TelemetryDeck app ID; Cado 0.1.0 has none, so this switch sends nothing yet. | Yes, **off by default** |
 
 Downloads from `huggingface.co` are mostly redirected to Hugging Face's CDN
 (`*.hf.co`, e.g. `us.aws.cdn.hf.co`; the host varies by region). The speech
