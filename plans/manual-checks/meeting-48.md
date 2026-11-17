@@ -24,11 +24,25 @@ Already verified without a human:
 - `MeetingSpoolMarksTests`, `NoteMeetingIDTests`: names with several marks,
   the `id` front-matter line, the bounded lookup (only notes changed since the
   meeting began are opened).
+- `NotesLibraryTests` ("Durable create"): a note write that fails partway
+  (injected `ENOSPC`) or whose flush fails leaves neither a note nor a
+  temporary; the text is flushed while still a hidden `.cado-note-….tmp` and
+  only then renamed, never over an existing file; old temporaries are swept,
+  none is ever listed. `NoteMeetingIDTests`: the id lookup skips a note whose
+  bytes aren't local (faked) and is safe alongside listing and saving.
+- `MeetingSpoolWAVTests`: a short or failing source throws and leaves no WAV;
+  a whole copy has every sample. `MeetingSpoolFlushTests` (fake queue and
+  flush): the 5 s flush is queued, never run on the appending thread, one at a
+  time, on its own descriptors, which stay valid through a rename, a move and
+  a discard and are closed after; a milestone is flushed before `record`
+  returns; a new spool's meeting.json (complete), folder and root are flushed
+  once in the background.
 - Power-cut bound (`FolderSpoolHandle.syncIfDue`): measured on this Mac
   (M-series SSD) with a short script, 30 rounds each: one `F_FULLFSYNC` per
   5 s round ~5 ms (p90 ~8 ms), against ~15 ms for one per file and ~0.2 ms for
   plain `fsync`. Not measured: battery over a real hour (extrapolated: one
-  ~5 ms drive flush every 5 s is ~0.1% of the main thread).
+  ~5 ms drive flush every 5 s). It now runs on a utility queue, not the main
+  thread.
 
 ## Give-up (from #31; not in meeting-31.md)
 
@@ -90,6 +104,37 @@ the note file is written in `MeetingSession.complete`, kill Cado there.
       then the note appears saying it couldn't be saved when the meeting
       ended.
 
+## A slow disk
+
+- [ ] Set the Meetings In Progress folder's disk to a slow one (an old USB
+      stick or a disk image on a network share, linked in place of
+      `~/Library/Application Support/Cado/Meetings In Progress` while Cado is
+      quit), or keep the disk busy (copy a large folder in Finder). Record a
+      2-minute meeting: the menu opens at once and the overlay doesn't stutter
+      every 5 seconds; the note is whole.
+
+## A note save that fails partway
+
+- [ ] Notes folder on a nearly full small disk image (a few hundred KB free).
+      Record a long meeting (or paste a long body) so the note doesn't fit:
+      "Meeting note couldn't be saved"; the notes folder holds no new or
+      half-written `.md` file (in Finder, with hidden
+      files shown, ⇧⌘., shows no `.cado-note-…` file either). Free space and
+      relaunch: the note appears once, whole.
+
+## Notes in iCloud Drive
+
+- [ ] Notes folder in iCloud Drive with "Optimise Mac Storage" on; remove
+      the download of some older notes (Finder › Remove Download). Leave a
+      meeting for recovery and relaunch: recovery goes ahead without those
+      notes downloading again (their cloud icon stays); one note for the
+      meeting.
+
+## Kept audio
+
+- [ ] Keep meeting audio on: after a meeting, `Me.wav` and `Others.wav` in
+      Meeting Audio play to the end and are as long as the meeting.
+
 ## A recording without its details
 
 - [ ] Quit Cado. In `Meetings In Progress`, pick a leftover meeting's folder
@@ -97,8 +142,10 @@ the note file is written in `MeetingSession.complete`, kill Cado there.
       `meeting.json` with a few junk characters. Relaunch: "Couldn't finish a
       meeting — Cado found a meeting recording without its details…  Its
       audio is kept in …/Meeting Audio/Meeting with an unknown app — <date>";
-      `Me.wav`/`Others.wav` there play. The folder is gone from `Meetings In
-      Progress`; later launches say nothing.
+      `Me.wav`/`Others.wav` there play, and the rest of the recording's
+      folder (`events.jsonl` with the transcript so far, `me.f32`…) is next to
+      them. The folder is gone from `Meetings In Progress`; later launches say
+      nothing.
 
 ## Limits to know
 
@@ -106,7 +153,13 @@ the note file is written in `MeetingSession.complete`, kill Cado there.
   take it) isn't looked for by id: if Cado stops right after writing that
   `Note.md` and before journaling it, the next launch writes the note again
   (into the notes folder if it works by then).
-- A recording without its details keeps only its audio; the transcript so far
-  in its `events.jsonl` isn't turned into a note.
+- A recording without its details gets no note: its transcript so far stays
+  in its `events.jsonl`, kept next to the audio, but isn't turned into a note.
+- The id lookup (no second note) looks only at the top level of the current
+  notes folder, at notes changed since the meeting began: a second note can
+  still be written if the notes folder was changed in Settings between the
+  crash and the relaunch, the note was moved into a subfolder, the clock was
+  set back, or the note went to the Meeting Audio folder (above). A note in
+  iCloud Drive that isn't downloaded isn't opened, so it isn't found either.
 - While a recovery is held for a new meeting, the menu and the Library show
   only the new meeting; the recovery shows again once that note is saved.
