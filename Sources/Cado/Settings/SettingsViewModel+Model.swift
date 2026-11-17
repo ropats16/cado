@@ -247,7 +247,7 @@ extension SettingsViewModel {
                 return text
             case nil: return "The model file is missing. Choose another in the Model menu."
             }
-        case .failed(let reason): return "Failed to load: \(reason)"
+        case .failed(let reason): return "The speech model didn't load. \(reason)"
         case .verifying: return "Checking the speech model (first use only)…"
         case .loading: return isFirstLoad(currentModel()) ? ModelHints.preparing : "Loading the speech model…"
         case .ready: return modelSwitchError

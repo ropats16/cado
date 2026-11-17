@@ -105,7 +105,7 @@ extension SettingsViewModel {
             } catch where error is CancellationError || Task.isCancelled {
                 self?.modelDownloads[key] = nil
             } catch {
-                Log.error("Downloading \(key.id) failed: \(error.localizedDescription)")
+                Log.error("Downloading \(key.id) failed: \(error.localizedDescription) [\(error)]")
                 self?.modelDownloads[key] = .failed("Download failed: \(error.localizedDescription)")
             }
             self?.modelDownloadTasks[key] = nil

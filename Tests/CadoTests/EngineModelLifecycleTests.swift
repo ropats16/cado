@@ -137,7 +137,8 @@ final class EngineModelLifecycleTests: XCTestCase {
         await waitUntil("settled") { log.seen.last.map { $0 != .loading && $0 != .verifying } ?? false }
 
         guard case .failed(let reason) = engine.status else { return XCTFail("expected failed, got \(engine.status)") }
-        XCTAssertTrue(reason.contains("ggml-bad.bin") && reason.contains("checksum"), reason)
+        XCTAssertEqual(reason, ModelChecksumMismatch(filename: "ggml-bad.bin").localizedDescription,
+                       "Plain words; the file name goes to the log")
         XCTAssertEqual(factory.made, [], "A file failing its checksum is never handed to the engine")
         do {
             _ = try await engine.transcribe([0.1])
@@ -330,7 +331,7 @@ final class EngineModelLifecycleTests: XCTestCase {
 
         XCTAssertEqual(seen.first, .loading)
         XCTAssertEqual(seen.dropFirst().first,
-                       .failed(reason: "Couldn't switch to ggml-broken.bin (fake load failure). Still using ggml-a.bin."))
+                       .failed(reason: "Couldn't switch to ggml-broken.bin. Fake load failure. Still using ggml-a.bin."))
         XCTAssertEqual(factory.made, ["ggml-a", "ggml-a"], "The old model was let go for RAM, then loaded again")
         XCTAssertEqual(engine.model, a)
         let after = try await engine.transcribe([0.1]).text

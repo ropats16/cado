@@ -183,6 +183,16 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertNil(vm.modelStatusHint)
     }
 
+    /// A load that failed with nothing to fall back to: the engine's own
+    /// words, once ("didn't load" not doubled), no path.
+    func testAFailedLoadSaysWhyInPlainWords() {
+        let vm = makeVM(present: ["ggml-tiny.en.bin"])
+        let error = TranscriptionError.modelLoadFailed(path: "/Users/someone/models/ggml-tiny.en.bin")
+        vm.modelStatusChanged(.failed(reason: error.localizedDescription))
+        XCTAssertEqual(vm.modelStatusHint, "The speech model didn't load. Its files couldn't be opened.")
+        UserFacingCopy.assertPlain(vm.modelStatusHint)
+    }
+
     func testAFailedSwitchStaysVisibleAfterTheEngineFallsBack() {
         let vm = makeVM(present: ["ggml-tiny.en.bin"])
         vm.modelStatusChanged(.loading)

@@ -345,7 +345,7 @@ final class FolderModelDownloaderTests: XCTestCase {
             XCTFail("a tampered file must fail the download")
         } catch let error as ModelDownloadError {
             XCTAssertEqual(error, .checksumMismatch(path: "ggml-t.bin"))
-            XCTAssertEqual(error.errorDescription, "ggml-t.bin doesn't match its pinned checksum (discarded). Try again.")
+            XCTAssertEqual(error.errorDescription, "A downloaded file was damaged, so it was discarded. Try again.")
         }
         assertFileNotInstalled()
         XCTAssertFalse(FileManager.default.fileExists(atPath: partFile.path), "the bad part isn't kept to resume from")

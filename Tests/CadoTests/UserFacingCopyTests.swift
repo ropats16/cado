@@ -6,13 +6,43 @@ import XCTest
 /// Markdown backticks, "see log" or an emoji in the UI is no help (#44).
 /// The technical detail belongs in the log.
 enum UserFacingCopy {
-    static let forbidden = ["make ", "`", "see log", "see the log"]
+    static let forbidden = ["`", "see log", "see the log", "/Users/"]
+
+    /// The Makefile's targets: "make model" is a command, "Make sure" isn't.
+    static let makeTargets: [String] = {
+        let makefile = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Makefile")
+        let text = (try? String(contentsOf: makefile, encoding: .utf8)) ?? ""
+        let phony = text.split(separator: "\n").first { $0.hasPrefix(".PHONY:") } ?? ""
+        return phony.dropFirst(".PHONY:".count).split(separator: " ").map(String.init)
+    }()
 
     static func problems(in text: String) -> [String] {
         var found = forbidden.filter { text.localizedCaseInsensitiveContains($0) }
+        if makeTargets.contains(where: { text.range(of: "\\bmake \($0)\\b", options: .regularExpression) != nil }) {
+            found.insert("make ", at: 0)
+        }
         if text.unicodeScalars.contains(where: isEmoji) { found.append("emoji") }
         return found
     }
+
+    /// Banner bodies can't be clicked through to anything.
+    static func assertNoClick(_ text: String?, file: StaticString = #filePath, line: UInt = #line) {
+        guard let text else { return }
+        XCTAssertFalse(text.localizedCaseInsensitiveContains("click"), "A banner says click: \(text)", file: file, line: line)
+    }
+
+    /// What the engine, verifier and downloader really throw, with real-looking paths.
+    static let realErrors: [Error] = [
+        TranscriptionError.modelLoadFailed(path: "/Users/someone/Library/Application Support/Cado/models/ggml-base.en.bin"),
+        TranscriptionError.modelNotLoaded, TranscriptionError.inferenceFailed,
+        ModelChecksumMismatch(filename: "ggml-base.en.bin"),
+        ModelDownloadError.http(status: 404),
+        ModelDownloadError.incomplete(path: "/Users/someone/models/x.part/w.bin", bytes: 10, expected: 20),
+        ModelDownloadError.checksumMismatch(path: "/Users/someone/models/x.part/w.bin"),
+        ModelDownloadError.unsafePath("../../etc"),
+        ModelDownloadError.oversized(bytes: 20),
+    ]
 
     static func assertPlain(_ text: String?, file: StaticString = #filePath, line: UInt = #line) {
         guard let text else { return }
@@ -32,6 +62,9 @@ final class UserFacingCopyTests: XCTestCase {
 
     func testTheGuardCatchesDeveloperText() {
         XCTAssertEqual(UserFacingCopy.problems(in: "run `make model MODEL=x`"), ["make ", "`"])
+        XCTAssertEqual(UserFacingCopy.problems(in: "run make parakeet-model"), ["make "])
+        XCTAssertEqual(UserFacingCopy.problems(in: "Make sure it's on, and make sure to save."), [])
+        XCTAssertEqual(UserFacingCopy.problems(in: "at /Users/x/m.bin"), ["/Users/"])
         XCTAssertEqual(UserFacingCopy.problems(in: "Failed — see log"), ["see log"])
         XCTAssertEqual(UserFacingCopy.problems(in: "⚠️ Config"), ["emoji"])
         XCTAssertEqual(UserFacingCopy.problems(in: "Hold ⌃ ⇧ and talk… Settings › Speech Model — 42%"), [])
@@ -54,15 +87,47 @@ final class UserFacingCopyTests: XCTestCase {
             for issue in issues {
                 UserFacingCopy.assertPlain(issue.title)
                 UserFacingCopy.assertPlain(issue.detail)
+                UserFacingCopy.assertPlain(issue.menuDetail)
                 UserFacingCopy.assertPlain(AppStatus.notReady(issue).headline)
+                // `detail` is also a blocked press's banner body.
+                UserFacingCopy.assertNoClick(issue.detail)
             }
             for status in [TranscriptionStatus.missing, .failed(reason: "bad")] {
                 let notice = ModelHints.notice(for: status, engine: EngineReadiness(status: status, modelPath: "/m",
                                                                                     download: hint))
                 UserFacingCopy.assertPlain(notice?.title)
                 UserFacingCopy.assertPlain(notice?.body)
+                UserFacingCopy.assertNoClick(notice?.body)
                 XCTAssertFalse(notice?.title.hasPrefix("Cado") ?? true, "The system names the app")
             }
+        }
+    }
+
+    /// The engine's, verifier's and downloader's own errors, as the
+    /// failed-model notice and onboarding show them: plain, no paths, the
+    /// agreed term, no doubled "Failed to load".
+    func testRealErrorsArePlainWhereverTheyShow() {
+        for error in UserFacingCopy.realErrors {
+            let reason = error.localizedDescription
+            UserFacingCopy.assertPlain(reason)
+            XCTAssertFalse(reason.localizedCaseInsensitiveContains("transcription model"), reason)
+            XCTAssertFalse(reason.localizedCaseInsensitiveContains("failed to load"), reason)
+            for hint in Self.hints {
+                let failed = TranscriptionStatus.failed(reason: reason)
+                let notice = ModelHints.notice(for: failed, engine: EngineReadiness(status: failed, modelPath: "/Users/x/m",
+                                                                                    download: hint))
+                UserFacingCopy.assertPlain(notice?.body)
+            }
+            let option = OnboardingModelOption(key: ModelDownloadKey(engine: .whisper, id: "base.en"), title: "Whisper base",
+                                               detail: "57 MB", isRecommended: true, isInstalled: true, fetch: .inApp)
+            let content = OnboardingContent(
+                inputs: ReadinessInputs(accessibility: .granted, microphone: .authorized,
+                                        engine: EngineReadiness(status: .failed(reason: reason), modelPath: "/m", download: nil),
+                                        hotkeyTap: .installed),
+                model: OnboardingModelFacts(options: [option], selected: nil, downloads: [option.key: .failed("Download failed: \(reason)")],
+                                            partial: []),
+                notifications: .authorized, hold: .controlShift, toggle: .controlOptionSpace, cancelKeyCode: 53)
+            UserFacingCopy.assertPlain(content.step(.model).note)
         }
     }
 

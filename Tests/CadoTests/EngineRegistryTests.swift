@@ -188,7 +188,7 @@ final class EngineRegistryTests: XCTestCase {
         _ = try await engine.transcribe([0.1])
         await waitUntil("settled") { seen.last == .ready && seen.count > 2 }
 
-        XCTAssertTrue(seen.contains(.failed(reason: "Couldn't switch to Turbo (English/EU) fake-big (model not found). "
+        XCTAssertTrue(seen.contains(.failed(reason: "Couldn't switch to Turbo (English/EU) fake-big. It isn't downloaded. "
                                             + "Still using a.bin.")), "\(seen)")
         XCTAssertEqual(engine.model, whisper)
     }

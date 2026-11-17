@@ -1,13 +1,12 @@
 import Foundation
 import CryptoKit
 
-/// A model file that isn't byte-for-byte the one the catalog pins.
+/// A model file that isn't byte-for-byte the one the catalog pins. Shown
+/// after "the speech model didn't load"; `filename` is for the log.
 struct ModelChecksumMismatch: LocalizedError, Equatable {
     let filename: String
 
-    var errorDescription: String? {
-        "\(filename) doesn't match its published checksum (corrupt or incomplete download). Delete it and download it again."
-    }
+    var errorDescription: String? { "Its files are damaged or incomplete." }
 }
 
 /// Checks model files against their pinned SHA-256 before the engine loads

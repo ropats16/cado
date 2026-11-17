@@ -46,16 +46,18 @@ enum ModelDownloadError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
+        // Shown after "Download failed:"; the paths and sizes are logged
+        // (`String(describing:)` of the error), not shown.
         case .http(let status):
-            return "The server answered HTTP \(status)."
-        case .incomplete(let path, let bytes, let expected):
-            return "\(path) is incomplete (\(bytes) of \(expected) bytes). Check your connection and try again to resume."
-        case .checksumMismatch(let path):
-            return "\(path) doesn't match its pinned checksum (discarded). Try again."
-        case .unsafePath(let path):
-            return "The pinned path \"\(path)\" leaves the model folder."
-        case .oversized(let bytes):
-            return "The server sent more than the expected \(bytes) bytes, so the download was stopped. Try again."
+            return "The download server didn't answer as expected (error \(status)). Try again later."
+        case .incomplete:
+            return "The download stopped before it finished. Check your connection and try again to resume."
+        case .checksumMismatch:
+            return "A downloaded file was damaged, so it was discarded. Try again."
+        case .unsafePath:
+            return "This model's download list isn't valid, so nothing was saved."
+        case .oversized:
+            return "The server sent more than expected, so the download was stopped. Try again."
         }
     }
 }

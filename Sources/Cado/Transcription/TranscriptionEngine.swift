@@ -15,7 +15,10 @@ enum TranscriptionStatus: Equatable {
     case failed(reason: String)
 }
 
-/// Errors the engine (and its adapters) surface to callers.
+/// Errors the engine (and its adapters) surface to callers. The
+/// descriptions are shown (Settings, notices, onboarding) after "the speech
+/// model didn't load" or similar, so they say why in plain words, without
+/// the path: the engine logs that (`String(describing:)` of the error).
 enum TranscriptionError: LocalizedError {
     case modelLoadFailed(path: String)
     case modelNotLoaded
@@ -23,10 +26,10 @@ enum TranscriptionError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .modelLoadFailed(let path):
-            return "Failed to load the transcription model at \(path)."
+        case .modelLoadFailed:
+            return "Its files couldn't be opened."
         case .modelNotLoaded:
-            return "No transcription model is loaded."
+            return "No speech model is loaded."
         case .inferenceFailed:
             return "Transcription failed."
         }
@@ -253,13 +256,14 @@ final class TranscriptionEngine: @unchecked Sendable {
         let previous = loadedSpec ?? idleSpec
         defer { noteActivity() }
         guard presenceChecked || isPresent(spec) else {
-            return failSwitch(to: spec, .missing, previous: previous, why: "model not found")
+            return failSwitch(to: spec, .missing, previous: previous, why: "It isn't downloaded.")
         }
         do {
             if let expected = spec.sha256 {
                 try verifier.verify(path: spec.path, sha256: expected) { setStatus(.verifying) }
             }
         } catch {
+            Log.error("Model check failed (\(spec.path)): \(error)")
             return failSwitch(to: spec, .failed(reason: error.localizedDescription),
                               previous: previous, why: error.localizedDescription)
         }
@@ -272,6 +276,7 @@ final class TranscriptionEngine: @unchecked Sendable {
             install(loaded, from: spec)
             setStatus(.ready)
         } catch {
+            Log.error("Model load failed (\(spec.path)): \(error)")
             failSwitch(to: spec, .failed(reason: error.localizedDescription),
                        previous: previous, why: error.localizedDescription)
         }
@@ -283,6 +288,7 @@ final class TranscriptionEngine: @unchecked Sendable {
     /// handles the `.failed` already sees the engine back on `previous`.
     private func failSwitch(to spec: ModelSpec, _ status: TranscriptionStatus, previous: ModelSpec?, why: String) {
         guard let previous else { return setStatus(status) }
+        let why = Self.sentence(why)
         let name = { (s: ModelSpec) in s.displayName }
         lock.withLock { _model = previous }
         if adapter == nil && idleSpec == nil {
@@ -291,12 +297,21 @@ final class TranscriptionEngine: @unchecked Sendable {
                 warmUp(restored)
                 install(restored, from: previous)
             } catch {
-                return setStatus(.failed(reason: "Couldn't switch to \(name(spec)) (\(why)), "
-                                         + "nor reload \(name(previous)): \(error.localizedDescription)"))
+                Log.error("Model reload failed (\(previous.path)): \(error)")
+                return setStatus(.failed(reason: "Couldn't switch to \(name(spec)). \(why) "
+                                         + "Couldn't go back to \(name(previous)) either. \(error.localizedDescription)"))
             }
         }
-        setStatus(.failed(reason: "Couldn't switch to \(name(spec)) (\(why)). Still using \(name(previous))."))
+        setStatus(.failed(reason: "Couldn't switch to \(name(spec)). \(why) Still using \(name(previous))."))
         setStatus(.ready)
+    }
+
+    /// `text` as a sentence: capitalised, ending in a full stop.
+    private static func sentence(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard let first = trimmed.first else { return trimmed }
+        let capital = first.uppercased() + trimmed.dropFirst()
+        return ".!?".contains(capital.last!) ? capital : capital + "."
     }
 
     /// Verify (silently — a file already checked hits the cache) and load.
@@ -331,6 +346,7 @@ final class TranscriptionEngine: @unchecked Sendable {
             install(loaded, from: spec)
             Log.info("Reloaded the idle model in \(String(format: "%.2f", Date().timeIntervalSince(start)))s.")
         } catch {
+            Log.error("Model reload failed (\(spec.path)): \(error)")
             setStatus(.failed(reason: error.localizedDescription))
         }
     }
