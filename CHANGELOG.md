@@ -2,6 +2,11 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
+## Unreleased
+
+### Fixed
+- Meetings on laptop speakers: what the other side says no longer shows up a second time under "Me". Your own words stay, short replies like "yeah" included.
+
 ## 0.3.0 - 2026-11-17
 
 ### Added

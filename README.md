@@ -336,10 +336,15 @@ and says why).
   being saved to disk" and recording goes on. From then on the audio is held in
   memory until the note is written at the end. If Cado quits unexpectedly
   before the note is saved, the part held in memory can't be recovered; only
-  the part already on disk can. Without headphones the mic also hears the other
-  side, so their words can appear under "Me" too. Notes saved before this
-  label changed say "Them"; they still open and show "Others" (the files
-  aren't changed).
+  the part already on disk can. Notes saved before this label changed say
+  "Them"; they still open and show "Others" (the files aren't changed).
+- **Laptop speakers:** without headphones the mic also hears the other side.
+  Cado leaves out of "Me" whatever repeats what Others said at that moment,
+  so their words aren't in the note twice. Your own words stay, also short
+  replies like "yeah" and anything you say over them. Two things it can't
+  tell apart: if you repeat three or more of their words straight after
+  them, that repeat is left out too; and a few garbled words of theirs can
+  still end up under "Me". Headphones avoid both.
 - **Safari:** Safari plays web audio through WebKit's shared media process,
   which every WebKit-based app uses (Mail, and apps with web views) and which
   macOS gives no public way to tell apart. So with Safari as the meeting app,
@@ -660,6 +665,15 @@ make build
 
 See [`plans/benchmark.md`](plans/benchmark.md) for options, what each number
 means, the JSON schema, fixture licenses, and how to add an engine.
+
+**Speaker bleed (meetings on laptop speakers).** `python3
+scripts/make_bleed_fixtures.py` builds two short meetings from the bench
+clips, with Others mixed into Me as laptop speakers would. Then
+`scripts/bleed_bench.sh` runs them through `Cado --meeting-test` and prints
+each side's WER (bleed shows as Me insertions). `Cado --echo-test --wav
+<file>` measures how much of the speakers the mic hears, with and without
+Apple's voice processing. Results and the reasoning are in
+[`plans/speaker-bleed-36.md`](plans/speaker-bleed-36.md).
 
 ---
 
