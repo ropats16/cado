@@ -2,7 +2,8 @@
 
 What the tests can't reach: a real call of real length, a real crash, a
 real full disk, how fast this Mac's engine keeps up. The rest of the
-meeting flow is in [meeting-30.md](meeting-30.md).
+meeting flow is in [meeting-30.md](meeting-30.md); give-up and the edge cases
+fixed later are in [meeting-48.md](meeting-48.md).
 
 Already verified without a human:
 - `MeetingSessionTests` (fakes): chunks go to the engine while recording,
@@ -64,7 +65,7 @@ The folders to watch (Finder › Go › Go to Folder…):
 1. [ ] Start a meeting, talk for 2–3 minutes in turns with the other side.
 2. [ ] Activity Monitor › Cado › Force Quit (or `kill -9 $(pgrep -x Cado)`).
        The meeting's folder stays in `Meetings In Progress`.
-3. [ ] Relaunch Cado. The menu shows "Recovering Meeting…" with progress
+3. [ ] Relaunch Cado. The menu shows "Recovering a meeting…" with progress
        (and the Library an in-progress row), then a "Meeting note
        recovered" notification; clicking it opens the note.
 4. [ ] The note starts with "Cado quit unexpectedly during this meeting.
@@ -74,9 +75,8 @@ The folders to watch (Finder › Go › Go to Folder…):
 5. [ ] Again, but force quit a few seconds after **Stop Recording** on a long
        meeting (while it's still transcribing): the recovered note has the
        whole meeting.
-6. [ ] While the menu shows "Recovering Meeting…", click **Record Meeting**:
-       it does not start, and a notice says why. When the recovered note is
-       saved, Record Meeting works again.
+6. [ ] (Changed in #48: Record Meeting now works during a recovery, which
+       waits; see [meeting-48.md](meeting-48.md).)
 7. [ ] Force quit in a silent meeting (nobody talks): relaunch: no note, no
        notification, the folder is gone.
 8. [ ] After each case above (quit, force quit, recovery), the notes folder
@@ -85,7 +85,7 @@ The folders to watch (Finder › Go › Go to Folder…):
 ## Quit mid-meeting
 
 - [ ] Quit Cado from the menu while recording, then relaunch: the menu shows
-      "Recovering Meeting…", then the complete note appears with the line
+      "Recovering a meeting…", then the complete note appears with the line
       "Cado was quit during this meeting; the note was finished the next time
       Cado started." `Meetings In Progress` is empty afterwards.
 
@@ -105,7 +105,7 @@ The folders to watch (Finder › Go › Go to Folder…):
       meeting: a "The meeting is safe" notice appears once; the audio goes to
       `Meeting Audio` if that folder works, otherwise it stays in `Meetings In
       Progress`; no note is written yet. Free the space and relaunch Cado: the menu
-      shows "Recovering Meeting…", then the note appears with the line "This
+      shows "Recovering a meeting…", then the note appears with the line "This
       note couldn't be saved when the meeting ended; it was finished the next
       time Cado started." `Meetings In Progress` is empty afterwards.
 
@@ -114,7 +114,7 @@ The folders to watch (Finder › Go › Go to Folder…):
 - The 2-hour cap stays; tail-only work after stop is guaranteed by design and
   tests, the seconds it takes depend on the Mac and model.
 - After a crash, up to about a second of audio right before it may be
-  missing; after a power cut, a few more seconds.
+  missing; after a power cut, up to about 5 seconds more (#48).
 - With the disk full mid-meeting, the audio held in memory can't be recovered
   if Cado quits unexpectedly before the note is saved; only the part already on
   disk can. The note is still written when the meeting ends.

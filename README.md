@@ -310,7 +310,13 @@ and says why).
   recording on disk is never deleted before its note is saved. The note then
   says: "This note couldn't be saved when the meeting ended; it was finished the
   next time Cado started." Two copies of Cado on one Mac never touch each
-  other's meetings.
+  other's meetings. If Cado finds a recording there whose details (which app,
+  and when) can't be read, it can't write a note for it: it keeps the audio as
+  `Me.wav`/`Others.wav` in a `Meeting Audio` folder and tells you where, once.
+- **The note's id:** a meeting note's front matter has an `id` line (the
+  meeting's own id), so if Cado stops right after saving a note it never
+  writes a second one for the same meeting. Other apps can ignore it; notes
+  without it open as before.
 - **Keep meeting audio:** off by default, the meeting's audio is deleted once
   the note is saved. To keep it, turn on **Settings → Meetings → Keep meeting
   audio**: each meeting's audio is then kept as `Me.wav` and `Others.wav`
@@ -327,14 +333,19 @@ and says why).
   and its speech model is ready, it finishes the note from what was recorded
   and saves it with a line saying Cado quit unexpectedly and the note was
   recovered, then a notification. Up to about a second of audio right before
-  the crash can be lost (a few more seconds after a power cut). Meetings with
+  the crash can be lost (after a power cut, up to about 5 seconds more: the
+  recording is flushed to the disk every 5 seconds). Meetings with
   no speech are just deleted. If Cado can't recover a meeting after trying on
   two launches, it stops trying: it saves a note with what was transcribed
   before and keeps the audio in the `Meeting Audio` folder. If even that fails,
   the untouched recording is moved to the `Meeting Audio` folder and Cado says
   where it is ("Couldn't finish a meeting"). It is never deleted. While a
-  recovery runs, the menu shows **Recovering Meeting…** with its progress, and
-  **Record Meeting** is unavailable until it's done.
+  recovery runs, the menu shows its progress ("Recovering a meeting with
+  Zoom… 2 of 5") under **Record Meeting**, which still works: the recovery
+  waits while you record, and goes on once the new meeting's note is saved.
+  If the disk is too full for Cado to keep track of a recovery, it waits for
+  a launch with free space ("Couldn't finish a meeting yet") rather than try
+  where a crash couldn't be counted.
 - **Limits:** a meeting stops by itself after 2 hours (the note is still
   written). If the disk fills up mid-meeting, Cado says "Meeting audio isn't
   being saved to disk" and recording goes on. From then on the audio is held in

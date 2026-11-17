@@ -20,6 +20,13 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - Library: a meeting's summary shows in a card above the transcript, with Regenerate Summary (or Summarize for a note without one). A new summary replaces the old one; the rest of the note is kept.
 - Settings › Meetings › Summarize meetings: on by default; where summaries can't run, it says why.
 - Summaries: very short meetings (under about 40 words) aren't summarized automatically (Summarize still works); a note you edit while it's being summarized is left as you edited it; while Apple Intelligence is still getting ready, the Library still offers Summarize and says why.
+- Record Meeting works while Cado is finishing a meeting from an earlier run: that recovery waits while you record and goes on after. The menu shows its progress under Record Meeting.
+- A meeting note's front matter has an `id` line, so a note is never written twice for one meeting, even if Cado stops right after saving it. Notes without it open as before.
+- A recording in Meetings In Progress whose details can't be read is no longer left there silently: its audio is kept as WAV files in the Meeting Audio folder, and Cado tells you where, once.
+
+### Fixed
+- On a nearly full disk, a recovered meeting's note no longer says Cado quit unexpectedly when it was quit, and a meeting Cado can't finish isn't retried on every launch: it waits until there's free space and says so.
+- After a power cut, at most about 5 seconds of a meeting's audio can be lost (the recording is now flushed to the disk itself every 5 seconds).
 
 ## 0.3.0 - 2026-11-17
 
