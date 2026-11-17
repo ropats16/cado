@@ -360,7 +360,7 @@ final class SettingsViewModelTests: XCTestCase {
         vm.commitHotkey(conflicting, for: .hold)
         XCTAssertNotNil(vm.hotkeyWarning, "hotkeyWarning must be set when hold == toggle")
         XCTAssertEqual(vm.hotkeyWarning, "Hold to talk and Toggle to talk use the same keys (\(conflicting)). "
-                           + "Record a different shortcut, or click Reset to Default.")
+                           + "Choose a different shortcut with Change…, or click Reset to Default.")
         UserFacingCopy.assertPlain(vm.hotkeyWarning)
     }
 

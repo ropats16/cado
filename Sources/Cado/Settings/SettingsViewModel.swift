@@ -390,6 +390,6 @@ final class SettingsViewModel: ObservableObject {
     private func updateHotkeyWarning() {
         let issues = ConfigValidator.validate(configStore.config)
         hotkeyWarning = issues.first { $0.topic == .hotkeys }
-            .map { "\($0.summary) Record a different shortcut, or click Reset to Default." }
+            .map { "\($0.summary) Choose a different shortcut with Change…, or click Reset to Default." }
     }
 }
