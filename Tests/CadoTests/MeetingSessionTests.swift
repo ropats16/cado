@@ -1226,7 +1226,9 @@ extension MeetingSessionTests {
 /// spool: what the session leaves for the next launch stays in it. From the
 /// first event `refuses` picks, its journal takes nothing more (the folder
 /// spool after a failed write: a full disk); `reopen()` (the next launch)
-/// lets it write again. Marks and moves are remembered: `folderMarks` what
+/// lets it write again, and so does a rename (`setMarks`), as the folder
+/// spool reopens its files then: a write after it reaches the journal unless
+/// `refuses` picks it. Marks and moves are remembered: `folderMarks` what
 /// the name says now, `marks` each mark as it was added.
 final class DurableSpoolHandle: MeetingSpoolHandle {
     let inner: InMemorySpoolHandle
@@ -1261,8 +1263,10 @@ final class DurableSpoolHandle: MeetingSpoolHandle {
     }
     func setMarks(_ new: Set<SpoolFolderMark>) -> Bool {
         guard hasFolder, canMark else { return false }
+        guard new != folderMarks else { return true }   // the same name: nothing renamed
         marks += SpoolFolderMark.order.filter { new.contains($0) && !folderMarks.contains($0) }
         folderMarks = new
+        journalFailed = false   // its files reopened at the new name
         return true
     }
     func moveFolder(into folder: URL) -> URL? {
@@ -2113,6 +2117,44 @@ extension MeetingSessionTests {
         XCTAssertEqual(h.folderMarks, [.tried])
         next.quit {}
         XCTAssertEqual(h.folderMarks, [])
+    }
+
+    /// The journal refused the attempt's start, so it's marked `.tried`;
+    /// the rename reopened the files and there's room again, so its later
+    /// writes reach the journal. The start goes in first (and the mark
+    /// goes): its results never come before it, so a crash now doesn't
+    /// count the attempt as stalled, though it got further.
+    func testAnAttemptMarkedTriedJournalsItsStartBeforeItsResults() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides)
+        var refused = false
+        h.reopen(refusing: { event in
+            guard event == .recoveryStarted, !refused else { return false }
+            refused = true
+            return true
+        })
+        spool.left = [try XCTUnwrap(h.leftover)]
+        let next = makeSession()
+        next.recoverLeftovers()
+        engine.finishNext()                       // one passage journaled; Cado dies here
+        XCTAssertTrue(refused)
+        XCTAssertEqual(h.folderMarks, [], "In the journal now, not the name")
+        let start = try XCTUnwrap(h.events.firstIndex(of: .recoveryStarted))
+        let result = try XCTUnwrap(h.events.firstIndex { if case .transcribed = $0 { return true } else { return false } })
+        XCTAssertLessThan(start, result)
+        let plan = RecoveryPlan(events: h.events + SpoolFolderMark.events(for: h.folderMarks),
+                                sampleCounts: h.audio().counts)
+        XCTAssertEqual(plan.stalledAttempts, 0, "It got further: not stalled")
+    }
+
+    /// While the start still can't be journaled, nothing else of the attempt is.
+    func testWhileItsStartIsOnlyInTheNameNothingElseOfTheAttemptIsJournaled() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides)
+        let before = h.events
+        let next = try relaunch(h, stillFull: true)
+        engine.finishNext()
+        XCTAssertEqual(next.status, .recovering(app: "Zoom", done: 1, total: 3))
+        XCTAssertEqual(h.folderMarks, [.tried])
+        XCTAssertEqual(h.events, before, "No result ahead of its attempt's start")
     }
 
     /// The meeting's "is safe" notice was said already: waiting says nothing more.

@@ -42,8 +42,10 @@ import Foundation
 ///   does a quit (#48). Recovery reads marks as the events they stand for
 ///   and journals them (the name goes back to plain) once the journal takes
 ///   events again. An attempt the journal can't count is marked `.tried`,
-///   once; another, or a give-up it can't journal, waits for a launch with
-///   room: a full disk never switches off the crash-loop guard.
+///   once, and its start is journaled before anything else of it once the
+///   journal takes events (`RecoverySpoolHandle`); another, or a give-up it
+///   can't journal, waits for a launch with room: a full disk never
+///   switches off the crash-loop guard.
 /// - A note carries its meeting's id (#48): a leftover without `.noteSaved`
 ///   whose note is in the notes folder anyway (Cado died in between) adopts
 ///   it, looked for off main; never a second note. Only a whole note, and
@@ -1135,8 +1137,9 @@ final class MeetingSession {
         }
         journalMarks(handle)
         meetingCount += 1
-        let meeting = Meeting(id: meetingCount, appName: info.appName, startedAt: clock.now,
-                              startDate: info.startDate, spool: handle, me: nil, them: nil, recovery: plan.reason)
+        // Through `RecoverySpoolHandle`: an attempt's start is journaled before anything else of it.
+        let meeting = Meeting(id: meetingCount, appName: info.appName, startedAt: clock.now, startDate: info.startDate,
+                              spool: RecoverySpoolHandle(handle), me: nil, them: nil, recovery: plan.reason)
         for (speaker, planned) in plan.sides {
             let side = meeting.side(speaker)
             side.origin = planned.origin
@@ -1161,7 +1164,7 @@ final class MeetingSession {
         guard !plan.shouldGiveUp else {
             return giveUp(meeting, reason: "recovery was begun \(plan.stalledAttempts) times without getting further")
         }
-        guard beginAttempt(handle) else { return waitForRoom(meeting) }
+        guard beginAttempt(meeting.spool) else { return waitForRoom(meeting) }
         readBack(meeting.id)
     }
 
@@ -1188,12 +1191,10 @@ final class MeetingSession {
         handle.setMarks(handle.folderMarks.union(left))
     }
 
-    /// Journals that an attempt begins, else marks it `.tried`; false if
-    /// neither (or it was marked already: an attempt the guard can't count).
-    private func beginAttempt(_ handle: MeetingSpoolHandle) -> Bool {
-        if handle.record(.recoveryStarted) { return true }
-        guard !handle.folderMarks.contains(.tried) else { return false }
-        return handle.setMarks(handle.folderMarks.union([.tried]))
+    /// Journals that an attempt begins, else marks it `.tried`
+    /// (`RecoverySpoolHandle.beginAttempt`); false if neither.
+    private func beginAttempt(_ spool: MeetingSpoolHandle) -> Bool {
+        (spool as? RecoverySpoolHandle)?.beginAttempt() ?? spool.record(.recoveryStarted)
     }
 
     /// The attempt ended (a note saved or not, a clean quit): its mark goes.
