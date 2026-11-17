@@ -70,11 +70,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let resolve = { NotesFolder.resolve(configStore.config) }
         return Thread.isMainThread ? resolve() : DispatchQueue.main.sync(execute: resolve)
     })
+    /// Meeting summaries (#34): each saved meeting note is handed on once
+    /// saved (`SummarizingNoteStore`); Settings and the Library read it too.
+    /// The one summary-provider catalog, shared by `summaries` and Settings.
+    private lazy var summaryCatalog = ConfiguredSummarizerCatalog(config: { [configStore] in configStore.config })
+    @MainActor private lazy var summaries = MeetingSummaries(
+        catalog: summaryCatalog,
+        provider: { [configStore] in configStore.config.summaryProviderChoice },
+        automatic: { [configStore] in configStore.config.meetingSummaries })
     /// Meeting recording from the menu (#30): mic + one app's audio → a note.
     private lazy var meetings = MeetingController(
         engine: engine, activity: activity,
         microphoneUID: { [configStore] in configStore.config.microphoneUID },
-        notes: notesLibrary,
+        notes: SummarizingNoteStore(notesLibrary) { [weak self] url in
+            MainActor.assumeIsolated { self?.summaries.noteSaved(url) }
+        },
         systemAudio: { [permissions] in permissions.systemAudio },
         keepAudio: { [configStore] in configStore.config.keepMeetingAudio })
     private let termination = TerminationGate()
@@ -614,7 +624,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if !configStore.config.dictationHistory { recents.clear() }
                 refreshMenu()
             },
-            updater: updater ?? DisabledUpdater()
+            updater: updater ?? DisabledUpdater(),
+            summaryCatalog: summaryCatalog
         )
         settingsViewModel = vm
         return vm
@@ -635,6 +646,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor private func libraryModel() -> LibraryViewModel {
         if let libraryViewModel { return libraryViewModel }
         let viewModel = LibraryViewModel(library: notesLibrary)
+        viewModel.summaries = summaries
+        summaries.onWritten = { [weak viewModel] in viewModel?.summaryWritten($0) }
         viewModel.meetingStatusChanged(meetings.status)
         libraryViewModel = viewModel
         return viewModel

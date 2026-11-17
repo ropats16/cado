@@ -366,8 +366,9 @@ final class NotesLibrary {
         let kind = parsed.value(for: "kind").flatMap { $0.isEmpty ? nil : $0 } ?? NoteKind.note
         let duration = parsed.value(for: "duration").flatMap { TimeInterval($0) }.flatMap { $0 >= 0 ? $0 : nil }
         let app = NoteKind.isMeeting(kind) ? MeetingNote.recordedApp(inBody: parsed.body) : nil
+        // A meeting's row previews its transcript, not its Summary section (#34).
         let summary = NoteSummary(id: filename, title: title, date: date, kind: kind, duration: duration,
-                                  preview: preview(app == nil ? parsed.body : afterIntro(parsed.body)),
+                                  preview: preview(app == nil ? parsed.body : afterIntro(SummarySection.split(parsed.body).rest)),
                                   url: url, recordedApp: app)
         return Note(summary: summary, body: parsed.body)
     }

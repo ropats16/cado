@@ -104,6 +104,14 @@ final class NoteReadingTests: XCTestCase {
         XCTAssertNil(MeetingNote.recordedApp(inBody: "Recorded from  (Them) and your microphone (Me)."))
     }
 
+    func testOnlyAWholeLineCommentIsHidden() {
+        XCTAssertEqual(MarkdownBlock.parse("<!-- a -->"), [])
+        XCTAssertEqual(MarkdownBlock.parse("  <!-- a -->  "), [])
+        XCTAssertEqual(MarkdownBlock.parse("<!-- a --> visible text <!-- b -->"),
+                       [.paragraph("<!-- a --> visible text <!-- b -->")])
+        XCTAssertEqual(MarkdownBlock.parse("<!-- a --> text"), [.paragraph("<!-- a --> text")])
+    }
+
     func testCopyTextIsTheTurnsWithoutFrontMatterIntroOrMarkup() {
         let r = reading(note(meetingBody(caveats: [.capReached(7200)])))
         XCTAssertEqual(r.transcriptText, "Me: So, the *budget*?\n\nOthers: Unchanged.\n\nMe: Great.")

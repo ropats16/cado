@@ -66,6 +66,8 @@ final class LibraryViewModel: ObservableObject {
     @Published var renameDraft = ""
     /// Set while the delete confirmation is up.
     @Published private(set) var pendingDelete: NoteSummary?
+    /// Meeting summaries (#34; `LibraryViewModel+Summary.swift`), set by the app.
+    var summaries: MeetingSummaries?
 
     private let library: NotesLibrary
     private let opener: NoteOpening

@@ -44,6 +44,7 @@ extension SettingsView {
             // Slot: max meeting length
 
             // Slot: summaries on/off
+            summariesSection   // SettingsView+Summaries.swift (#34)
         }
     }
 }

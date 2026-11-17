@@ -36,6 +36,9 @@ enum MarkdownBlock: Equatable {
             }
             if trimmed.hasPrefix("```") { flush(); code = []; continue }
             if trimmed.isEmpty { flush(); continue }
+            // A line that is only an HTML comment shows nowhere in Markdown
+            // apps (the Summary section's markers, #34): not here either.
+            if Self.isOnlyComment(trimmed) { flush(); continue }
 
             if trimmed.hasPrefix(">") {
                 if !paragraph.isEmpty { flush() }
@@ -53,6 +56,12 @@ enum MarkdownBlock: Equatable {
         if let code { blocks.append(.code(code.joined(separator: "\n"))) }
         flush()
         return blocks
+    }
+
+    /// The whole line is one HTML comment (not `<!-- a --> text <!-- b -->`).
+    static func isOnlyComment(_ trimmed: String) -> Bool {
+        guard trimmed.hasPrefix("<!--"), trimmed.hasSuffix("-->"), trimmed.count >= 7 else { return false }
+        return !trimmed.dropFirst(4).dropLast(3).contains("-->")
     }
 
     private static func heading(_ line: String) -> MarkdownBlock? {

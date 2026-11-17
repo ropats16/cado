@@ -66,6 +66,8 @@ final class SettingsViewModel: ObservableObject {
     let onDictationHistoryChange: () -> Void
     /// Sparkle, behind `AppUpdater` (#24; SettingsViewModel+Updates.swift).
     let updater: AppUpdater
+    /// Which summary providers can run here (#34); the app's one catalog.
+    let summaryCatalog: SummarizerCatalog
 
     // MARK: - Published display state
 
@@ -157,8 +159,10 @@ final class SettingsViewModel: ObservableObject {
          pickNotesFolder: (() -> URL?)? = nil,
          revealFolder: @escaping (URL) -> Void = SettingsViewModel.revealInFinder,
          onDictationHistoryChange: @escaping () -> Void = {},
-         updater: AppUpdater = DisabledUpdater()) {
+         updater: AppUpdater = DisabledUpdater(),
+         summaryCatalog: SummarizerCatalog = LiveSummarizerCatalog()) {
         self.updater = updater
+        self.summaryCatalog = summaryCatalog
         self.configStore = configStore
         self.loginItem = loginItem
         self.availableMics = availableMics

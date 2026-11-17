@@ -22,6 +22,10 @@ final class LibraryRenderHarness: XCTestCase {
         var renaming = false
         /// A meeting under way (#42): the in-progress row.
         var meeting: MeetingStatus?
+        /// Summaries can run (#34; a fake summarizer), and the selected
+        /// note's summary is being written.
+        var summaries = false
+        var summarizing = false
     }
 
     private let scenes = [
@@ -40,6 +44,11 @@ final class LibraryRenderHarness: XCTestCase {
         Scene(name: "wide", size: NSSize(width: 1440, height: 800), select: "Weekly sync"),
         Scene(name: "narrow", size: NSSize(width: 600, height: 420), select: "Weekly sync"),
         Scene(name: "site-hero", seed: "hero", size: NSSize(width: 800, height: 520), select: "Team check-in"),
+        Scene(name: "summary", seed: "summary", size: NSSize(width: 860, height: 760), select: "Launch planning",
+              summaries: true),
+        Scene(name: "summary-offer", seed: "hero", select: "Team check-in", summaries: true),
+        Scene(name: "summary-unavailable", seed: "summary", select: "Launch planning"),
+        Scene(name: "summary-working", seed: "summary", select: "Launch planning", summaries: true, summarizing: true),
     ]
 
     override func setUpWithError() throws {
@@ -60,15 +69,22 @@ final class LibraryRenderHarness: XCTestCase {
                 case "many": try seed(library); try seedMany(library)
                 case "long": try seed(library); try seedLong(library)
                 case "hero": try seedHero(library)
+                case "summary": try seedSummary(library)
                 default: try seed(library)
                 }
             }
             let vm = LibraryViewModel(library: library)
+            let fake = FakeSummarizer()
+            fake.onSummarize = { _ in Thread.sleep(forTimeInterval: 2); return MeetingSummary() }
+            let summaries = MeetingSummaries(catalog: FakeSummarizerCatalog(summarizer: fake), provider: { .onDevice },
+                                             automatic: { true })
+            if scene.summaries { vm.summaries = summaries }
             await vm.reload()
             if let meeting = scene.meeting { vm.meetingStatusChanged(meeting) }
             if let title = scene.select, let id = vm.notes.first(where: { $0.title == title })?.id {
                 await vm.select(id)
                 if scene.renaming { vm.beginRename(id) }
+                if scene.summarizing { vm.summarizeSelected() }
             }
             if !scene.query.isEmpty {
                 await vm.setQuery(scene.query)
@@ -134,6 +150,27 @@ final class LibraryRenderHarness: XCTestCase {
         }
         try library.create(NoteDraft(title: "Quarterly planning", date: Date().addingTimeInterval(-600),
                                      kind: "meeting", duration: 3600, body: body))
+    }
+
+    private func seedSummary(_ library: NotesLibrary) throws {
+        let turns: [MeetingTranscript.Turn] = [
+            .init(speaker: .me, text: "Two things today: the launch date and the beta budget."),
+            .init(speaker: .them, text: "Design needs one more week for onboarding, so March 3rd looks risky."),
+            .init(speaker: .me, text: "Can we move it to March 10th and keep the press briefing on the 12th?"),
+            .init(speaker: .them, text: "Yes. Priya will confirm with marketing. Finance approved fifteen thousand."),
+            .init(speaker: .me, text: "Then we drop the survey tool. Sam, can you cancel the trial by Friday?"),
+        ]
+        let note = MeetingNote(appName: "Zoom", start: Date().addingTimeInterval(-1800), duration: 1500, turns: turns,
+                               caveats: [.capReached(7200)])
+        var draft = note.draft()
+        draft.title = "Launch planning"
+        let outcome = SummaryOutcome(summary: MeetingSummary(
+            keyPoints: ["Onboarding design needs one more week", "Finance approved $15k of the $20k beta budget"],
+            decisions: ["Launch moves to March 10th; press briefing stays on the 12th", "Drop the paid survey tool"],
+            actionItems: ["Priya: confirm the new date with marketing", "Sam: cancel the survey tool trial by Friday"]))
+        draft.body = SummarySection.applying(SummarySection.markdown(outcome, provider: .onDevice), to: draft.body)
+        try library.create(draft)
+        try seedHero(library)
     }
 
     private func seedHero(_ library: NotesLibrary) throws {
