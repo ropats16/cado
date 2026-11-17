@@ -310,7 +310,7 @@ and says why).
   speech model is ready, it finishes transcribing what was recorded up to
   that moment and saves the note with a line saying it was recovered, then a
   notification. Meetings with no speech are just deleted. If one can't be
-  recovered (its audio can't be read, or recovering it failed twice), its
+  recovered (its audio can't be read, or recovering it keeps failing), its
   audio goes to the `Meeting Audio` folder and a notification says so. While
   a recovery runs, the menu shows it as transcribing and **Record Meeting**
   waits until it's done.
