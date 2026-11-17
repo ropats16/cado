@@ -74,8 +74,20 @@ final class WhisperKitAdapter: TranscriptionAdapter {
     }
 
     func transcribe(samples: [Float]) throws -> [Transcript.Segment] {
-        guard !samples.isEmpty else { return [] }
+        try transcribe(samples: samples, language: nil).segments
+    }
+
+    /// WhisperKit takes the language per call (`DecodingOptions`), so one
+    /// loaded model decodes any job in any language (#47). The transcript
+    /// names the language decoded in (under auto-detect, the one detected).
+    func transcribe(samples: [Float], language: String?) throws -> Transcript {
+        guard !samples.isEmpty else { return Transcript(segments: []) }
         var options = options
+        if let language {
+            let lang = language == ModelSpec.autoDetect ? nil : language
+            options.language = lang
+            options.detectLanguage = lang == nil
+        }
         options.windowClipTime = Self.windowClipTime(forSampleCount: samples.count)
         let results: [TranscriptionResult]
         do {
@@ -93,7 +105,9 @@ final class WhisperKitAdapter: TranscriptionAdapter {
         let raw = results.flatMap(\.segments).map {
             Transcript.Segment(text: $0.text, start: TimeInterval($0.start), end: TimeInterval($0.end))
         }
-        return Self.normalize(raw)
+        let spoken = Self.normalize(raw)
+        let decodedIn = spoken.isEmpty ? nil : results.first.map(\.language).flatMap { $0.isEmpty ? nil : $0 }
+        return Transcript(segments: spoken, language: decodedIn)
     }
 
     /// The tail, in seconds, in which WhisperKit won't start a new window (a

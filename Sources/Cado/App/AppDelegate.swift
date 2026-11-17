@@ -637,6 +637,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             updater: updater ?? DisabledUpdater(),
             summaryCatalog: summaryCatalog
         )
+        // The Meeting Language card says when the meeting model didn't load (#47).
+        vm.meetingModelFailure = { [weak self] in self?.meetings.router.failure(for: $0) }
+        meetings.router.onChange = { [weak vm] in MainActor.assumeIsolated { vm?.meetingModelChanged() } }
         settingsViewModel = vm
         return vm
     }

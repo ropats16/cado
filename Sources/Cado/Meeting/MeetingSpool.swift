@@ -67,6 +67,9 @@ enum SpoolEvent: Codable, Equatable {
     case noteSaveFailed(reason: String)                             // the note couldn't be saved anywhere; finish it next launch
     case recoveryGaveUp(reason: String)                             // recovery stopped trying; journaled before the note is written
     case toldUser(SpoolNotice)                                      // said once per meeting, not again on a later launch
+    /// A passage ran on a model that can't write the meeting's language
+    /// (#47); once per meeting. Cado before it skips the line it can't read.
+    case ranOnFallbackModel
 
     /// Worth flushing to the disk itself, not just the OS.
     var isMilestone: Bool {
@@ -126,6 +129,8 @@ enum SpoolEvent: Codable, Equatable {
             try c.encode("recoveryGaveUp", forKey: .type); try c.encode(reason, forKey: .reason)
         case let .toldUser(notice):
             try c.encode("toldUser", forKey: .type); try c.encode(notice, forKey: .about)
+        case .ranOnFallbackModel:
+            try c.encode("ranOnFallbackModel", forKey: .type)
         }
     }
 
@@ -176,6 +181,8 @@ enum SpoolEvent: Codable, Equatable {
             self = .recoveryGaveUp(reason: try c.decode(String.self, forKey: .reason))
         case "toldUser":
             self = .toldUser(try c.decode(SpoolNotice.self, forKey: .about))
+        case "ranOnFallbackModel":
+            self = .ranOnFallbackModel
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown event \(other)")
         }

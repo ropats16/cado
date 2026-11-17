@@ -102,6 +102,19 @@ final class MeetingNoteTests: XCTestCase {
         lines[2...6].forEach { UserFacingCopy.assertPlain($0) }
     }
 
+    /// #47: passages that ran on a model that can't write the meeting's language.
+    func testANoteSaysWhenTheDictationModelStoodIn() {
+        let note = MeetingNote(appName: "Zoom", start: start, duration: 60, turns: [Turn(speaker: .me, text: "Hi.")],
+                               caveats: [.ranOnFallbackModel(language: "hi"), .ranOnFallbackModel(language: "auto")])
+        let lines = note.body.components(separatedBy: "\n")
+        XCTAssertEqual(lines[2], "> Some of this meeting was transcribed with the dictation model because the meeting's "
+                       + "own model couldn't be used; it doesn't understand Hindi, so those passages may be wrong.")
+        XCTAssertEqual(lines[3], "> Some of this meeting was transcribed with the dictation model because the meeting's "
+                       + "own model couldn't be used; it doesn't detect the language, so passages in another language "
+                       + "may be wrong.")
+        lines[2...3].forEach { UserFacingCopy.assertPlain($0) }
+    }
+
     func testANoteWithNothingTranscribedSaysSo() {
         let note = MeetingNote(appName: "Zoom", start: start, duration: 60, turns: [],
                                caveats: [.quitBeforeTranscribing])

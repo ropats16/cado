@@ -17,10 +17,14 @@ extension SettingsView {
                 }
                 .pickerWidth()
             }
-            let note = viewModel.meetingLanguageNote
-            StatusLine(text: note.text, tone: note.isProblem ? .problem : .note)
+            let card = viewModel.meetingLanguageCard   // one model choice per render
+            if let problem = card.languageProblem {
+                StatusLine(text: problem, tone: .problem)
+                    .padding(.bottom, 4)
+            }
+            StatusLine(text: card.note.text, tone: card.note.isProblem ? .problem : .note)
                 .padding(.bottom, 8)
-            if let model = viewModel.meetingModelDownload {
+            if let model = card.download {
                 ModelDownloadRow(model: model, viewModel: viewModel)
                     .padding(.bottom, 4)
             }

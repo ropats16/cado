@@ -35,13 +35,21 @@ enum MeetingLanguageChoice: Equatable, Hashable {
     /// The language a meeting is decoded in: dictation's (`Config.language`,
     /// empty meaning auto-detect), "auto", or the code. This is what a
     /// meeting's spool records when it starts, so recovering it later uses
-    /// the same language whatever the settings say by then.
+    /// the same language whatever the settings say by then. A code no
+    /// engine knows (a hand-edited "hindi" or "en-US", `isUnknown`) is
+    /// dictation's language: whisper would decode garbage in it.
     func resolved(dictation: String) -> String {
         switch self {
         case .sameAsDictation: return ModelSpec.language(dictation)
         case .autoDetect: return ModelSpec.autoDetect
-        case .language(let code): return code
+        case .language(let code): return isUnknown ? ModelSpec.language(dictation) : code
         }
+    }
+
+    /// A hand-edited code that isn't a language (`ConfigValidator.isKnownLanguage`).
+    var isUnknown: Bool {
+        if case .language(let code) = self { return !ConfigValidator.isKnownLanguage(code, allowSame: true) }
+        return false
     }
 }
 
@@ -71,6 +79,32 @@ extension ModelSpec {
         (engine == .whisper || engine == .whisperKit) && !isEnglishOnly
     }
 
+    /// The engine takes the language per job (whisper.cpp, WhisperKit,
+    /// Parakeet: `TranscriptionAdapter.transcribe(samples:language:)`), so
+    /// one loaded model can decode a meeting in another language than
+    /// dictation's. Apple Speech's recognizer is made for one locale.
+    var takesLanguagePerJob: Bool { engine != .appleSpeech }
+
+    /// Asked per job, it writes any language, auto-detect included: a
+    /// multilingual Whisper model (Turbo takes only its own languages).
+    var decodesAnyLanguagePerJob: Bool { takesLanguagePerJob && detectsLanguage }
+
+    /// The same model file on the same engine, whatever language it decodes in.
+    func isSameModel(as other: ModelSpec) -> Bool { path == other.path && engine == other.engine }
+
+    /// Tiny or base (whisper.cpp or WhisperKit): measured on Hindi, base
+    /// writes it in Urdu script, small and larger in Devanagari (#47).
+    var isBelowSmall: Bool {
+        let name: String
+        switch engine {
+        case .whisper: name = ModelCatalog.model(forFile: path)?.id ?? URL(fileURLWithPath: path).lastPathComponent
+        case .whisperKit: name = URL(fileURLWithPath: path).lastPathComponent
+        case .parakeet, .appleSpeech: return false
+        }
+        let lower = name.lowercased()
+        return lower.contains("tiny") || lower.contains("base")
+    }
+
     /// The model decodes `language` (an ISO code or "auto") as asked: an
     /// English-only model fits only English, and "auto" needs a model that
     /// detects the language.
@@ -85,17 +119,23 @@ extension ModelSpec {
 /// dictation model, settings, Mac and models folder come in.
 ///
 /// - The dictation model, when it already decodes that language (the
-///   default: "Same as dictation" in English keeps Turbo, unchanged).
+///   default: "Same as dictation" in English keeps Turbo, unchanged), or
+///   when the meeting's pick is that same model file and its engine takes
+///   the language per job: the one loaded model decodes the meeting's jobs
+///   in the meeting's language, no second copy.
 /// - Otherwise a model of the meeting's own: what Automatic (or the chosen
 ///   engine) would pick for that language, or, when that pick can't do it
 ///   (an English-only model, or an engine that can't detect the language
-///   under Auto-detect), whisper's own Automatic pick for it, which only
-///   picks multilingual models. That one is loaded only for meetings
-///   (`MeetingModelRouter`).
+///   under Auto-detect) or isn't downloaded while whisper's is, whisper's
+///   own Automatic pick for it, which only picks multilingual models. That
+///   one is loaded only for meetings (`MeetingModelRouter`).
 enum MeetingModel {
     enum Choice: Equatable {
-        /// The dictation engine and model.
+        /// The dictation engine and model, as dictation runs it.
         case dictation
+        /// The dictation engine and model, each job decoded in this language
+        /// (`TranscriptionEngine.run(_:language:completion:)`).
+        case dictationIn(String)
         /// A model of the meeting's own. `installed` false: it isn't
         /// downloaded, so meetings use the dictation model meanwhile.
         case own(ModelSpec, installed: Bool)
@@ -115,7 +155,8 @@ enum MeetingModel {
                        environment: EngineEnvironment = .current, engines: EngineRegistry = .shared,
                        modelsDir: URL = Paths.modelsDir, presentFilenames: Set<String>,
                        facts: EngineFacts? = nil) -> Choice {
-        guard let language else { return .dictation }
+        // nil: from before #47. An unknown code ("hindi"): dictation's, as `resolved` does.
+        guard let language, ConfigValidator.isKnownLanguage(language, allowSame: false) else { return .dictation }
         if dictation.fits(language: language) { return .dictation }
 
         var meetingConfig = config
@@ -123,16 +164,48 @@ enum MeetingModel {
         let facts = facts ?? EngineFacts(isPresent: engines.isPresent)
         let picked = ModelSelection.select(meetingConfig, environment: environment, engines: engines,
                                            modelsDir: modelsDir, presentFilenames: presentFilenames, facts: facts).spec
-        let spec: ModelSpec
-        if picked.fits(language: language) {
-            spec = picked
-        } else {
-            // A multilingual whisper model, by whisper's Automatic (never a
-            // hand-set file: that's dictation's).
+        // A multilingual whisper model, by whisper's Automatic (never a
+        // hand-set file: that's dictation's).
+        let whisperPick = {
             let context = ModelContext(language: language, hardware: environment.hardware, modelsDir: modelsDir,
                                        presentFilenames: presentFilenames)
-            spec = engines.whisper.resolve(.automatic, in: context)
+            return engines.whisper.resolve(.automatic, in: context)
+        }
+        var spec = picked.fits(language: language) ? picked : whisperPick()
+        if !facts.isPresent(spec) {
+            // An installed model that fits beats one to download.
+            let fallback = whisperPick()
+            if fallback.fits(language: language), facts.isPresent(fallback) { spec = fallback }
+        }
+        if spec.isSameModel(as: dictation), dictation.takesLanguagePerJob, facts.isPresent(spec) {
+            return .dictationIn(language)
         }
         return .own(spec, installed: facts.isPresent(spec))
+    }
+}
+
+/// Under Auto-detect, which language a passage is decoded in (#47). Whisper
+/// detects the language from the passage's first 30 s; on a very short one
+/// ("haan", "ok", a quarter second of speech) that guess is unreliable over
+/// ~99 languages. So a passage shorter than `shortPassage` is decoded in its
+/// side's last language detected on a longer one; before there is one, it's
+/// detected like any other. Pure.
+enum PassageLanguage {
+    /// Shorter passages take their side's last detected language.
+    static let shortPassage: TimeInterval = 2
+
+    /// The language to decode a `duration`-second passage of a meeting in
+    /// `meetingLanguage` in instead of detecting: `lastDetected` for a short
+    /// passage under Auto-detect, else nil (detect, or the meeting's language).
+    static func hint(meetingLanguage: String?, duration: TimeInterval, lastDetected: String?) -> String? {
+        guard meetingLanguage == ModelSpec.autoDetect, duration < shortPassage else { return nil }
+        return lastDetected
+    }
+
+    /// The language a passage was decoded in is worth remembering for its
+    /// side: detected (Auto-detect, not hinted) on a passage long enough to
+    /// trust.
+    static func remembers(meetingLanguage: String?, duration: TimeInterval) -> Bool {
+        meetingLanguage == ModelSpec.autoDetect && duration >= shortPassage
     }
 }

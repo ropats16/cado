@@ -152,6 +152,9 @@ final class MeetingSession {
         var cursor = 0
         /// The last `.settled` journaled for this side.
         var journaledSettled = 0
+        /// Under Auto-detect, the language last detected on a long passage
+        /// of this side, for its short ones (`PassageLanguage`, #47).
+        var lastLanguage: String?
         var isLive: Bool { startError == nil && lostAt == nil }
         init(_ speaker: MeetingSpeaker, _ stream: MeetingStream?) {
             self.speaker = speaker
@@ -165,6 +168,7 @@ final class MeetingSession {
         let range: Range<Int>
         /// Seconds from the meeting's start.
         let offset: TimeInterval
+        var duration: TimeInterval { Double(range.count) / AudioCapture.sampleRate }
     }
 
     private final class Meeting {
@@ -200,6 +204,9 @@ final class MeetingSession {
         var toldSpoolFailed = false
         /// An earlier launch said "the meeting is safe" (`.toldUser`).
         var toldMeetingIsSafe = false
+        /// A passage ran on a model that can't write the meeting's language
+        /// (`.ranOnFallbackModel`, #47): the note says so.
+        var ranOnFallbackModel = false
 
         init(id: Int, appName: String, startedAt: TimeInterval, startDate: Date, spool: MeetingSpoolHandle,
              me: MeetingStream?, them: MeetingStream?, recovery: RecoveryPlan.Reason? = nil) {
@@ -621,16 +628,31 @@ final class MeetingSession {
             meeting.inFlight = job
             meeting.prewarmed = false
             let id = meeting.id
-            engine.transcribe(samples, language: meeting.spool.meeting.language) { [weak self] result in
+            let language = meeting.spool.meeting.language
+            let hint = PassageLanguage.hint(meetingLanguage: language, duration: job.duration,
+                                            lastDetected: meeting.side(job.speaker).lastLanguage)
+            let passage = MeetingPassageJob(meeting: meeting.spool.meeting.id, language: language, hint: hint)
+            engine.transcribe(samples, passage: passage) { [weak self] result in
                 self?.transcribed(id, result)
             }
         }
     }
 
-    private func transcribed(_ id: Int, _ result: Result<Transcript, Error>) {
+    private func transcribed(_ id: Int, _ result: Result<MeetingPassage, Error>) {
         guard let meeting = meeting(id), let job = meeting.inFlight else { return }
         meeting.inFlight = nil
-        recordResult(result, of: job, meeting)
+        if case .success(let passage) = result {
+            let language = meeting.spool.meeting.language
+            if PassageLanguage.remembers(meetingLanguage: language, duration: job.duration),
+               let detected = passage.transcript.language {
+                meeting.side(job.speaker).lastLanguage = detected
+            }
+            if passage.onFallbackModel, !meeting.ranOnFallbackModel {
+                meeting.ranOnFallbackModel = true
+                meeting.spool.record(.ranOnFallbackModel)   // if this fails, only a recovered note misses the line
+            }
+        }
+        recordResult(result.map(\.transcript), of: job, meeting)
         submitNext(meeting)
         completeIfDone(meeting)
     }
@@ -933,6 +955,9 @@ final class MeetingSession {
         if let reason = meeting.failures.first {
             caveats.append(.transcriptionFailed(failed: meeting.failures.count, of: meeting.total, reason: reason))
         }
+        if meeting.ranOnFallbackModel, let language = meeting.spool.meeting.language {
+            caveats.append(.ranOnFallbackModel(language: language))
+        }
         return caveats
     }
 
@@ -1016,6 +1041,7 @@ final class MeetingSession {
         meeting.done = plan.done
         meeting.total = plan.done
         meeting.capReached = plan.capReached
+        meeting.ranOnFallbackModel = plan.ranOnFallbackModel
         meeting.recoveredDuration = plan.duration
         meeting.toldMeetingIsSafe = leftover.events.contains(.toldUser(.meetingIsSafe))
         state = .finishing(meeting)

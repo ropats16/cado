@@ -23,6 +23,8 @@ final class MeetingController: MeetingActivity {
         systemAudioPermission: systemAudio, keepAudio: keepAudio, meetingLanguage: meetingLanguage)
     private let recorder: MeetingRecorder
     private let engine: MeetingEngine
+    /// `engine`: picks each meeting's model (#47).
+    let router: MeetingModelRouter
     private let notes: MeetingNoteStore
     private let systemAudio: () -> SystemAudioPermission
     private let keepAudio: () -> Bool
@@ -43,7 +45,8 @@ final class MeetingController: MeetingActivity {
         self.activity = activity
         self.clock = clock
         recorder = LiveMeetingRecorder(microphoneUID: microphoneUID)
-        self.engine = MeetingModelRouter(dictation: engine, options: options, choose: meetingModel)
+        router = MeetingModelRouter(dictation: engine, options: options, choose: meetingModel)
+        self.engine = router
         self.notes = notes
         self.systemAudio = systemAudio
         self.keepAudio = keepAudio

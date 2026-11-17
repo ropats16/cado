@@ -20,6 +20,8 @@ final class SettingsMeetingLanguageTests: XCTestCase {
     /// What the dictation engine runs.
     private var dictation: ModelSpec!
     private var applied = 0
+    /// Reads of the models folder.
+    private var reads = 0
 
     private var turbo: ModelSpec {
         ModelSpec(path: "/models/parakeet/\(ParakeetCatalog.defaultModel.id)", sha256: nil, language: "en", engine: .parakeet)
@@ -44,7 +46,7 @@ final class SettingsMeetingLanguageTests: XCTestCase {
         let hardware = HardwareProfile(isAppleSilicon: true, memoryBytes: gib << 30)
         return SettingsViewModel(
             configStore: configStore, loginItem: LoginItem(service: NoLoginItem()), availableMics: { [] },
-            presentModelFilenames: { [unowned self] in Set(present.map(WhisperModel.filename(for:))) },
+            presentModelFilenames: { [unowned self] in reads += 1; return Set(present.map(WhisperModel.filename(for:))) },
             onNeedsMenuRefresh: {}, pauseHotkeys: {}, reloadHotkeys: {}, hardware: hardware,
             currentModel: { [unowned self] in dictation }, modelStatus: .ready,
             onModelSettingsChange: { [unowned self] in applied += 1 },
@@ -113,6 +115,59 @@ final class SettingsMeetingLanguageTests: XCTestCase {
                        + "English. Download it below.")
     }
 
+    func testTheCardReadsTheModelsOnce() {
+        present = ["small-q5_1"]
+        configStore.update { $0.meetingLanguage = "auto" }
+        let vm = makeVM()
+        reads = 0
+        let card = vm.meetingLanguageCard
+        XCTAssertEqual(reads, 1, "One model choice per render")
+        XCTAssertFalse(card.note.isProblem)
+        XCTAssertNil(card.download)
+        XCTAssertNil(card.languageProblem)
+    }
+
+    func testAMeetingModelThatDidntLoadIsSaid() {
+        present = ["small-q5_1"]
+        configStore.update { $0.meetingLanguage = "hi" }
+        let vm = makeVM()
+        vm.meetingModelFailure = { $0 == self.whisper("small-q5_1", "hi") ? "Its files couldn't be opened." : nil }
+        XCTAssertEqual(vm.meetingLanguageCard.note.text,
+                       "Meetings need Whisper small-q5_1, but it didn't load. Until the next meeting tries it again, "
+                       + "meetings use the dictation model, Turbo, which doesn't understand Hindi.")
+        XCTAssertTrue(vm.meetingLanguageCard.note.isProblem)
+    }
+
+    func testTheSameModelInAnotherLanguageIsTheDictationModel() {
+        dictation = whisper("small-q5_1", "en")
+        present = ["small-q5_1"]
+        configStore.update { $0.engine = "whisper"; $0.setModelChoice(.named("small-q5_1"), for: .whisper); $0.meetingLanguage = "hi" }
+        let vm = makeVM()
+        XCTAssertEqual(vm.meetingModelChoice, .dictationIn("hi"))
+        XCTAssertEqual(vm.meetingLanguageNote.text, "Meetings use the dictation model, Whisper small-q5_1, in Hindi.")
+    }
+
+    func testASmallModelDoesntPromiseTheScript() {
+        let base = whisper("base-q5_1", "auto")
+        let text = LanguageFitCopy.meetingNote(.own(base, installed: true), language: "auto", dictation: turbo).text
+        XCTAssertFalse(text.contains("writes it in its own script"), text)
+        XCTAssertTrue(text.contains("Urdu script"), text)
+        let small = LanguageFitCopy.meetingNote(.own(whisper("small-q5_1", "auto"), installed: true),
+                                                language: "auto", dictation: turbo).text
+        XCTAssertTrue(small.contains("(Hindi in Devanagari)"), small)
+    }
+
+    func testAnUnknownMeetingLanguageIsAProblem() {
+        configStore.update { $0.meetingLanguage = "hindi" }
+        let vm = makeVM()
+        XCTAssertEqual(vm.meetingLanguageCard.languageProblem,
+                       "“hindi” isn't a language Cado knows, so meetings use the dictation language (English). "
+                       + "Choose a language above.")
+        XCTAssertEqual(vm.meetingModelChoice, .dictation)
+        XCTAssertEqual(vm.meetingLanguageNote.text, "Meetings use the dictation model, Turbo, in English.")
+        UserFacingCopy.assertPlain(vm.meetingLanguageCard.languageProblem!)
+    }
+
     func testAHandSetLanguageIsShown() {
         configStore.update { $0.meetingLanguage = "sw" }
         let vm = makeVM()
@@ -151,10 +206,14 @@ final class SettingsMeetingLanguageTests: XCTestCase {
         var texts = ["hi", "auto", "de"].compactMap { LanguageFitCopy.dictationWarning(model: small, language: $0) }
         for language in ["en", "auto", "hi"] {
             for dictation in [small, turbo] {
-                for choice in [MeetingModel.Choice.dictation, .own(whisper("small-q5_1", language), installed: true),
+                for choice in [MeetingModel.Choice.dictation, .dictationIn(language),
+                               .own(whisper("small-q5_1", language), installed: true),
+                               .own(whisper("base-q5_1", language), installed: true),
                                .own(whisper("small-q5_1", language), installed: false)] {
                     texts.append(LanguageFitCopy.meetingNote(choice, language: language, dictation: dictation,
                                                              canDownload: true).text)
+                    texts.append(LanguageFitCopy.meetingNote(choice, language: language, dictation: dictation,
+                                                             didNotLoad: true).text)
                 }
             }
         }

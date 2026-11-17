@@ -165,18 +165,80 @@ final class MeetingLanguageTests: XCTestCase {
     }
 
     func testAChosenMultilingualEngineIsKeptForMeetings() {
-        // whisper with a named multilingual model, dictating English: meetings in Hindi use that model in Hindi.
+        // whisper with a named multilingual model, dictating English: meetings in Hindi use that same loaded
+        // model, each passage decoded in Hindi (whisper.cpp takes the language per job), not a second copy.
         var config = Config.defaults
         config.engine = "whisper"
         config.setModelChoice(.named("small-q5_1"), for: .whisper)
         XCTAssertEqual(choose("hi", dictation: whisper("small-q5_1", "en"), config: config, whisperFiles: ["small-q5_1"]),
+                       .dictationIn("hi"))
+        XCTAssertEqual(choose("auto", dictation: whisper("small-q5_1", "en"), config: config, whisperFiles: ["small-q5_1"]),
+                       .dictationIn("auto"))
+    }
+
+    func testAHandSetMultilingualFileIsSharedToo() {
+        // A hand-set large file: GBs, so never loaded twice for a language.
+        var config = Config.defaults
+        config.engine = "whisper"
+        config.modelPath = "/models/ggml-large-v3.bin"
+        let dictation = ModelSpec.file(config.modelPath, language: "en")
+        XCTAssertEqual(choose("hi", dictation: dictation, config: config, whisperFiles: ["large-v3", "small-q5_1"]),
+                       .dictationIn("hi"))
+    }
+
+    func testAnEnglishDictationModelOfTheSameFileButAnotherLanguageIsNotShared() {
+        // The meeting's pick is another file (the English-only one can't): its own model.
+        XCTAssertEqual(choose("hi", dictation: whisper("small.en-q5_1", "en"), whisperFiles: ["small.en-q5_1", "small-q5_1"]),
                        .own(whisper("small-q5_1", "hi"), installed: true))
     }
 
+    func testAnInstalledModelBeatsOneToDownload() {
+        // Automatic for German picks Turbo, not downloaded here; whisper's multilingual small is.
+        var config = Config.defaults
+        config.language = "en"
+        let dictation = whisper("small.en-q5_1", "en")
+        let choice = choose("de", dictation: dictation, config: config, whisperFiles: ["small.en-q5_1", "small-q5_1"],
+                            turboInstalled: false)
+        XCTAssertEqual(choice, .own(whisper("small-q5_1", "de"), installed: true))
+    }
+
+    func testAnUnknownLanguageCodeRunsAsDictationDoes() {
+        XCTAssertEqual(choose("hindi", dictation: turbo, whisperFiles: ["small-q5_1"]), .dictation)
+        XCTAssertEqual(choose("en-US", dictation: turbo, whisperFiles: ["small-q5_1"]), .dictation)
+        var config = Config.defaults
+        config.language = "en"
+        config.meetingLanguage = "hindi"
+        XCTAssertTrue(config.meetingLanguageChoice.isUnknown)
+        XCTAssertEqual(config.resolvedMeetingLanguage, "en", "Recorded in the spool as dictation's")
+        config.meetingLanguage = "hi"
+        XCTAssertFalse(config.meetingLanguageChoice.isUnknown)
+        XCTAssertEqual(config.resolvedMeetingLanguage, "hi")
+    }
+
+    func testShortPassagesUnderAutoDetectTakeTheSidesLastLanguage() {
+        XCTAssertEqual(PassageLanguage.hint(meetingLanguage: "auto", duration: 0.4, lastDetected: "hi"), "hi")
+        XCTAssertNil(PassageLanguage.hint(meetingLanguage: "auto", duration: 0.4, lastDetected: nil), "None yet: detect")
+        XCTAssertNil(PassageLanguage.hint(meetingLanguage: "auto", duration: 2, lastDetected: "hi"), "Long: detect")
+        XCTAssertNil(PassageLanguage.hint(meetingLanguage: "hi", duration: 0.4, lastDetected: "en"), "Not auto")
+        XCTAssertNil(PassageLanguage.hint(meetingLanguage: nil, duration: 0.4, lastDetected: "en"))
+        XCTAssertTrue(PassageLanguage.remembers(meetingLanguage: "auto", duration: 2))
+        XCTAssertFalse(PassageLanguage.remembers(meetingLanguage: "auto", duration: 1.9))
+        XCTAssertFalse(PassageLanguage.remembers(meetingLanguage: "hi", duration: 10))
+    }
+
     func testAEuropeanMeetingLanguageCanStayOnTurbo() {
-        let choice = choose("de", dictation: turbo, whisperFiles: ["small-q5_1"])
-        guard case .own(let spec, true) = choice else { return XCTFail("\(choice)") }
-        XCTAssertEqual(spec.engine, .parakeet)
-        XCTAssertEqual(spec.language, "de")
+        // The same loaded Turbo, each passage hinted German: no second Turbo.
+        XCTAssertEqual(choose("de", dictation: turbo, whisperFiles: ["small-q5_1"]), .dictationIn("de"))
+    }
+
+    func testWhichEnginesTakeTheLanguagePerJob() {
+        XCTAssertTrue(whisper("small-q5_1", "en").takesLanguagePerJob)
+        XCTAssertTrue(turbo.takesLanguagePerJob)
+        XCTAssertFalse(ModelSpec.appleSpeech(language: "en").takesLanguagePerJob)
+        XCTAssertTrue(whisper("small-q5_1", "en").decodesAnyLanguagePerJob)
+        XCTAssertFalse(whisper("small.en-q5_1", "en").decodesAnyLanguagePerJob)
+        XCTAssertFalse(turbo.decodesAnyLanguagePerJob, "Only its own languages")
+        XCTAssertTrue(whisper("base-q5_1", "auto").isBelowSmall)
+        XCTAssertFalse(whisper("small-q5_1", "auto").isBelowSmall)
     }
 }

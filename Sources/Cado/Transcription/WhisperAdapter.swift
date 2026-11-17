@@ -101,10 +101,20 @@ final class WhisperAdapter: TranscriptionAdapter {
     }
 
     func transcribe(samples: [Float]) throws -> [Transcript.Segment] {
-        guard !samples.isEmpty else { return [] }
+        try transcribe(samples: samples, language: nil).segments
+    }
 
-        let params = Self.fullParams(tuning: tuning, language: languageC, vadModelPath: vadModelPathC,
-                                     threads: threads, sampleCount: samples.count)
+    /// whisper.cpp takes the language per `whisper_full` call, so one loaded
+    /// model decodes any job in any language (#47). The transcript names the
+    /// language decoded in (under auto-detect, the one detected).
+    func transcribe(samples: [Float], language: String?) throws -> Transcript {
+        guard !samples.isEmpty else { return Transcript(segments: []) }
+
+        // nil: the adapter's own language, exactly as before #47.
+        let jobLanguage: UnsafeMutablePointer<CChar>? = language.flatMap { strdup($0) }
+        defer { free(jobLanguage) }
+        let params = Self.fullParams(tuning: tuning, language: UnsafePointer(jobLanguage ?? languageC),
+                                     vadModelPath: vadModelPathC, threads: threads, sampleCount: samples.count)
         let rc = samples.withUnsafeBufferPointer { buf in
             whisper_full(ctx, params, buf.baseAddress, Int32(buf.count))
         }
@@ -118,6 +128,10 @@ final class WhisperAdapter: TranscriptionAdapter {
                 end: TimeInterval(whisper_full_get_segment_t1(ctx, i)) / 100
             )
         }
-        return NonSpeechFilter.filter(segments)
+        let spoken = NonSpeechFilter.filter(segments)
+        // Only with words: a job with no speech (VAD) never detects one.
+        let id = spoken.isEmpty ? -1 : whisper_full_lang_id(ctx)
+        let decodedIn = id >= 0 ? whisper_lang_str(id).map { String(cString: $0) } : nil
+        return Transcript(segments: spoken, language: decodedIn)
     }
 }

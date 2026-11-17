@@ -38,17 +38,44 @@ extension SettingsViewModel {
                             modelsDir: modelsDir, presentFilenames: presentModelFilenames(), facts: engineFacts())
     }
 
-    /// Under the picker: which model meetings use and what that costs, or
-    /// why they can't yet (`isProblem`) and what to do.
-    var meetingLanguageNote: (text: String, isProblem: Bool) {
-        LanguageFitCopy.meetingNote(meetingModelChoice, language: configStore.config.resolvedMeetingLanguage,
-                                    dictation: currentModel(), canDownload: meetingModelDownload != nil)
+    /// Everything the Meeting Language card shows under its picker, from
+    /// one `MeetingModel.choose` (it reads the models folder): which model
+    /// meetings use and what that costs, or why they can't yet and what to
+    /// do; the missing model's Download row; and a hand-edited language
+    /// that isn't one.
+    struct MeetingLanguageCard {
+        var note: (text: String, isProblem: Bool)
+        var download: DownloadableModel?
+        var languageProblem: String?
     }
+
+    var meetingLanguageCard: MeetingLanguageCard {
+        let config = configStore.config
+        let choice = meetingModelChoice
+        let dictation = currentModel()
+        let download = meetingModelDownload(for: choice)
+        let failure = choice.ownSpec.flatMap(meetingModelFailure)
+        let note = LanguageFitCopy.meetingNote(choice, language: config.resolvedMeetingLanguage, dictation: dictation,
+                                               canDownload: download != nil, didNotLoad: failure != nil)
+        let problem = config.meetingLanguageChoice.isUnknown
+            ? LanguageFitCopy.unknownMeetingLanguage(config.meetingLanguage, dictation: config.language) : nil
+        return MeetingLanguageCard(note: note, download: download, languageProblem: problem)
+    }
+
+    /// `meetingLanguageCard`'s line under the picker.
+    var meetingLanguageNote: (text: String, isProblem: Bool) { meetingLanguageCard.note }
+
+    /// `meetingLanguageCard`'s Download row.
+    var meetingModelDownload: DownloadableModel? { meetingModelDownload(for: meetingModelChoice) }
+
+    /// The meeting model's state changed (it loaded, or failed to): the
+    /// card is drawn again.
+    func meetingModelChanged() { objectWillChange.send() }
 
     /// The meeting model's Download row, when it's a model Settings can
     /// fetch and it isn't downloaded.
-    var meetingModelDownload: DownloadableModel? {
-        guard case .own(let spec, installed: false) = meetingModelChoice,
+    private func meetingModelDownload(for choice: MeetingModel.Choice) -> DownloadableModel? {
+        guard case .own(let spec, installed: false) = choice,
               let id = listedModelID(for: spec), let descriptor = engines.descriptor(for: spec.engine),
               descriptor.inAppDownload(of: id, in: modelsDir) != nil else { return nil }
         let label = descriptor.models.first { $0.id == id }?.label ?? id
@@ -112,26 +139,52 @@ enum LanguageFitCopy {
     /// The Meeting Language card's line for `choice` (a meeting decoded in
     /// `language`, the dictation model `dictation`).
     /// `canDownload`: the card offers the missing model's Download row.
+    /// `didNotLoad`: the meeting model failed to load in the last meeting
+    /// (`MeetingModelRouter.failure(for:)`), so meetings use the dictation
+    /// model until the next one tries again.
     static func meetingNote(_ choice: MeetingModel.Choice, language: String, dictation: ModelSpec,
-                            canDownload: Bool = false) -> (text: String, isProblem: Bool) {
+                            canDownload: Bool = false, didNotLoad: Bool = false) -> (text: String, isProblem: Bool) {
         let detects = language == ModelSpec.autoDetect
         switch choice {
-        case .dictation:
+        case .dictation, .dictationIn:
             let how = detects ? "which detects the language of each passage" : "in \(languageLabel(language))"
             return ("Meetings use the dictation model, \(modelName(dictation)), \(how).", false)
+        case .own(let spec, installed: true) where didNotLoad:
+            return ("Meetings need \(modelName(spec)), but it didn't load. Until the next meeting tries it again, "
+                    + "meetings use the dictation model, \(modelName(dictation))"
+                    + fallbackClause(dictation, language: language) + ".", true)
         case .own(let spec, installed: true):
             let what = detects
-                ? "Meetings use \(modelName(spec)), which detects the language of each passage and writes it in "
-                    + "its own script (Hindi in Devanagari). A sentence that switches language midway comes out in one of them."
+                ? "Meetings use \(modelName(spec)), which detects the language of each passage"
+                    + (spec.isBelowSmall
+                        ? ". With a model this small, Hindi can come out in Urdu script instead of Devanagari."
+                        : " and writes it in its own script (Hindi in Devanagari).")
+                    + " A sentence that switches language midway comes out in one of them."
                 : "Meetings use \(modelName(spec)) in \(languageLabel(language))."
             return (what + " It's loaded only while a meeting is transcribed, next to the dictation model "
                     + "(\(modelName(dictation))), so a meeting takes more memory then.", false)
         case .own(let spec, installed: false):
             let need = detects ? "Auto-detect needs a model that knows many languages" : "\(languageLabel(language)) needs another model"
-            let fallback = dictation.isEnglishOnly ? "which only understands English"
-                : detects ? "which doesn't detect the language" : "which doesn't understand \(languageLabel(language))"
             return ("\(need): \(modelName(spec)) isn't downloaded. Until it is, meetings use the dictation model, "
-                    + "\(modelName(dictation)), \(fallback)." + (canDownload ? " Download it below." : ""), true)
+                    + "\(modelName(dictation))" + fallbackClause(dictation, language: language) + "."
+                    + (canDownload ? " Download it below." : ""), true)
         }
+    }
+
+    /// What the dictation model can't do when it stands in for a meeting's
+    /// own: nothing to say when it writes any language (a multilingual
+    /// Whisper model, asked per passage).
+    private static func fallbackClause(_ dictation: ModelSpec, language: String) -> String {
+        if dictation.isEnglishOnly { return ", which only understands English" }
+        if dictation.decodesAnyLanguagePerJob { return "" }
+        return language == ModelSpec.autoDetect ? ", which doesn't detect the language"
+            : ", which doesn't understand \(languageLabel(language))"
+    }
+
+    /// A hand-edited meeting language that isn't a language code ("hindi",
+    /// "en-US"): meetings use dictation's instead.
+    static func unknownMeetingLanguage(_ code: String, dictation: String) -> String {
+        "“\(code)” isn't a language Cado knows, so meetings use the dictation language "
+            + "(\(languageLabel(ModelSpec.language(dictation)))). Choose a language above."
     }
 }

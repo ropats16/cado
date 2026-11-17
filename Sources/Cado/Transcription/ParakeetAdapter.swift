@@ -51,10 +51,26 @@ final class ParakeetAdapter: TranscriptionAdapter {
         }
         manager = AsrManager(config: .default, models: models)
         decoderLayers = models.version.decoderLayers
-        self.language = language == ModelSpec.autoDetect ? nil : Language(rawValue: language.lowercased())
+        self.language = Self.hint(language)
     }
 
     func transcribe(samples: [Float]) throws -> [Transcript.Segment] {
+        try transcribe(samples: samples, language: nil).segments
+    }
+
+    /// FluidAudio takes the script hint per call, so one loaded Turbo serves
+    /// dictation and a meeting in another of its languages (#47). nil: the
+    /// adapter's own. Turbo doesn't say which language it heard.
+    func transcribe(samples: [Float], language jobLanguage: String?) throws -> Transcript {
+        Transcript(segments: try segments(samples, language: jobLanguage.map(Self.hint) ?? language))
+    }
+
+    /// FluidAudio's script hint for an ISO code; nil = auto-detect.
+    private static func hint(_ code: String) -> Language? {
+        code == ModelSpec.autoDetect ? nil : Language(rawValue: code.lowercased())
+    }
+
+    private func segments(_ samples: [Float], language: Language?) throws -> [Transcript.Segment] {
         guard !samples.isEmpty else { return [] }
         let duration = Double(samples.count) / AudioCapture.sampleRate
         let audio = samples.count >= Self.minimumSamples
