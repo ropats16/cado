@@ -17,6 +17,10 @@ enum MainMenu {
     static func build(appName: String) -> NSMenu {
         let main = NSMenu()
         main.addItem(submenu(appName, [
+            item("About \(appName)", Selector(("showAbout:")), ""),   // AppDelegate, via the responder chain
+            .separator(),
+            item("Settings…", Selector(("showSettings:")), ","),
+            .separator(),
             item("Hide \(appName)", #selector(NSApplication.hide(_:)), "h"),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
             item("Show All", #selector(NSApplication.unhideAllApplications(_:))),

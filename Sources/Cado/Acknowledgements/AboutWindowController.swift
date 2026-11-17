@@ -1,11 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// The Acknowledgements window (#21), opened from the menu. Created on first
-/// `show()` and reused, like Settings; the text is static, so there's no
-/// teardown.
+/// The About Cado window: the name and version, then the credits (the
+/// generated acknowledgements: `make acknowledgements`). Opened from the
+/// menu. Created on first `show()` and reused, like Settings; the text is
+/// static, so there's no teardown.
 @MainActor
-final class AcknowledgementsWindowController {
+final class AboutWindowController {
     private var window: NSWindow?
 
     func show() {
@@ -19,47 +20,75 @@ final class AcknowledgementsWindowController {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    /// The window hosting `AcknowledgementsView`, not yet shown.
-    static func makeWindow() -> NSWindow {
+    /// The window hosting `AboutView`, not yet shown.
+    static func makeWindow(version: String = AppInfo.versionText) -> NSWindow {
         let w = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 600),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
-        w.title = "Cado Acknowledgements"
+        w.title = "About Cado"
         w.isReleasedWhenClosed = false
         w.contentMinSize = NSSize(width: 380, height: 300)
-        w.contentView = NSHostingView(rootView: AcknowledgementsView(content: .app))
+        w.contentView = NSHostingView(rootView: AboutView(content: .app, version: version))
         return w
     }
 }
 
-/// The credits in Settings' cards: the intro, a card per `## ` section, then
-/// Cado's own license. Selectable text, clickable links.
-struct AcknowledgementsView: View {
+extension AppInfo {
+    /// "Version 0.3.0 (12)", or "Development build" when run from source.
+    static var versionText: String {
+        let info = Bundle.main.infoDictionary
+        guard let short = info?["CFBundleShortVersionString"] as? String, !short.isEmpty else { return "Development build" }
+        if let build = info?["CFBundleVersion"] as? String, !build.isEmpty, build != short {
+            return "Version \(short) (\(build))"
+        }
+        return "Version \(short)"
+    }
+}
+
+/// About: the mascot, name and version over the credits in Settings' cards
+/// (the intro, a card per `## ` section, then Cado's own license).
+/// Selectable text, clickable links.
+struct AboutView: View {
     let content: AcknowledgementsContent
+    let version: String
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private static let mascot = Brand.Art.mascot(.idle)
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(content.intro.enumerated()), id: \.offset) { block($1, color: Brand.Palette.inkSecondary) }
-                }
-                ForEach(Array(content.sections.enumerated()), id: \.offset) { _, section in
-                    SettingsSection(title: section.title, systemImage: "shippingbox") {
-                        ForEach(Array(section.items.enumerated()), id: \.offset) { index, item in
-                            if index > 0 { CardDivider() }
-                            block(item, color: Brand.Palette.ink).settingsRowPadding()
-                        }
+                HStack(spacing: 14) {
+                    Image(nsImage: Self.mascot)
+                        .resizable()
+                        .frame(width: 60, height: 60)
+                        .frame(width: 72, height: 72)
+                        .background(Brand.Palette.surface, in: Circle())
+                        .overlay(Circle().strokeBorder(Brand.Palette.outline(contrast)))
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Cado")
+                            .font(Brand.Typography.font(.title, weight: .bold))
+                            .foregroundStyle(Brand.Palette.ink)
+                        Text(version)
+                            .font(Brand.Typography.font(.callout))
+                            .foregroundStyle(Brand.Palette.inkSecondary)
+                            .textSelection(.enabled)
                     }
                 }
-                SettingsSection(title: "Cado", systemImage: "checkmark.seal") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(Array(content.license.enumerated()), id: \.offset) { block($1, color: Brand.Palette.ink) }
-                    }
-                    .settingsRowPadding()
-                }
+                .padding(.horizontal, 4)
+                .accessibilityElement(children: .combine)
+
+                Text("Credits")
+                    .font(Brand.Typography.headline)
+                    .foregroundStyle(Brand.Palette.ink)
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.leading, 2)
+                    .padding(.bottom, -8)
+                AcknowledgementsView.credits(content)
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -67,8 +96,45 @@ struct AcknowledgementsView: View {
         .background(Brand.Palette.background)
         .tint(Brand.Palette.accentText)   // links: AA on the cards (BrandTests)
     }
+}
 
-    private func block(_ markdown: String, color: Color) -> some View {
+/// The credits themselves.
+struct AcknowledgementsView: View {
+    let content: AcknowledgementsContent
+
+    var body: some View {
+        ScrollView {
+            Self.credits(content)
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Brand.Palette.background)
+        .tint(Brand.Palette.accentText)
+    }
+
+    static func credits(_ content: AcknowledgementsContent) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(content.intro.enumerated()), id: \.offset) { block($1, color: Brand.Palette.inkSecondary) }
+            }
+            ForEach(Array(content.sections.enumerated()), id: \.offset) { _, section in
+                SettingsSection(title: section.title, systemImage: "shippingbox") {
+                    ForEach(Array(section.items.enumerated()), id: \.offset) { index, item in
+                        if index > 0 { CardDivider() }
+                        block(item, color: Brand.Palette.ink).settingsRowPadding()
+                    }
+                }
+            }
+            SettingsSection(title: "Cado", systemImage: "checkmark.seal") {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(content.license.enumerated()), id: \.offset) { block($1, color: Brand.Palette.ink) }
+                }
+                .settingsRowPadding()
+            }
+        }
+    }
+
+    private static func block(_ markdown: String, color: Color) -> some View {
         Text((try? AcknowledgementsContent.rendered(markdown)) ?? AttributedString(markdown))
             .font(Brand.Typography.body)
             .foregroundStyle(color)
