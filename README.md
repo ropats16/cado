@@ -294,8 +294,10 @@ and says why).
   choose **Auto-detect**: Cado detects the language of each passage on its own
   and writes it in its own script (Hindi in Devanagari with the `small` model or
   larger, English in Latin letters; nothing is translated or romanised). Or
-  choose one language. Meetings use the dictation model when it can do that.
-  When it can't (an English-only `.en` model, or an engine that doesn't know
+  choose one language. Meetings use the dictation model when it can do that,
+  also when it's a multilingual Whisper model or Turbo dictating in another
+  language: the one loaded model takes the meeting's language passage by
+  passage, so it isn't loaded twice. When it can't (an English-only `.en` model, or an engine that doesn't know
   the language), they get a model of their own: first what Automatic would
   pick for that language (Turbo for the European languages it supports, Apple
   Speech where it supports the language, or the model you named for an
@@ -308,11 +310,16 @@ and says why).
   with `small` (the whole benchmark process peaked near 0.7 GB with only
   `small` loaded; the increase itself wasn't measured). If no multilingual model is downloaded, the card
   says so with a **Download** button, and meetings use the dictation model
-  meanwhile, and the note says so. A meeting keeps the language it started
+  meanwhile, and the note says so. A meeting model that fails to load isn't
+  tried again for the rest of that meeting (the card says so); the next
+  meeting tries it again. A meeting keeps the language it started
   with, also when it's recovered after a crash. Limits: a sentence that
   switches language midway comes out in one language (passages are cut at
   pauses, so people taking turns are fine); under Auto-detect a very short
-  reply can still be written in the wrong language or script; smaller models
+  reply (under 2 seconds, "haan", "ok") is written in the language that side
+  last spoke in a longer passage, which is right unless it's the one word in
+  another language, and before any longer passage it's detected and can come
+  out in the wrong language or script; smaller models
   are weaker at Hindi (`base` may write it in Urdu script; `small` is
   readable; larger ones are much better, see `plans/meeting-languages-47.md`).
 - **Stop:** click **Stop Recording**. Only the last passage or two (what was

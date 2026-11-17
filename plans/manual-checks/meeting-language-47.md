@@ -72,3 +72,18 @@ A multilingual whisper model must be downloaded for Auto-detect meetings
     multilingual small. Expected: dictation moves to small (bigger, more
     accurate; meetings reuse the loaded file). With small.en also downloaded,
     dictation stays on small.en.
+11. **One loaded model.** Dictation on Whisper small-q5_1 in English, Meeting
+    Language Hindi or Auto-detect. Record a short meeting. Expected: the card
+    says meetings use the dictation model; Activity Monitor shows Cado's memory
+    no higher during the meeting's transcription than during dictation; the log
+    has no "Meeting: loading" line.
+12. **A meeting model that won't load.** Replace the meeting model's file with
+    a damaged copy (keep the original to put back), record a Hindi meeting.
+    Expected: one "didn't load" in the log, not one per passage; the Meetings
+    card says the model didn't load and which model meetings use; the note has
+    the line about the dictation model. Put the file back, record again: the
+    meeting model is used.
+13. **Short replies under Auto-detect.** In a Hindi + English call, answer
+    "haan" / "ok" between longer Hindi sentences. Expected: the short replies
+    come out in Devanagari like the sentences around them, not in a random
+    script.

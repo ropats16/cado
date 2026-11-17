@@ -103,6 +103,33 @@ dictation model):
    and cost context; not shipped. A passage that switches language
    mid-sentence gets one language: documented limit.
 
+## Review fixes
+
+- **No second copy for a language.** `TranscriptionAdapter.transcribe(samples:language:)`
+  / `TranscriptionEngine.run(_:language:completion:)` take the language per
+  job (nil = the model's own: every dictation is byte-for-byte as before).
+  whisper.cpp (per `whisper_full` call), WhisperKit (`DecodingOptions`) and
+  Parakeet (FluidAudio's per-call hint) honour it; Apple Speech doesn't (its
+  recognizer is per locale), so it still gets a model of its own.
+  `MeetingModel.choose` returns `.dictationIn(language)` when the meeting's
+  pick is the dictation model's own file on such an engine.
+- **Failed meeting models** (`MeetingModelRouter`): a load or switch that
+  fails is remembered for the meeting (detected by the model the job ran on,
+  so a failed switch never transcribes on the previous meeting model in its
+  language); its passages are redone on the dictation model, in the meeting's
+  language when that model writes any. Tried again on the next meeting (a
+  new spool id) or when the file changes. Settings asks `failure(for:)`.
+- **Note caveat** when a passage ran on a model that can't write the
+  meeting's (non-English) language: `SpoolEvent.ranOnFallbackModel`, once per
+  meeting (older Cado skips the line), read back by `RecoveryPlan`. Its
+  journal write can fail without stopping anything.
+- **Short passages** (< 2 s) under Auto-detect are decoded in their side's
+  last language detected on a passage of 2 s or more (`PassageLanguage`);
+  before that, detected. The detected language comes back from whisper.cpp
+  (`whisper_full_lang_id`) and WhisperKit (result `language`). Turbo and
+  Apple Speech never detect for meetings, so nothing is missing there.
+  Not measured on real short replies (owner step: a real call).
+
 ## Remaining limits / follow-ups
 
 - **Mid-sentence switches** (Hinglish) come out in one language/script.
