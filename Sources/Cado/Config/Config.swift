@@ -26,6 +26,8 @@ struct Config: Codable {
     var hold: KeyBinding
     var toggle: KeyBinding
     var cancelKeyCode: Int          // Esc = 53
+    /// Starts or stops a meeting recording (#32). Default ⌃⌥M.
+    var meetingHotkey: KeyBinding
     var maxRecordingSeconds: Double // <= 0 = no limit (a 30-min ceiling still applies)
     var trailingSpace: Bool
     var microphoneUID: String?      // nil = system default input
@@ -71,6 +73,21 @@ struct Config: Codable {
     /// Who writes summaries: a `SummaryProvider` raw value. Kept as written;
     /// read it through `summaryProviderChoice`.
     var summaryProvider: String
+    /// The user confirmed that meeting text goes to OpenRouter (#35). Without
+    /// it, nothing is ever sent, whatever else is set.
+    var openRouterConsent: Bool
+    /// OpenRouter model id; empty = `OpenRouterModels.defaultID`.
+    var openRouterModel: String
+
+    /// Ask "Record this meeting?" when a meeting app starts using the mic,
+    /// and whether to stop when it lets go (#32). On by default; it never
+    /// records by itself.
+    var meetingDetection: Bool
+    /// A meeting stops by itself after this many minutes, the note written
+    /// as usual (#32). Default 120; <= 0 = Off (`MeetingLimit`).
+    var maxMeetingMinutes: Double
+    /// The one-time recording-consent reminder was acknowledged (#32).
+    var meetingConsentShown: Bool
     /// Name meeting notes after the matching calendar event (#38). Off unless
     /// the user switches it on (Settings, onboarding); that is also what asks
     /// macOS for Calendar access. Missing in older configs = off.
@@ -103,6 +120,12 @@ struct Config: Codable {
             keepMeetingAudio: false,
             meetingSummaries: true,
             summaryProvider: SummaryProvider.onDevice.rawValue,
+            openRouterConsent: false,
+            openRouterModel: "",
+            meetingHotkey: .controlOptionM,
+            meetingDetection: true,
+            maxMeetingMinutes: MeetingLimit.defaultMinutes,
+            meetingConsentShown: false,
             nameMeetingsFromCalendar: false
         )
     }
@@ -118,6 +141,9 @@ struct Config: Codable {
          notesFolder: String = "", notesFolderBookmark: String? = nil,
          dictationHistory: Bool = false, keepMeetingAudio: Bool = false,
          meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue,
+         openRouterConsent: Bool = false, openRouterModel: String = "",
+         meetingHotkey: KeyBinding = .controlOptionM, meetingDetection: Bool = true,
+         maxMeetingMinutes: Double = MeetingLimit.defaultMinutes, meetingConsentShown: Bool = false,
          nameMeetingsFromCalendar: Bool = false) {
         self.engine = engine
         self.model = model
@@ -146,6 +172,12 @@ struct Config: Codable {
         self.keepMeetingAudio = keepMeetingAudio
         self.meetingSummaries = meetingSummaries
         self.summaryProvider = summaryProvider
+        self.openRouterConsent = openRouterConsent
+        self.openRouterModel = openRouterModel
+        self.meetingHotkey = meetingHotkey
+        self.meetingDetection = meetingDetection
+        self.maxMeetingMinutes = maxMeetingMinutes
+        self.meetingConsentShown = meetingConsentShown
         self.nameMeetingsFromCalendar = nameMeetingsFromCalendar
     }
 
@@ -184,6 +216,12 @@ struct Config: Codable {
         keepMeetingAudio = try c.decodeIfPresent(Bool.self, forKey: .keepMeetingAudio) ?? d.keepMeetingAudio
         meetingSummaries = try c.decodeIfPresent(Bool.self, forKey: .meetingSummaries) ?? d.meetingSummaries
         summaryProvider = try c.decodeIfPresent(String.self, forKey: .summaryProvider) ?? d.summaryProvider
+        openRouterConsent = try c.decodeIfPresent(Bool.self, forKey: .openRouterConsent) ?? d.openRouterConsent
+        openRouterModel = try c.decodeIfPresent(String.self, forKey: .openRouterModel) ?? d.openRouterModel
+        meetingHotkey = try c.decodeIfPresent(KeyBinding.self, forKey: .meetingHotkey) ?? d.meetingHotkey
+        meetingDetection = try c.decodeIfPresent(Bool.self, forKey: .meetingDetection) ?? d.meetingDetection
+        maxMeetingMinutes = try c.decodeIfPresent(Double.self, forKey: .maxMeetingMinutes) ?? d.maxMeetingMinutes
+        meetingConsentShown = try c.decodeIfPresent(Bool.self, forKey: .meetingConsentShown) ?? d.meetingConsentShown
         nameMeetingsFromCalendar = try c.decodeIfPresent(Bool.self, forKey: .nameMeetingsFromCalendar)
             ?? d.nameMeetingsFromCalendar
     }

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension SettingsView {
@@ -16,7 +17,13 @@ extension SettingsView {
             }
             StatusLine(text: viewModel.summariesNote)
                 .padding(.bottom, 8)
+            summaryProviderRows   // SettingsView+OpenRouter.swift (#35)
         }
         .onAppear { viewModel.refreshSummaryAvailability() }
+        // A typed key isn't kept once Settings goes away.
+        .onDisappear { viewModel.clearOpenRouterKeyDraft() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
+            viewModel.clearOpenRouterKeyDraft()
+        }
     }
 }

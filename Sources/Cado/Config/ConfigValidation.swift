@@ -5,7 +5,7 @@ struct ConfigIssue: Equatable {
     enum Severity { case error, warning }
     /// What it's about: Settings' Hotkeys section fixes `.hotkeys`; only
     /// the config file fixes `.engine`.
-    enum Topic { case hotkeys, engine }
+    enum Topic { case hotkeys, engine, meetings }
     let severity: Severity
     let topic: Topic
     /// For the log: names the config keys and values.
@@ -13,6 +13,9 @@ struct ConfigIssue: Equatable {
     /// For people (Settings, the menu): plain words, one sentence, with the
     /// names Settings shows ("Hold to talk", "Toggle to talk").
     let summary: String
+    /// The Settings tabs whose hotkeys it's about, where it's fixed: first
+    /// the one the menu points to (#32: the meeting hotkey is in Meetings).
+    var tabs: [SettingsTab] = [.dictation]
 }
 
 /// Which issues are new since the last look, so each is logged once when
@@ -77,6 +80,10 @@ enum ConfigValidator {
                 summary: "\(Self.toggle) uses the cancel key, so pressing it may cancel instead."))
         }
 
+        issues += meetingHotkeyIssues(config)
+        issues += overlapIssues(config)
+        issues += meetingLengthIssues(config)
+
         // warning — modifier names the runtime won't recognise (and so ignores).
         for name in config.hold.unknownModifiers {
             issues.append(ConfigIssue(
@@ -103,12 +110,91 @@ enum ConfigValidator {
                     + "so Cado uses \(EngineKind.whisper.displayName)."))
         }
 
-        return issues
+        // Errors first, each group in the order found.
+        return issues.filter { $0.severity == .error } + issues.filter { $0.severity == .warning }
     }
 
     /// The hotkeys as Settings names them (its Hotkeys rows, the menu).
     static let hold = "Hold to talk"
     static let toggle = "Toggle to talk"
+    static let meeting = "Record meeting"
+
+    /// The meeting hotkey (#32): the same as a dictation hotkey (errors:
+    /// one press would do both), empty, on the cancel key, or with an
+    /// unknown modifier.
+    private static func meetingHotkeyIssues(_ config: Config) -> [ConfigIssue] {
+        let meeting = config.meetingHotkey
+        var issues: [ConfigIssue] = []
+        for (other, name, key) in [(config.hold, hold, "hold"), (config.toggle, toggle, "toggle")]
+        where meeting.isSameChord(as: other) {
+            issues.append(ConfigIssue(
+                severity: .error, topic: .hotkeys,
+                message: "`meetingHotkey` and `\(key)` are the same binding (\(meeting)); both would trigger on the same key.",
+                summary: "\(Self.meeting) and \(name) use the same keys (\(meeting)).",
+                tabs: [.meetings, .dictation]))
+        }
+        if meeting.isUnmatchable {
+            issues.append(ConfigIssue(
+                severity: .error, topic: .hotkeys,
+                message: "`meetingHotkey` binding is empty (keyCode < 0 with no modifiers); it can never match.",
+                summary: "\(Self.meeting) has no keys set.", tabs: [.meetings]))
+        }
+        if meeting.keyCode >= 0, config.cancelKeyCode == meeting.keyCode {
+            issues.append(ConfigIssue(
+                severity: .warning, topic: .hotkeys,
+                message: "`cancelKeyCode` (\(config.cancelKeyCode)) collides with the `meetingHotkey` key code.",
+                summary: "\(Self.meeting) uses the cancel key, so pressing it may cancel a dictation too.",
+                tabs: [.meetings]))
+        }
+        for name in meeting.unknownModifiers {
+            issues.append(ConfigIssue(
+                severity: .warning, topic: .hotkeys,
+                message: "`meetingHotkey` has unknown modifier \"\(name)\"; it will be ignored.",
+                summary: Self.unknownKey(name, in: Self.meeting), tabs: [.meetings]))
+        }
+        return issues
+    }
+
+    /// Bindings that aren't identical but one press would still trigger two
+    /// actions (the matcher lets extra modifiers through): ⌃⇧M also holds
+    /// ⌃⇧; ⌃M also passes ⌃⌥M. Identical ones are errors above.
+    private static func overlapIssues(_ config: Config) -> [ConfigIssue] {
+        let pairs: [(KeyBinding, String, String, KeyBinding, String, String, [SettingsTab])] = [
+            (config.hold, hold, "hold", config.toggle, toggle, "toggle", [.dictation]),
+            (config.meetingHotkey, meeting, "meetingHotkey", config.hold, hold, "hold", [.meetings, .dictation]),
+            (config.meetingHotkey, meeting, "meetingHotkey", config.toggle, toggle, "toggle", [.meetings, .dictation]),
+        ]
+        return pairs.compactMap { a, aName, aKey, b, bName, bKey, tabs in
+            guard !a.isSameChord(as: b), a.overlaps(b) else { return nil }
+            return ConfigIssue(
+                severity: .warning, topic: .hotkeys,
+                message: "`\(aKey)` (\(a)) and `\(bKey)` (\(b)) overlap; one press can trigger both.",
+                summary: "\(aName) (\(a)) and \(bName) (\(b)) overlap, so one press can do both.",
+                tabs: tabs)
+        }
+    }
+
+    /// A hand-edited meeting length outside what makes sense: over a day
+    /// (the day limit still applies) or under a minute (but above Off, 0 or less).
+    private static func meetingLengthIssues(_ config: Config) -> [ConfigIssue] {
+        let minutes = config.maxMeetingMinutes
+        let day = MeetingLimit.backstopSeconds / 60
+        if minutes > day {
+            return [ConfigIssue(
+                severity: .warning, topic: .meetings,
+                message: "`maxMeetingMinutes` (\(minutes)) is over 1440; meetings stop after 24 hours anyway.",
+                summary: "The meeting length is longer than a day; meetings stop after 24 hours anyway.",
+                tabs: [.meetings])]
+        }
+        if minutes > 0, minutes < 1 {
+            return [ConfigIssue(
+                severity: .warning, topic: .meetings,
+                message: "`maxMeetingMinutes` (\(minutes)) is under 1; meetings would stop at once.",
+                summary: "The meeting length is under a minute, so meetings would stop at once.",
+                tabs: [.meetings])]
+        }
+        return []
+    }
 
     private static func unknownKey(_ name: String, in hotkey: String) -> String {
         "\(hotkey) includes a key Cado doesn't recognize (“\(name)”), so it's ignored."

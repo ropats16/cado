@@ -6,6 +6,10 @@ import AppKit
 protocol MascotSurface: OverlayPanel {
     /// A click (not a drag) on the mascot's body.
     var onClick: (() -> Void)? { get set }
+    /// The right-click menu's meeting item (#32), asked for as it opens;
+    /// nil = none. `onMeetingItem`: it was chosen.
+    var meetingItem: (() -> MascotMeetingItem?)? { get set }
+    var onMeetingItem: (() -> Void)? { get set }
     /// Let screen shares and recordings capture the panel. Applies live.
     var showsInScreenShares: Bool { get set }
 }
@@ -27,14 +31,23 @@ final class MascotOverlay {
     private let panel: MascotSurface
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
 
-    /// `onToggleDictation`: a click meant start/stop dictation (see
-    /// `OverlayDirector.clicked`).
+    /// `onToggleDictation`: a click meant start/stop dictation;
+    /// `onRecordMeeting`: record the meeting asked about; `onToggleMeeting`:
+    /// start or stop a meeting; `canStartMeeting`: whether one can start now
+    /// (see `OverlayDirector.clicked`, `meetingItem`).
     init(feed: AppActivityFeed, panel: MascotSurface, clock: Clock = SystemClock(),
-         settings: Settings = Settings(), onToggleDictation: @escaping () -> Void = {}) {
+         settings: Settings = Settings(), onToggleDictation: @escaping () -> Void = {},
+         onRecordMeeting: @escaping () -> Void = {}, onToggleMeeting: @escaping () -> Void = {},
+         canStartMeeting: @escaping () -> Bool = { true }) {
         self.panel = panel
         director = OverlayDirector(panel: panel, clock: clock)
         director.onToggleDictation = onToggleDictation
+        director.onRecordMeeting = onRecordMeeting
+        director.onToggleMeeting = onToggleMeeting
+        director.canStartMeeting = canStartMeeting
         panel.onClick = { [weak director] in director?.clicked() }
+        panel.meetingItem = { [weak director] in director?.meetingItem }
+        panel.onMeetingItem = { [weak director] in director?.meetingItemChosen() }
         apply(settings)
         feed.observe { [weak self] signal in self?.receive(signal) }
 
@@ -56,6 +69,11 @@ final class MascotOverlay {
     func apply(_ settings: Settings) {
         panel.showsInScreenShares = settings.inScreenShares
         director.alwaysVisible = settings.alwaysVisible
+    }
+
+    /// "Record this meeting?" is open, or not (#32): the asking mascot.
+    func setAsking(_ asking: Bool) {
+        director.asking = asking
     }
 
     private func receive(_ signal: AppActivityFeed.Signal) {

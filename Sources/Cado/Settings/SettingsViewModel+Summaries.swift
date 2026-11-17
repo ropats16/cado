@@ -15,12 +15,16 @@ extension SettingsViewModel {
     var summariesAvailable: Bool { summaryAvailability.isAvailable }
 
     var summariesNote: String {
-        SummarySettingsCopy.note(summaryAvailability, provider: configStore.config.summaryProviderChoice)
+        if showsOpenRouterConsent { return OpenRouterCopy.pendingNote }
+        return SummarySettingsCopy.note(summaryAvailability, provider: configStore.config.summaryProviderChoice)
     }
 
     /// Re-reads availability (Apple Intelligence may have been switched on,
     /// or finished getting ready, since Settings was last looked at).
-    func refreshSummaryAvailability() { objectWillChange.send() }
+    func refreshSummaryAvailability() {
+        openRouterState.hasKey = openRouter.keys.hasKey()
+        objectWillChange.send()
+    }
 
     private var summaryAvailability: SummarizerAvailability {
         summaryCatalog.availability(of: configStore.config.summaryProviderChoice)

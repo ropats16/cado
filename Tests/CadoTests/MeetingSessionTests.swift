@@ -218,7 +218,7 @@ final class MeetingSessionTests: XCTestCase {
                        date: { Date(timeIntervalSince1970: 1_794_839_520) },
                        systemAudioPermission: { [unowned self] in permission },
                        keepAudio: { [unowned self] in keepAudio },
-                       maxSeconds: maxSeconds, locale: Locale(identifier: "en_GB"),
+                       maxSeconds: { maxSeconds }, locale: Locale(identifier: "en_GB"),
                        timeZone: TimeZone(identifier: "UTC")!, calendarNaming: calendarNaming,
                        later: { $0() }, background: background)
     }
@@ -364,6 +364,41 @@ final class MeetingSessionTests: XCTestCase {
         engine.finishAll()
         XCTAssertEqual(notes.saved.first?.duration, 600)
         XCTAssertTrue(notes.saved.first?.body.contains("> Recording stopped at the 10-minute limit.") == true)
+    }
+
+    /// Settings › Meetings › Max meeting length (#32), read as each meeting starts.
+    func testTheMaxLengthIsReadAtStartAndNamesTheSetting() {
+        var limit: TimeInterval? = 3600
+        session = MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
+                                 feedback: feedback, activity: feedback, clock: clock,
+                                 systemAudioPermission: { .unconfirmed }, maxSeconds: { limit },
+                                 later: { $0() }, background: { $0(); $1() })
+        startBoth()
+        limit = 60   // a change mid-meeting applies to the next one
+        XCTAssertEqual(recorder.requests.last?.1, 3600, "the streams hold the whole meeting")
+        clock.advance(by: 3599)
+        XCTAssertTrue(feedback.titles.isEmpty)
+        clock.advance(by: 1)
+        XCTAssertEqual(feedback.titles, ["Meeting recording stopped"])
+        XCTAssertEqual(feedback.notices[0].body, "Meetings are recorded for up to 1 hour. "
+                       + "You can change this in Settings › Meetings. The note is being written.")
+        recorder.me.finish(audio(10, [(1, 2, 0.2)]))
+        recorder.them.finish(audio(10, []))
+        engine.finishAll()
+        XCTAssertTrue(notes.saved.first?.body.contains("> Recording stopped at the 1-hour limit.") == true)
+    }
+
+    func testOffStillStopsADayLongMeeting() {
+        session = MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
+                                 feedback: feedback, activity: feedback, clock: clock,
+                                 systemAudioPermission: { .unconfirmed }, maxSeconds: { nil },
+                                 later: { $0() }, background: { $0(); $1() })
+        startBoth()
+        XCTAssertEqual(recorder.requests.last?.1, MeetingLimit.backstopSeconds)
+        clock.advance(by: 12 * 3600)
+        XCTAssertTrue(feedback.titles.isEmpty, "no limit: still recording after 12 hours")
+        clock.advance(by: 12 * 3600)
+        XCTAssertEqual(feedback.notices.map(\.body), ["Meetings are recorded for up to 24 hours. The note is being written."])
     }
 
     func testASilentThemIsHintedWithTheReadinessText() {
@@ -1434,7 +1469,7 @@ extension MeetingSessionTests {
         session = MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
                                  feedback: feedback, activity: feedback, clock: clock,
                                  date: { Date(timeIntervalSince1970: 1_794_839_520) },
-                                 systemAudioPermission: { .unconfirmed }, keepAudio: { true }, maxSeconds: 600,
+                                 systemAudioPermission: { .unconfirmed }, keepAudio: { true }, maxSeconds: { 600 },
                                  locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!,
                                  later: { $0() }, background: { queued.append(($0, $1)) })
         record()

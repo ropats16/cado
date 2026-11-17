@@ -18,6 +18,15 @@ protocol Clock: AnyObject {
     var now: TimeInterval { get }
     /// Calls `action` once on main after `seconds`, unless cancelled first.
     func schedule(after seconds: TimeInterval, _ action: @escaping () -> Void) -> ClockTimer
+    /// The same, allowed to fire up to `tolerance` late so the system can
+    /// group wake-ups (polling, where a second either way doesn't matter).
+    func schedule(after seconds: TimeInterval, tolerance: TimeInterval, _ action: @escaping () -> Void) -> ClockTimer
+}
+
+extension Clock {
+    func schedule(after seconds: TimeInterval, tolerance: TimeInterval, _ action: @escaping () -> Void) -> ClockTimer {
+        schedule(after: seconds, action)
+    }
 }
 
 /// The live clock: system uptime and a main run-loop `Timer`.
@@ -29,7 +38,12 @@ final class SystemClock: Clock {
     /// timer — a clipboard restore, the max-duration stop — would wait for it
     /// to close.
     func schedule(after seconds: TimeInterval, _ action: @escaping () -> Void) -> ClockTimer {
+        schedule(after: seconds, tolerance: 0, action)
+    }
+
+    func schedule(after seconds: TimeInterval, tolerance: TimeInterval, _ action: @escaping () -> Void) -> ClockTimer {
         let timer = Timer(timeInterval: seconds, repeats: false) { _ in action() }
+        timer.tolerance = tolerance
         RunLoop.main.add(timer, forMode: .common)
         return RunLoopTimer(timer)
     }
