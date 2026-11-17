@@ -628,21 +628,24 @@ final class MeetingSessionTests: XCTestCase {
     }
 
     /// Criterion 2: when the engine keeps up, what's left at stop is the open
-    /// tail — a couple of chunks per side — however long the meeting was.
+    /// tail — a couple of chunks per side — however long the meeting was. A
+    /// 12-minute meeting against a 1-minute one shows it as well as an hour
+    /// would: the bound is the same constant for both.
     func testAfterALongMeetingOnlyTheTailIsLeftAtStop() {
         let short = longMeeting(minutes: 1, keepsUp: true)
         engine.finishAll()
         XCTAssertEqual(notes.saved.count, 1)
 
-        let long = longMeeting(minutes: 60, keepsUp: true)
-        XCTAssertEqual(long.total, 2 * 360 + 1, "One chunk per side per 10 s, plus the open one")
+        let long = longMeeting(minutes: 12, keepsUp: true)
+        XCTAssertEqual(long.total, 2 * 72 + 1, "One chunk per side per 10 s, plus the open one")
+        XCTAssertLessThanOrEqual(short.left, 2 * 2, "Tail only")
         XCTAssertLessThanOrEqual(long.left, 2 * 2, "Tail only")
         XCTAssertEqual(long.left, short.left, "Independent of the meeting's length")
         engine.finishAll()
         XCTAssertEqual(session.status, .idle)
         let body = notes.saved[1].body
-        XCTAssertEqual(body.components(separatedBy: "**Me:** ").count - 1, 361)
-        XCTAssertEqual(body.components(separatedBy: "**Others:** ").count - 1, 360)
+        XCTAssertEqual(body.components(separatedBy: "**Me:** ").count - 1, 73)
+        XCTAssertEqual(body.components(separatedBy: "**Others:** ").count - 1, 72)
     }
 
     /// A Mac that can't keep up: the backlog just carries on after the stop.

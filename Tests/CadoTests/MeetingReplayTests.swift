@@ -113,7 +113,13 @@ final class MeetingReplayTests: XCTestCase {
     }
 
     private func makeRun(me: URL, them: URL, permission: SystemAudioPermission = .unconfirmed,
-                         keepAudio: Bool = false, date: Date? = nil) throws -> Run {
+                         keepAudio: Bool = false, date: Date? = nil,
+                         background: @escaping (@escaping () -> Void, @escaping () -> Void) -> Void = { work, done in
+                             DispatchQueue.global(qos: .utility).async {
+                                 work()
+                                 DispatchQueue.main.async(execute: done)
+                             }
+                         }) throws -> Run {
         let recorder = try WavRecorder(me: me, them: them)
         let notices = Notices(), clock = ManualClock()
         let engine = LoudnessEngine([2: "Hello, can you hear me?", 3: "Yes, loud and clear.",
@@ -126,7 +132,7 @@ final class MeetingReplayTests: XCTestCase {
             spool: FolderMeetingSpool(root: spoolDir), feedback: notices, activity: notices, clock: clock,
             date: { start },
             systemAudioPermission: { permission }, keepAudio: { keepAudio },
-            locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!)
+            locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!, background: background)
         return Run(session: session, recorder: recorder, notices: notices, clock: clock, engine: engine)
     }
 
@@ -367,14 +373,19 @@ final class MeetingReplayTests: XCTestCase {
     }
 
     func testACrashBeforeAnyChunkWasCompleteIsRecovered() async throws {
-        // 2.2 s in, Me's first sentence is still going: nothing to transcribe yet.
-        try await crash(after: 2.2, holding: false) { $0.engine.submitted == 0 }
+        // Me's first sentence ends at 2.5 s and a chunk needs a pause after it, so at 2.2 s
+        // none can be complete (`push` is synchronous: all 2.2 s were processed). Held, so a
+        // job, had there been one, would show.
+        XCTAssertLessThan(2.2, 2.5 + SpeechChunker.Settings().pauseSeconds)
+        try await crash(after: 2.2, holding: true) { $0.engine.submitted == 0 && $0.engine.heldCount == 0 }
+        XCTAssertEqual(journaled("transcribed") + journaled("failed"), 0, "No result was journaled either")
         let duration = onDiskSeconds()
         let run = try await relaunch()
         let silent = "No sound was captured from Zoom, so Others may be missing. " + SystemAudioIssue.heardOnlySilence.detail
         XCTAssertEqual(try onlyNote(), Self.note(duration: duration, caveat: Self.recovered + "\n> " + silent,
                                                  turns: "**Me:** Hello, can you hear me?\n"),
                        "Others hadn't said anything yet")
+        XCTAssertEqual(run.engine.submitted, 1, "Me's one sentence was chunked and transcribed by the recovery")
         XCTAssertEqual(run.notices.titles, ["Meeting note recovered"])
         XCTAssertEqual(contents(spoolDir), [], "Nothing left in progress")
     }
@@ -501,5 +512,157 @@ final class MeetingReplayTests: XCTestCase {
         XCTAssertEqual(contents(archiveDir.appendingPathComponent("Meeting with Zoom — 16 Nov 2026 at 14 32")),
                        ["Me.wav", "Others.wav"])
         XCTAssertEqual(try notes().count, 1)
+    }
+
+    // MARK: - Crashes at the awkward moments (#31)
+
+    /// Drops a run as a crash would (no stop, no quit).
+    private func drop(_ run: inout Run?) {
+        weak var session = run?.session
+        run = nil
+        XCTAssertNil(session, "Dropped, as a crash would")
+    }
+
+    /// The next launch's session, recovering: for tests that need the run
+    /// itself rather than `relaunch()`'s wait for a notice.
+    private func freshRun(holding: Bool = false, keepAudio: Bool = false) throws -> Run {
+        let run = try makeRun(me: dir.appendingPathComponent("me.wav"), them: dir.appendingPathComponent("them.wav"),
+                              keepAudio: keepAudio)
+        run.engine.holding = holding
+        return run
+    }
+
+    /// One side speaks for 30 s without a pause (Me, 0.2 loud then 0.3 loud
+    /// after 23 s, with a single quiet dip at 21.5 s where the 25 s cut will
+    /// fall); Them says nothing. The engine names a chunk by its loudness:
+    /// the piece before the cut is "Hello, can you hear me?", the one after
+    /// it "Yes, loud and clear."
+    private func longSpeechWavs() throws {
+        _ = try wav("me.wav", seconds: 30, [(0, 21.5, 0.2), (21.5, 21.6, 0.1), (21.6, 23, 0.2), (23, 30, 0.3)])
+        _ = try wav("them.wav", seconds: 30, [])
+    }
+
+    /// Crash with the first piece of a 25 s cut answered and journaled while
+    /// the speech goes on: the restart point is exactly where that piece
+    /// ended, so each stretch is transcribed once, in order.
+    func testACrashRightAfterAMaxLengthCutDoesNotRepeatOrDropAStretch() async throws {
+        try longSpeechWavs()
+        var run: Run? = try makeRun(me: dir.appendingPathComponent("me.wav"), them: dir.appendingPathComponent("them.wav"))
+        run!.engine.holding = true
+        try await start(run!)
+        run!.recorder.me.push(seconds: 27)
+        run!.recorder.them.push(seconds: 27)
+        run!.clock.advance(by: 27)
+        try await waitFor("the audio on disk") { spooled("me") >= 26 * 16_000 && spooled("them") >= 26 * 16_000 }
+        // Past 25 s of unbroken speech the piece before the cut is out; the rest is still open.
+        XCTAssertEqual(run!.engine.submitted, 1, "Only the piece before the cut")
+        run!.engine.releaseOne()
+        try await waitFor("the first piece's result in the journal") { journaled("transcribed") == 1 }
+        XCTAssertEqual(run!.engine.submitted, 1, "The continuation is still open: nothing else emitted")
+        XCTAssertEqual(journaled("stopped"), 0)
+        drop(&run)
+
+        let relaunched = try await relaunch()
+        let note = try onlyNote()
+        let first = try XCTUnwrap(note.range(of: "Hello, can you hear me?"), note)
+        let second = try XCTUnwrap(note.range(of: "Yes, loud and clear."), note)
+        XCTAssertLessThan(first.lowerBound, second.lowerBound, "In order")
+        XCTAssertEqual(note.components(separatedBy: "Hello, can you hear me?").count - 1, 1, "Not repeated")
+        XCTAssertEqual(note.components(separatedBy: "Yes, loud and clear.").count - 1, 1, "Not repeated")
+        XCTAssertFalse(note.contains("[BLANK_AUDIO]"))
+        XCTAssertEqual(relaunched.engine.submitted, 1, "Only the continuation: the first piece was journaled")
+        XCTAssertEqual(contents(spoolDir), [], "Nothing left in progress")
+    }
+
+    /// Cado dies while it is recovering a meeting: the next launch carries
+    /// on from what the second one journaled, one note, nothing twice.
+    func testACrashDuringRecoveryIsRecoveredByTheNextLaunch() async throws {
+        try await crash(after: 9.5, holding: true) { $0.engine.submitted == 1 && $0.engine.heldCount == 1 }
+        XCTAssertEqual(journaled("transcribed"), 0, "The first run journaled nothing")
+        let duration = onDiskSeconds()
+
+        // The second launch gets one chunk through, then dies too.
+        var second: Run? = try freshRun(holding: true)
+        second!.session.recoverLeftovers()
+        try await waitFor("the first recovered job") { second!.engine.submitted == 1 }
+        XCTAssertEqual(journaled("recoveryStarted"), 1)
+        second!.engine.releaseOne()
+        try await waitFor("a recovered result in the journal") { journaled("transcribed") == 1 }
+        XCTAssertTrue(second!.notices.titles.isEmpty)
+        XCTAssertEqual(try notes(), [], "No note yet")
+        drop(&second)
+        XCTAssertEqual(contents(spoolDir).count, 1, "Left for the next launch")
+
+        let third = try await relaunch()
+        XCTAssertEqual(try onlyNote(), Self.note(duration: duration, caveat: Self.recovered))
+        XCTAssertEqual(third.engine.submitted, 3, "The four chunks, less the one the second launch journaled")
+        XCTAssertEqual(third.notices.titles, ["Meeting note recovered"])
+        XCTAssertEqual(contents(spoolDir), [])
+        XCTAssertEqual(contents(archiveDir), [])
+    }
+
+    /// The note is saved and `.noteSaved` journaled, but the spool couldn't be
+    /// deleted (its parent is made read-only for the stop, as if Cado died
+    /// between the two): the next launch writes no second note and cleans up.
+    func testACrashAfterTheNoteWasSavedWritesNoSecondNote() async throws {
+        let (me, them) = try standardWavs()
+        var run: Run? = try makeRun(me: me, them: them)
+        try await start(run!)
+        run!.recorder.me.push(seconds: 9.5)
+        run!.recorder.them.push(seconds: 9.5)
+        run!.clock.advance(by: 9.5)
+        // Deleting the files in `<spool>/<uuid>` needs write access to that folder; the journal and
+        // audio files are already open, so recording and journaling carry on, but `discard()` can't
+        // remove anything and the whole spool, `.noteSaved` included, stays.
+        let meetingFolder = spoolDir.appendingPathComponent(try XCTUnwrap(contents(spoolDir).first))
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: meetingFolder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: meetingFolder.path) }
+        let saved = try await stop(run!)
+        XCTAssertEqual(saved, Self.note(duration: 10))
+        XCTAssertEqual(contents(spoolDir).count, 1, "The spool couldn't be deleted")
+        XCTAssertEqual(journaled("noteSaved"), 1)
+        XCTAssertEqual(contents(meetingFolder).contains("events.jsonl"), true, "Nothing in it was deleted")
+        drop(&run)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: meetingFolder.path)
+
+        let next = try freshRun()
+        next.session.recoverLeftovers()
+        try await waitFor("the leftover to go") { contents(spoolDir).isEmpty }
+        XCTAssertEqual(try notes().count, 1, "Never a second note")
+        XCTAssertEqual(try onlyNote(), saved, "The note is untouched")
+        XCTAssertEqual(next.engine.submitted, 0, "Nothing transcribed again")
+        XCTAssertEqual(next.notices.titles, [], "Nothing to tell")
+        XCTAssertEqual(next.session.status, .idle)
+        XCTAssertEqual(contents(archiveDir), [])
+    }
+
+    /// Keep meeting audio is on and Cado dies while the audio copy is
+    /// pending (the copy never ran): the next launch finishes the copy into
+    /// the same folder, with no second note.
+    func testACrashWhileTheAudioCopyIsPendingFinishesTheCopyNextLaunch() async throws {
+        let (me, them) = try standardWavs()
+        var run: Run? = try makeRun(me: me, them: them, keepAudio: true, background: { _, _ in })   // the copy never runs
+        try await start(run!)
+        run!.recorder.me.push(seconds: 9.5)
+        run!.recorder.them.push(seconds: 9.5)
+        run!.clock.advance(by: 9.5)
+        let saved = try await stop(run!)
+        let folder = "Meeting with Zoom — 16 Nov 2026 at 14 32"
+        XCTAssertEqual(journaled("noteSaved"), 1)
+        XCTAssertEqual(journaled("audioKept"), 0, "The copy hadn't happened")
+        XCTAssertEqual(contents(spoolDir).count, 1)
+        XCTAssertEqual(contents(archiveDir), [folder])
+        XCTAssertEqual(contents(archiveDir.appendingPathComponent(folder)), [], "Nothing copied yet")
+        drop(&run)
+
+        let next = try freshRun(keepAudio: true)
+        next.session.recoverLeftovers()
+        try await waitFor("the audio copy (off main)") { contents(spoolDir).isEmpty }
+        XCTAssertEqual(contents(archiveDir), [folder], "Into the folder the note named, not a new one")
+        XCTAssertEqual(contents(archiveDir.appendingPathComponent(folder)), ["Me.wav", "Others.wav"])
+        XCTAssertEqual(try notes().count, 1, "Never a second note")
+        XCTAssertEqual(try onlyNote(), saved)
+        XCTAssertEqual(next.engine.submitted, 0)
+        XCTAssertEqual(next.notices.titles, [], "Told only after a failed copy")
     }
 }
