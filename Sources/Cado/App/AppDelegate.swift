@@ -87,8 +87,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         },
         systemAudio: { [permissions] in permissions.systemAudio },
         keepAudio: { [configStore] in configStore.config.keepMeetingAudio },
-        calendarNaming: MeetingCalendarNaming(
-            isEnabled: { [configStore] in configStore.config.nameMeetingsFromCalendar }, calendar: calendar))
+        calendarNaming: calendarNaming)
+    private lazy var calendarNaming = MeetingCalendarNaming(
+        isEnabled: { [configStore] in configStore.config.nameMeetingsFromCalendar }, calendar: calendar)
     /// The one calendar (#38): read only when the user opted in; asked only from Settings or onboarding.
     private let calendar: CalendarPort = EventKitCalendar()
     private let termination = TerminationGate()
@@ -154,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // permissions (until then the monitor assumes none).
         monitor.start()
         startOnboardingOrPrompt()
+        calendarNaming.warmUp()   // off main; only if on and already allowed
         // Off the main thread, last: a slow or failing request can't touch launch.
         let ping = launchPing, optedIn = configStore.config.usagePing
         Task.detached(priority: .utility) { await ping.sendLaunch(enabled: optedIn) }
@@ -162,9 +164,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Returning from System Settings: show a permission change at once.
     func applicationDidBecomeActive(_ notification: Notification) {
         MainActor.assumeIsolated {
+            settingsViewModel?.refreshCalendarAccess()   // allowed or taken away in System Settings
             guard isOnboardingVisible else { return }
             monitor.recheck()
             onboardingModel?.recheckNotifications()   // switched on in System Settings
+            onboardingModel?.recheckCalendar()
         }
     }
 

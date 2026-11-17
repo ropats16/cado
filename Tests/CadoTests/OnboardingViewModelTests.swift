@@ -342,6 +342,54 @@ final class OnboardingViewModelTests: XCTestCase {
         XCTAssertEqual(vm.current, .ready)
     }
 
+    // MARK: - Calendar (#38)
+
+    private func calendarVM(_ calendar: CalendarNamingTests.FakeCalendar,
+                            switchedOn: @escaping (Bool) -> Void) -> OnboardingViewModel {
+        OnboardingViewModel(config: { [unowned self] in config }, inputs: inputs(engine: .ready), downloads: control,
+                            options: { [unowned self] in options }, isFirstShow: true, perform: { _ in },
+                            onFinish: {}, notifications: notifications, calendar: calendar,
+                            setCalendarNaming: switchedOn)
+    }
+
+    func testUseMyCalendarAsksOnceAndGrantedSwitchesNamingOn() {
+        let calendar = CalendarNamingTests.FakeCalendar(access: .notDetermined, onRequest: .granted)
+        var switched: [Bool] = []
+        let vm = calendarVM(calendar) { [unowned self] on in switched.append(on); config.nameMeetingsFromCalendar = on }
+        XCTAssertEqual(calendar.requests, 0, "Showing the step never asks")
+        XCTAssertEqual(vm.content.step(.calendar).primary?.action, .enableCalendar)
+
+        vm.perform(.enableCalendar)
+
+        XCTAssertEqual(calendar.requests, 1)
+        XCTAssertEqual(switched, [true])
+        XCTAssertEqual(vm.content.step(.calendar).state, .done)
+        XCTAssertEqual(calendar.reads, 0, "Asking never reads events")
+    }
+
+    func testUseMyCalendarDeclinedLeavesNamingOffAndOffersSystemSettings() {
+        let calendar = CalendarNamingTests.FakeCalendar(access: .notDetermined, onRequest: .denied)
+        var switched: [Bool] = []
+        let vm = calendarVM(calendar) { switched.append($0) }
+        vm.perform(.enableCalendar)
+        XCTAssertTrue(switched.isEmpty)
+        XCTAssertEqual(vm.content.step(.calendar).state, .declined)
+        XCTAssertEqual(vm.content.step(.calendar).primary?.action, .openCalendarSettings)
+        vm.perform(.openCalendarSettings)
+        XCTAssertEqual(calendar.settingsOpened, 1)
+    }
+
+    /// Allowed in System Settings meanwhile: the recheck when Cado becomes
+    /// active again shows it.
+    func testARecheckPicksUpCalendarAccessChangedInSystemSettings() {
+        let calendar = CalendarNamingTests.FakeCalendar(access: .denied)
+        let vm = calendarVM(calendar) { _ in }
+        XCTAssertEqual(vm.content.step(.calendar).state, .declined)
+        calendar.access = .granted
+        vm.recheckCalendar()
+        XCTAssertEqual(vm.content.step(.calendar).primary?.action, .enableCalendar)
+    }
+
     // MARK: - Helpers
 
     private func installed(_ option: OnboardingModelOption) -> OnboardingModelOption {

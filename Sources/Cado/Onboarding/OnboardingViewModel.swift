@@ -134,6 +134,9 @@ final class OnboardingViewModel: ObservableObject {
         }
     }
 
+    /// Re-reads calendar access (back from System Settings).
+    func recheckCalendar() { rebuild() }
+
     // MARK: - Intents
 
     func perform(_ action: OnboardingAction) {
