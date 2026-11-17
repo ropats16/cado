@@ -109,6 +109,24 @@ final class EngineSelectionTests: XCTestCase {
         XCTAssertNil(selected.fallbackReason)
     }
 
+    /// #47: a multilingual file (downloaded for meetings) must not take English
+    /// dictation from an installed `.en` model, even though it's no bigger
+    /// than the recommended one and a few KB bigger than the `.en` one.
+    func testEnglishAutomaticPrefersEnModelsOverMultilingualOnes() {
+        let hardware = HardwareProfile(isAppleSilicon: true, memoryBytes: 16 << 30)   // recommends medium.en-q5_0
+        let pick = { (present: Set<String>, language: String) -> ModelSpec in
+            ModelSelection.resolve(model: .automatic, modelPath: "", language: language, hardware: hardware,
+                                   modelsDir: self.modelsDir, presentFilenames: present)
+        }
+        XCTAssertEqual(pick(["ggml-base.en-q5_1.bin", "ggml-small-q5_1.bin"], "en"),
+                       .file("/models/ggml-base.en-q5_1.bin"))
+        // Only multilingual files present: still used.
+        XCTAssertEqual(pick(["ggml-small-q5_1.bin"], "en"), .file("/models/ggml-small-q5_1.bin"))
+        // Other languages never use `.en` models and are unaffected.
+        XCTAssertEqual(pick(["ggml-base.en-q5_1.bin", "ggml-small-q5_1.bin"], "hi"),
+                       .file("/models/ggml-small-q5_1.bin", language: "hi"))
+    }
+
     // MARK: - Automatic (`EnginePolicy`)
 
     /// Turbo (fake parakeet) and Apple Speech (fake, macOS 26) beside whisper;

@@ -60,7 +60,8 @@ enum ModelSelection {
     ///
     /// The auto-pick never asks for a download: if the recommended model isn't
     /// present it uses the largest downloaded catalog model no bigger than it
-    /// (the smallest one if none is), so a Mac set up with an older default
+    /// (the smallest one if none is; for English, `.en` models are preferred
+    /// over multilingual ones), so a Mac set up with an older default
     /// keeps working. With nothing downloaded it names the recommended model.
     static func resolve(model: ModelChoice, modelPath: String, language: String,
                         hardware: HardwareProfile, modelsDir: URL,
@@ -76,8 +77,14 @@ enum ModelSelection {
         }
 
         let recommended = ModelCatalog.recommended(for: hardware, language: language)
-        let usable = ModelCatalog.models.filter {
+        var usable = ModelCatalog.models.filter {
             presentFilenames.contains($0.filename) && (ModelCatalog.isEnglish(language) || !$0.isEnglishOnly)
+        }
+        // For English the `.en` models come first: a multilingual file (say one
+        // downloaded for meetings) is only a fallback when no `.en` one is here,
+        // so it never takes dictation over.
+        if ModelCatalog.isEnglish(language), usable.contains(where: \.isEnglishOnly) {
+            usable = usable.filter(\.isEnglishOnly)
         }
         let chosen = usable.contains(recommended) ? recommended
             : usable.filter { $0.bytes <= recommended.bytes }.max { $0.bytes < $1.bytes }
