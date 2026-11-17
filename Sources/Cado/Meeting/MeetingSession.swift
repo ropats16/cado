@@ -39,6 +39,10 @@ import Foundation
 ///   launch just deletes it) or audio pending (only the copy is redone, into
 ///   a new folder: the note's isn't known); a note that couldn't be saved
 ///   marks it so, and the late note says that, not "quit unexpectedly".
+/// - Recovery that gives up journals `.recoveryGaveUp` before writing the
+///   note. A leftover that has it with no outcome after (Cado died writing
+///   that note) isn't tried again: its folder is moved, as it is, into the
+///   archive and the user is told once where (`putAside`). Never deleted.
 /// - Only a spool with no folder (the disk spool couldn't be made: all in
 ///   memory) is dropped when its note can't be saved anywhere; the notice
 ///   says the meeting is lost.
@@ -982,6 +986,9 @@ final class MeetingSession {
         if let concluded = plan.concluded {
             return finishCopy(handle, concluded, title: title)
         }
+        if leftover.mark != .noteNotSaved, Self.diedAfterGivingUp(leftover.events) {
+            return putAside(handle, leftover.events, title: title)
+        }
         meetingCount += 1
         let meeting = Meeting(id: meetingCount, appName: info.appName, startedAt: clock.now,
                               startDate: info.startDate, spool: handle, me: nil, them: nil, recovery: plan.reason)
@@ -1060,8 +1067,11 @@ final class MeetingSession {
 
     /// Recovery can't go on: the note is written from what was transcribed
     /// (saying so), and the audio kept with it, under the usual rule.
+    /// Journaled first: if Cado dies writing that note, the next launch sets
+    /// the meeting aside instead of dying the same way again.
     private func giveUp(_ meeting: Meeting, reason: String) {
         Log.error("Meeting recovery: can't finish the meeting with \(meeting.appName): \(reason).")
+        meeting.spool.record(.recoveryGaveUp(reason: reason))
         meeting.gaveUp = reason
         meeting.queue.removeAll()
         for side in meeting.sides.values { side.ended = true }
@@ -1081,6 +1091,33 @@ final class MeetingSession {
             guard let kept, concluded.keepFailures > 0 else { return }
             feedback.notify(title: "Meeting audio kept", body: "The audio of “\(title)” is now in \(kept.path).")
         }
+    }
+
+    /// Recovery gave up on it, and nothing came of that (no note saved, none
+    /// failed to save): Cado died writing the note.
+    private static func diedAfterGivingUp(_ events: [SpoolEvent]) -> Bool {
+        guard let last = events.lastIndex(where: { if case .recoveryGaveUp = $0 { return true } else { return false } })
+        else { return false }
+        return !events[last...].contains { if case .noteSaveFailed = $0 { return true } else { return false } }
+    }
+
+    /// A leftover that already killed a launch while its note was written:
+    /// not transcribed, not rendered, never deleted. Its folder is moved, as
+    /// it is, into a new archive folder, and the user is told once where it
+    /// is. If it can't be moved it stays in the spool, and later launches
+    /// leave it there without a word.
+    private func putAside(_ handle: MeetingSpoolHandle, _ events: [SpoolEvent], title: String) {
+        guard !events.contains(.toldUser(.recordingSetAside)) else {
+            return Log.error("Meeting recovery: “\(title)” was set aside already; left where it is.")
+        }
+        Log.error("Meeting recovery: “\(title)” stopped Cado last time; setting its recording aside, untouched.")
+        let folder = newArchiveFolder(title)
+        let moved = folder.flatMap { handle.moveFolder(into: $0) } != nil
+        let place = moved ? folder?.path : handle.location?.path
+        feedback.notify(title: "Couldn't finish a meeting",
+                        body: "Cado couldn't finish “\(title)” and has stopped trying. Its recording is kept, unchanged, in "
+                            + "\(place ?? "Cado's Meetings In Progress folder").")
+        if !moved { handle.record(.toldUser(.recordingSetAside)) }   // after telling: twice is better than never
     }
 
     // MARK: - Helpers

@@ -1642,6 +1642,66 @@ extension MeetingSessionTests {
         UserFacingCopy.assertPlain(feedback.notices[0].body)
     }
 
+    /// N3 (f): give-up is journaled before the note is written.
+    func testGivingUpIsJournaledBeforeTheNoteIsWritten() throws {
+        let h = durableLeftover(started + [.recoveryStarted, .recoveryStarted])
+        var atSave: [SpoolEvent] = []
+        notes.onSave = { atSave = h.events }
+        session.recoverLeftovers()
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertEqual(atSave.last, .recoveryGaveUp(reason: "recovery was begun 2 times without getting further"))
+    }
+
+    /// N3 (f): Cado died writing the note of a meeting it gave up on: the
+    /// next launch doesn't try again; the folder goes, untouched, into the
+    /// archive, and the user is told where.
+    func testALeftoverThatDiedAfterGivingUpIsSetAsideUntouched() throws {
+        let h = durableLeftover(started + [.recoveryStarted, .recoveryStarted, .recoveryGaveUp(reason: "stalled")])
+        session.recoverLeftovers()
+        XCTAssertTrue(engine.jobs.isEmpty, "Not transcribed")
+        XCTAssertTrue(notes.saved.isEmpty, "No note rendered")
+        XCTAssertTrue(archive.kept.isEmpty, "Nothing converted")
+        XCTAssertEqual(h.movedTo, URL(fileURLWithPath: archiveFolder).appendingPathComponent(h.meeting.id.uuidString))
+        XCTAssertFalse(h.inner.isDiscarded, "Never deleted")
+        XCTAssertNil(h.leftover, "Out of the spool: not found again")
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting"])
+        XCTAssertEqual(feedback.notices[0].body, "Cado couldn't finish “\(meetingTitle)” and has stopped trying. "
+                       + "Its recording is kept, unchanged, in \(archiveFolder).")
+        UserFacingCopy.assertPlain(feedback.notices[0].body)
+        XCTAssertEqual(session.status, .idle)
+    }
+
+    /// N3: if the folder can't be moved it stays where it is, never deleted,
+    /// never tried again, and the user is told once.
+    func testARecordingThatCantBeSetAsideStaysWhereItIsAndIsToldOnce() throws {
+        let h = durableLeftover(started + [.recoveryGaveUp(reason: "stalled")])
+        h.canMove = false
+        session.recoverLeftovers()
+        XCTAssertEqual(feedback.notices.map(\.body), ["Cado couldn't finish “\(meetingTitle)” and has stopped trying. "
+                       + "Its recording is kept, unchanged, in /spool/\(h.meeting.id.uuidString)."])
+        XCTAssertEqual(h.events.last, .toldUser(.recordingSetAside))
+        for _ in 0..<2 {
+            spool.left = [try XCTUnwrap(h.leftover)]
+            makeSession().recoverLeftovers()
+        }
+        XCTAssertEqual(feedback.notices.count, 1, "Told once")
+        XCTAssertEqual(archive.folders.count, 1, "No folder made for nothing")
+        XCTAssertTrue(engine.jobs.isEmpty)
+        XCTAssertTrue(notes.saved.isEmpty)
+        XCTAssertFalse(h.inner.isDiscarded)
+    }
+
+    /// N3: a give-up whose note then failed to save isn't a crash: recovered
+    /// as usual (not set aside).
+    func testAGiveUpWhoseNoteFailedToSaveIsRecoveredAsUsual() throws {
+        let h = durableLeftover(started + [.recoveryStarted, .recoveryStarted, .recoveryGaveUp(reason: "stalled"),
+                                           .noteSaveFailed(reason: "The disk is full."), .toldUser(.meetingIsSafe)])
+        session.recoverLeftovers()
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertNil(h.movedTo)
+        XCTAssertTrue(h.inner.isDiscarded)
+    }
+
     /// N9: on disk, the note names the audio's folder in words true whether
     /// or not the copy has happened yet.
     func testTheNoteNamesTheAudioFolderTruthfully() throws {
