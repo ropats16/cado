@@ -28,12 +28,6 @@ Real quotes only, with the person's permission. Edit the JSON list near the bott
 
 ## Add a screenshot
 
-Capture the real app (not a mock-up). Save as `site/assets/screenshot-hero.png` (PNG, about 1600 px wide, retina; keep it under ~300 KB).
-In `index.html`, inside `.hero-art` (the comment marks the spot), add:
-
-```html
-<img class="shot" src="assets/screenshot-hero.png" width="1600" height="1000" alt="<what it shows>" loading="lazy">
-```
-
-Then add a `.shot` rule to `styles.css` (rounded corners, border, `width: 100%`). Provide light and dark variants with
-`<picture>` and `<source media="(prefers-color-scheme: dark)">` if you capture both.
+The hero screenshot exists at `assets/screenshot-hero.png`, with a dark variant at `assets/screenshot-hero-dark.png`. Both are rendered from the app's Library render harness with sample content, not a mock-up.
+To update them, replace both files with new captures of the same size (1600×1104 PNG, under ~200 KB).
+The `<picture>` markup in `index.html` and the `.shot` rules in `styles.css` already wire them up; change only `alt` text if the content changes.
