@@ -15,6 +15,9 @@ final class LibraryRenderHarness: XCTestCase {
         var name: String
         var notes = true
         var query = ""
+        var seed = "standard"
+        /// Window content size in points.
+        var size = NSSize(width: 860, height: 560)
         var select: String?
         var renaming = false
         /// A meeting under way (#42): the in-progress row.
@@ -30,6 +33,13 @@ final class LibraryRenderHarness: XCTestCase {
         Scene(name: "search", query: "budget", select: "Weekly sync"),
         Scene(name: "meeting-transcribing", meeting: .transcribing(app: "Zoom", done: 3, total: 8)),
         Scene(name: "meeting-recording-empty", notes: false, meeting: .recording(app: "Zoom", startedAt: 0, lost: [])),
+        Scene(name: "meeting-recording", select: "Weekly sync", meeting: .recording(app: "Zoom", startedAt: 0, lost: [])),
+        Scene(name: "many-sections", seed: "many", select: "Weekly sync"),
+        Scene(name: "long-note", seed: "long", select: "Quarterly planning"),
+        Scene(name: "plain-note", select: "Idea: offline summaries"),
+        Scene(name: "wide", size: NSSize(width: 1440, height: 800), select: "Weekly sync"),
+        Scene(name: "narrow", size: NSSize(width: 600, height: 420), select: "Weekly sync"),
+        Scene(name: "site-hero", seed: "hero", size: NSSize(width: 800, height: 520), select: "Team check-in"),
     ]
 
     override func setUpWithError() throws {
@@ -45,7 +55,14 @@ final class LibraryRenderHarness: XCTestCase {
             let root = FileManager.default.temporaryDirectory.appendingPathComponent("lib-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: root) }
             let library = NotesLibrary(folder: { root }, watcher: FakeFolderWatcher())
-            if scene.notes { try seed(library) }
+            if scene.notes {
+                switch scene.seed {
+                case "many": try seed(library); try seedMany(library)
+                case "long": try seed(library); try seedLong(library)
+                case "hero": try seedHero(library)
+                default: try seed(library)
+                }
+            }
             let vm = LibraryViewModel(library: library)
             await vm.reload()
             if let meeting = scene.meeting { vm.meetingStatusChanged(meeting) }
@@ -57,7 +74,7 @@ final class LibraryRenderHarness: XCTestCase {
                 await vm.setQuery(scene.query)
             }
             for dark in [false, true] {
-                try await render(vm, dark: dark,
+                try await render(vm, dark: dark, size: scene.size,
                                  to: out.appendingPathComponent("library-\(scene.name)-\(dark ? "dark" : "light").png"))
             }
         }
@@ -97,9 +114,57 @@ final class LibraryRenderHarness: XCTestCase {
             body: "Summaries from local models only."))
     }
 
-    private func render(_ vm: LibraryViewModel, dark: Bool, to file: URL) async throws {
+    private func seedMany(_ library: NotesLibrary) throws {
+        let now = Date()
+        for (i, title) in ["Standup", "1:1 with Sam", "Vendor call", "Retro", "Offsite plan", "Hiring sync"].enumerated() {
+            try library.create(NoteDraft(title: title, date: now.addingTimeInterval(-86_400 * Double(12 + i * 20)),
+                                         kind: "meeting", duration: 900 + Double(i) * 300,
+                                         body: "**Me:** Hello.\n\n**Them:** Hi, shall we start?"))
+        }
+        try library.create(NoteDraft(title: "Yesterday call", date: now.addingTimeInterval(-86_400),
+                                     kind: "meeting", duration: 600, body: "**Me:** Quick one."))
+    }
+
+    private func seedLong(_ library: NotesLibrary) throws {
+        var body = "Recorded from Zoom (Them) and your microphone (Me).\n\n## Transcript\n"
+        for i in 0..<14 {
+            body += "\n**Me:** Point \(i + 1): we should confirm the timeline for the next milestone, check who owns each piece, and make sure nothing blocks the release.\n"
+            body += "\n**Them:** Agreed. I will follow up on the open items this week and share an update with the whole group once the numbers are in.\n"
+        }
+        try library.create(NoteDraft(title: "Quarterly planning", date: Date().addingTimeInterval(-600),
+                                     kind: "meeting", duration: 3600, body: body))
+    }
+
+    private func seedHero(_ library: NotesLibrary) throws {
+        let now = Date()
+        try library.create(NoteDraft(
+            title: "Team check-in", date: now.addingTimeInterval(-1800), kind: "meeting", duration: 1260,
+            body: """
+            Recorded from Zoom (Them) and your microphone (Me).
+
+            ## Transcript
+            **Me:** Thanks for joining. Let's start with where the sample project stands.
+
+            **Them:** The first draft is done. We still need to review the layout and fill in the last two sections.
+
+            **Me:** Good. Can we have the review finished by Thursday?
+
+            **Them:** Yes, that works. I'll send the notes over once it's wrapped up.
+
+            **Me:** Great, let's pick it up again next week.
+            """))
+        try library.create(NoteDraft(title: "Project kickoff", date: now.addingTimeInterval(-86_400 - 3600), kind: "meeting",
+                                     duration: 2400, body: "**Me:** Welcome everyone.\n\n**Them:** Glad to be here."))
+        try library.create(NoteDraft(title: "Planning session", date: now.addingTimeInterval(-86_400 * 3), kind: "meeting",
+                                     duration: 1800, body: "**Me:** Let's review the plan.\n\n**Them:** Sounds good."))
+        try library.create(NoteDraft(title: "Reading list", date: now.addingTimeInterval(-86_400 * 12), kind: "note",
+                                     body: "A few articles to read later."))
+    }
+
+    private func render(_ vm: LibraryViewModel, dark: Bool, size contentSize: NSSize, to file: URL) async throws {
         _ = NSApplication.shared
         let window = LibraryWindowController.makeWindow(viewModel: vm)
+        window.setContentSize(contentSize)
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
         for _ in 0..<8 { try await Task.sleep(nanoseconds: 50_000_000) }

@@ -28,6 +28,9 @@ enum Brand {
         static let inkSecondary = Color(nsColor: NS.inkSecondary)
         /// Cheek pink: a soft, friendly highlight (badges, a selected row's fill).
         static let cheek = Color(nsColor: NS.cheek)
+        /// The accent as text (links, badges): a deeper green in light mode so
+        /// it passes AA on the light surfaces, where `accent` is about 2:1.
+        static let accentText = Color(nsColor: NS.accentText)
         /// Pulse coral: live/recording state, warnings and errors. Deeper in
         /// light mode so it passes as text (≥4.5:1) on the cream surfaces.
         static let pulse = Color(nsColor: NS.pulse)
@@ -40,6 +43,7 @@ enum Brand {
             static let ink = NSColor.labelColor
             static let inkSecondary = NSColor.secondaryLabelColor
             static let cheek = rgb(0xff8fa3)
+            static let accentText = themed("accentText", light: 0x1f6b1a, dark: 0x6fd75f)
             static let pulse = themed("pulse", light: 0xc4392d, dark: 0xff6f61)
         }
 
@@ -62,6 +66,9 @@ enum Brand {
     enum Typography {
         /// Window and section titles.
         static let title = font(.title2, weight: .semibold)
+        /// Page titles (Settings header, onboarding, a note's header): one
+        /// style, `.title` bold. `title` is for smaller, in-page titles.
+        static let pageTitle = font(.title, weight: .bold)
         /// Group headers, emphasised labels.
         static let headline = font(.headline, weight: .semibold)
         /// Body text and controls.
