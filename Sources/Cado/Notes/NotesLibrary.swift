@@ -40,6 +40,10 @@ struct NoteSummary: Equatable, Identifiable {
     /// First words of the body, for a list row.
     let preview: String
     let url: URL
+    /// The app a meeting recorded as "Them", read from the note's first
+    /// line (`MeetingNote.recordedApp(inBody:)`); nil for other notes or
+    /// when that line was edited away.
+    var recordedApp: String? = nil
 }
 
 /// A note with its Markdown body (front matter excluded).
