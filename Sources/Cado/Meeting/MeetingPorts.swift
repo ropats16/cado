@@ -59,6 +59,14 @@ protocol MeetingArchive: AnyObject {
 /// Notices to the user.
 protocol MeetingFeedback: AnyObject {
     func notify(title: String, body: String)
+    /// The meeting's note was saved at `note`: a notice that, clicked,
+    /// opens it in the Library (#42).
+    func noteSaved(_ note: URL, title: String, body: String)
+}
+
+extension MeetingFeedback {
+    /// Without a way to open the note (console, tests): a plain notice.
+    func noteSaved(_ note: URL, title: String, body: String) { notify(title: title, body: body) }
 }
 
 /// Where the session reports its status (menu, overlay). Called on every

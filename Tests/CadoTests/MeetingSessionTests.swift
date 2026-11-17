@@ -74,7 +74,13 @@ final class MeetingSessionTests: XCTestCase {
     final class FakeFeedback: MeetingFeedback, MeetingActivity {
         private(set) var notices: [(title: String, body: String)] = []
         private(set) var statuses: [MeetingStatus] = []
+        /// Notes whose saved notice opens them (#42).
+        private(set) var savedNotes: [URL] = []
         func notify(title: String, body: String) { notices.append((title, body)) }
+        func noteSaved(_ note: URL, title: String, body: String) {
+            savedNotes.append(note)
+            notify(title: title, body: body)
+        }
         func meetingStatusChanged(_ status: MeetingStatus) { statuses.append(status) }
         var titles: [String] { notices.map(\.title) }
     }
@@ -384,6 +390,13 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertTrue(notes.saved[0].body.contains("_Nothing was transcribed._"))
     }
 
+    /// #42: the "Meeting note saved" notice knows the note, so a click opens it.
+    func testTheSavedNoticeNamesTheNoteItOpens() {
+        record()
+        XCTAssertEqual(feedback.savedNotes, [URL(fileURLWithPath: "/notes/1.md")])
+        XCTAssertEqual(feedback.titles, ["Meeting note saved"])
+    }
+
     func testANoteThatCannotBeSavedGoesToTheArchiveWithTheAudio() {
         notes.error = Failure("The folder is read-only.")
         record()
@@ -392,6 +405,7 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertTrue(archive.kept[0].note?.contains("kind: \"meeting\"") == true)
         XCTAssertTrue(archive.kept[0].note?.contains("**Them:** Hi from them.") == true)
         XCTAssertEqual(feedback.titles, ["Couldn't save the meeting note"])
+        XCTAssertEqual(feedback.savedNotes, [], "No note to open")
         XCTAssertEqual(session.status, .idle)
     }
 

@@ -85,7 +85,10 @@ final class FolderMeetingArchive: MeetingArchive {
     }
 }
 
-/// Notification banners.
+/// Notification banners; the saved-note one opens the note when clicked.
 final class NotifierMeetingFeedback: MeetingFeedback {
     func notify(title: String, body: String) { Notifier.notify(title: title, body: body) }
+    func noteSaved(_ note: URL, title: String, body: String) {
+        Notifier.notify(title: title, body: body, route: NotificationRoute(savedNote: note))
+    }
 }

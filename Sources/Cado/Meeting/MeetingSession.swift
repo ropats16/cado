@@ -356,11 +356,11 @@ final class MeetingSession {
                                turns: turns, caveats: caveats)
         let saved = save(note, meeting, audioKept: !meeting.failures.isEmpty)
         end()
-        guard saved else { return }
+        guard let saved else { return }
         var body = note.draft(locale: locale, timeZone: timeZone).title
         if themSilence(meeting) != nil { body += " — no sound came from \(meeting.app.name); see the note." }
         if !meeting.failures.isEmpty { body += " Some of it couldn't be transcribed; see the note." }
-        feedback.notify(title: "Meeting note saved", body: body)
+        feedback.noteSaved(saved, title: "Meeting note saved", body: body)
     }
 
     /// Quitting: keep the audio, note what's transcribed so far, call back.
@@ -372,19 +372,20 @@ final class MeetingSession {
         if let folder = keep(meeting, note: nil) { caveats.append(.audioKept(folder)) }
         let note = MeetingNote(appName: meeting.app.name, start: meeting.startDate, duration: meeting.duration,
                                turns: MeetingTranscript.turns(meeting.pieces), caveats: caveats)
-        _ = save(note, meeting, audioKept: true)
+        save(note, meeting, audioKept: true)
         end()
         done()
     }
 
-    /// Writes the note; if that fails, puts it (and the audio, unless kept
-    /// already) in the archive and says where.
-    private func save(_ note: MeetingNote, _ meeting: Meeting, audioKept: Bool) -> Bool {
+    /// Writes the note and returns its file; if that fails, puts it (and the
+    /// audio, unless kept already) in the archive, says where, returns nil.
+    @discardableResult
+    private func save(_ note: MeetingNote, _ meeting: Meeting, audioKept: Bool) -> URL? {
         let draft = note.draft(locale: locale, timeZone: timeZone)
         do {
             let url = try notes.save(draft)
             Log.info("Meeting note saved: \(url.path)")
-            return true
+            return url
         } catch {
             Log.error("Couldn't save the meeting note: \(error.localizedDescription)")
             let markdown = NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind,
@@ -395,7 +396,7 @@ final class MeetingSession {
             } else {
                 feedback.notify(title: "Couldn't save the meeting", body: error.localizedDescription)
             }
-            return false
+            return nil
         }
     }
 
