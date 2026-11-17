@@ -15,7 +15,7 @@ extension SettingsViewModel {
     var summariesAvailable: Bool { summaryAvailability.isAvailable }
 
     var summariesNote: String {
-        if openRouterState.awaitingConsent { return OpenRouterCopy.pendingNote }
+        if showsOpenRouterConsent { return OpenRouterCopy.pendingNote }
         return SummarySettingsCopy.note(summaryAvailability, provider: configStore.config.summaryProviderChoice)
     }
 
