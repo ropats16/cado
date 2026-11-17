@@ -1271,7 +1271,7 @@ final class MeetingSession {
     /// sets it aside, if a give-up died writing its note).
     private func recoverAnew(_ handle: MeetingSpoolHandle, _ plan: RecoveryPlan, events: [SpoolEvent], title: String) {
         let info = handle.meeting
-        if Self.diedAfterGivingUp(events) {
+        if RecoveryPlan.diedAfterGivingUp(events) {
             return putAside(handle, events, title: title)
         }
         journalMarks(handle)
@@ -1517,14 +1517,6 @@ final class MeetingSession {
             feedback.notify(title: "Couldn't finish a meeting",
                             body: "\(found) Its audio is kept in \(folder.path), with what was transcribed of it so far.\(short)")
         })
-    }
-
-    /// Recovery gave up on it, and nothing came of that (no note saved, none
-    /// failed to save): Cado died writing the note.
-    private static func diedAfterGivingUp(_ events: [SpoolEvent]) -> Bool {
-        guard let last = events.lastIndex(where: { if case .recoveryGaveUp = $0 { return true } else { return false } })
-        else { return false }
-        return !events[last...].contains { if case .noteSaveFailed = $0 { return true } else { return false } }
     }
 
     /// A leftover that already killed a launch while its note was written:

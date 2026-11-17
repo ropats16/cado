@@ -196,6 +196,21 @@ struct RecoveryPlan: Equatable {
     }
 }
 
+extension RecoveryPlan {
+    /// Recovery gave up on it, and nothing came of that (no note saved, none
+    /// failed to save): Cado died writing the note. Not if the give-up was
+    /// paused before its note (#48: a meeting the user started, or a clean
+    /// quit; the last of `.recoveryPaused`/`.recoveryStarted` since is a
+    /// pause): that note is still to be written.
+    static func diedAfterGivingUp(_ events: [SpoolEvent]) -> Bool {
+        guard let last = events.lastIndex(where: { if case .recoveryGaveUp = $0 { return true } else { return false } })
+        else { return false }
+        let since = events[last...]
+        if since.contains(where: { if case .noteSaveFailed = $0 { return true } else { return false } }) { return false }
+        return since.last { $0 == .recoveryPaused || $0 == .recoveryStarted } != .recoveryPaused
+    }
+}
+
 // MARK: - Adopting a note saved but not journaled (#48)
 
 extension RecoveryPlan {

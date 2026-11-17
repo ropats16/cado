@@ -2126,6 +2126,40 @@ extension MeetingSessionTests {
         XCTAssertFalse(h.inner.isDiscarded)
     }
 
+    /// A give-up held for a meeting the user started before its note was
+    /// written (its silence scan still out), then Cado died (`crash`) or was
+    /// quit: the next launch writes the give-up's note, not sets it aside.
+    private func giveUpHeldBeforeItsNote(crash: Bool) throws {
+        var queued: [(work: () -> Void, done: () -> Void)] = []
+        session = makeSession(background: { queued.append(($0, $1)) })
+        let h = durableLeftover(started + [.recoveryStarted, .recoveryStarted])
+        session.recoverLeftovers()
+        XCTAssertEqual(h.events.last, .recoveryGaveUp(reason: "recovery was begun 2 times without getting further"))
+        XCTAssertTrue(notes.saved.isEmpty, "Its note waits for the silence scan")
+        startBoth()
+        XCTAssertEqual(h.events.last, .recoveryPaused)
+        if !crash {
+            session.quit {}
+            XCTAssertEqual(h.events.last, .recoveryPaused)
+        }
+        h.reopen()
+        spool.left = [try XCTUnwrap(h.leftover)]
+        makeSession().recoverLeftovers()
+        XCTAssertNil(h.movedTo, "Not set aside")
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertTrue(notes.saved[0].body.contains("> Cado couldn't finish transcribing this meeting"))
+        XCTAssertTrue(h.inner.isDiscarded, "Written down, its audio kept")
+        XCTAssertEqual(archive.audioKept.count, 1)
+    }
+
+    func testAGiveUpHeldBeforeItsNoteThenACrashStillGetsItsNote() throws {
+        try giveUpHeldBeforeItsNote(crash: true)
+    }
+
+    func testAGiveUpHeldBeforeItsNoteThenAQuitStillGetsItsNote() throws {
+        try giveUpHeldBeforeItsNote(crash: false)
+    }
+
     /// N3: a give-up whose note then failed to save isn't a crash: recovered
     /// as usual (not set aside).
     func testAGiveUpWhoseNoteFailedToSaveIsRecoveredAsUsual() throws {

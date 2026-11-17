@@ -117,6 +117,22 @@ final class RecoveryPlanTests: XCTestCase {
         XCTAssertFalse(RecoveryPlan(events: [hello, .recoveryStarted], sampleCounts: full).gaveUp)
     }
 
+    /// A give-up with nothing after it (no note saved, none failed) died
+    /// writing its note; one paused after (a meeting started, or Cado quit,
+    /// before its note was written) didn't: it's resumed, its note written.
+    func testAGiveUpDiedWritingItsNoteUnlessItWasPausedSince() {
+        let gaveUp: [SpoolEvent] = [hello, .recoveryStarted, .recoveryStarted, .recoveryGaveUp(reason: "stalled")]
+        XCTAssertTrue(RecoveryPlan.diedAfterGivingUp(gaveUp))
+        XCTAssertFalse(RecoveryPlan.diedAfterGivingUp(gaveUp + [.recoveryPaused]), "Paused before its note")
+        XCTAssertTrue(RecoveryPlan.diedAfterGivingUp(gaveUp + [.recoveryPaused, .recoveryStarted]),
+                      "Resumed after the pause, then died writing it")
+        XCTAssertFalse(RecoveryPlan.diedAfterGivingUp(gaveUp + [.recoveryPaused, .recoveryStarted, .recoveryPaused]))
+        XCTAssertFalse(RecoveryPlan.diedAfterGivingUp(gaveUp + [.noteSaveFailed(reason: "full")]))
+        XCTAssertTrue(RecoveryPlan.diedAfterGivingUp(gaveUp + [.recoveryPaused, .recoveryGaveUp(reason: "stalled")]),
+                      "Given up on again after the pause, and died")
+        XCTAssertFalse(RecoveryPlan.diedAfterGivingUp([hello, .recoveryStarted, .recoveryPaused]), "Never given up on")
+    }
+
     func testTranscriptionCompleteOnceNoteSavingWasReached() {
         func complete(_ events: [SpoolEvent]) -> Bool { RecoveryPlan(events: events, sampleCounts: full).transcriptionComplete }
         XCTAssertTrue(complete([.recoveryStarted, .noteSaveFailed(reason: "full")]))
