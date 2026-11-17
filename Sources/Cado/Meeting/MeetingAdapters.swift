@@ -46,6 +46,7 @@ final class EngineMeetingAdapter: MeetingEngine {
 
 extension NotesLibrary: MeetingNoteStore {
     func save(_ draft: NoteDraft) throws -> URL { try create(draft).summary.url }
+    func existingNote(id: String, since: Date) -> URL? { note(withID: id, changedSince: since) }
 }
 
 /// Keeps a meeting's audio as 16 kHz mono 16-bit WAVs (`Me.wav`,

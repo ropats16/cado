@@ -703,7 +703,7 @@ final class MeetingSession {
         if noteNamesFolder, let folder { caveats.append(.audioKept(folder)) }
         let note = MeetingNote(appName: app, start: meeting.startDate, duration: meeting.duration,
                                turns: turns, caveats: caveats)
-        let draft = note.draft(locale: locale, timeZone: timeZone)
+        let draft = identified(note.draft(locale: locale, timeZone: timeZone), meeting)
         do {
             let url = try notes.save(draft)
             Log.info("Meeting note saved: \(url.path)")
@@ -760,7 +760,7 @@ final class MeetingSession {
         Log.error("Couldn't save the meeting note: \(error.localizedDescription)")
         let spool = meeting.spool, title = title(meeting)
         let markdown = NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind,
-                                              duration: draft.duration, body: draft.body)
+                                              duration: draft.duration, body: draft.body, id: draft.id)
         let reason = error.localizedDescription
         if let folder = folder ?? newArchiveFolder(title), (try? archive.writeNote(markdown, into: folder)) != nil {
             journalWrittenDown(spool, note: folder.appendingPathComponent("Note.md").path, keepAudio: hasAudio, folder: folder)
@@ -816,9 +816,9 @@ final class MeetingSession {
         let folder = hasAudio ? newArchiveFolder(title) : nil
         var caveats = caveats(meeting)
         caveats.append(.quitBeforeTranscribing)
-        let draft = MeetingNote(appName: meeting.appName, start: meeting.startDate, duration: meeting.duration,
-                                turns: MeetingTranscript.turns(meeting.pieces), caveats: caveats)
-            .draft(locale: locale, timeZone: timeZone)
+        let draft = identified(MeetingNote(appName: meeting.appName, start: meeting.startDate, duration: meeting.duration,
+                                           turns: MeetingTranscript.turns(meeting.pieces), caveats: caveats)
+            .draft(locale: locale, timeZone: timeZone), meeting)
         do {
             let url = try notes.save(draft)
             journalWrittenDown(spool, note: url.path, keepAudio: hasAudio, folder: folder)
@@ -832,6 +832,14 @@ final class MeetingSession {
         }
         end()
         whenCopiesAreSafe(done)
+    }
+
+    /// The draft with the meeting's stable id in its front matter (#48), so a
+    /// later launch can find the note if Cado dies before journaling it.
+    private func identified(_ draft: NoteDraft, _ meeting: Meeting) -> NoteDraft {
+        var draft = draft
+        draft.id = meeting.spool.meeting.id.uuidString
+        return draft
     }
 
     /// A new archive folder for the meeting, or nil (logged).
@@ -986,6 +994,9 @@ final class MeetingSession {
         if let concluded = plan.concluded {
             return finishCopy(handle, concluded, title: title)
         }
+        if let note = notes.existingNote(id: info.id.uuidString, since: info.startDate) {
+            return adopt(note, handle, plan, title: title)
+        }
         if leftover.mark != .noteNotSaved, Self.diedAfterGivingUp(leftover.events) {
             return putAside(handle, leftover.events, title: title)
         }
@@ -1091,6 +1102,21 @@ final class MeetingSession {
             guard let kept, concluded.keepFailures > 0 else { return }
             feedback.notify(title: "Meeting audio kept", body: "The audio of “\(title)” is now in \(kept.path).")
         }
+    }
+
+    /// Cado died between saving the meeting's note and journaling it (#48):
+    /// that note is the meeting's, found by its id; journaled now, never a
+    /// second one. The user hadn't heard of it: said now. Audio is kept under
+    /// the usual rule, into a folder of its own (the note's isn't known), and
+    /// the user is told where if the note promised one.
+    private func adopt(_ note: URL, _ handle: MeetingSpoolHandle, _ plan: RecoveryPlan, title: String) {
+        Log.info("Meeting recovery: “\(title)” has its note already (\(note.path)); not writing a second one.")
+        let failed = !plan.failures.isEmpty || plan.gaveUp
+        let keep = !handle.audio().isEmpty && (failed || keepAudio())
+        journalWrittenDown(handle, note: note.path, keepAudio: keep, folder: nil)
+        feedback.noteSaved(note, title: "Meeting note saved", body: title)
+        finishCopy(handle, .init(note: note.path, audioPending: keep, audioFolder: nil, keepFailures: failed ? 1 : 0),
+                   title: title)
     }
 
     /// Recovery gave up on it, and nothing came of that (no note saved, none

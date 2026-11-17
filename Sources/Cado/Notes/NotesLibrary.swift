@@ -20,13 +20,18 @@ struct NoteDraft: Equatable {
     /// Seconds, when it means something (meetings).
     var duration: TimeInterval?
     var body: String
+    /// A meeting's stable id (its spool's UUID), written as `id` in the front
+    /// matter (#48) so a later launch can tell the note is there already.
+    var id: String?
 
-    init(title: String, date: Date, kind: String = NoteKind.note, duration: TimeInterval? = nil, body: String) {
+    init(title: String, date: Date, kind: String = NoteKind.note, duration: TimeInterval? = nil, body: String,
+         id: String? = nil) {
         self.title = title
         self.date = date
         self.kind = kind
         self.duration = duration
         self.body = body
+        self.id = id
     }
 }
 
@@ -99,6 +104,7 @@ protocol FolderWatching: AnyObject {
 /// date: 2026-11-16T10:30:00Z
 /// kind: "meeting"
 /// duration: 1830
+/// id: "6F1C…"        (meetings, #48: the meeting's stable id)
 /// ---
 ///
 /// body...
@@ -169,7 +175,7 @@ final class NotesLibrary {
         let dir = folder()
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         let text = NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind,
-                                          duration: draft.duration, body: draft.body)
+                                          duration: draft.duration, body: draft.body, id: draft.id)
         let data = Data(text.utf8)
         let stem = baseName(date: draft.date, title: draft.title)
         for n in 1... {
@@ -264,6 +270,28 @@ final class NotesLibrary {
     func note(id: String) throws -> Note {
         guard let url = fileURL(id), let note = load(url) else { throw NotesLibraryError.notFound(id) }
         return note
+    }
+
+    /// The note whose front matter has `id: <id>` (a meeting's, #48), if one
+    /// is in the folder. Bounded: only files changed at or after `since` (the
+    /// meeting's start: its note can't be older) are opened, and only their
+    /// first 16 KB is read; nothing is cached or rewritten.
+    func note(withID id: String, changedSince since: Date) -> URL? {
+        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey]
+        let urls = (try? fileManager.contentsOfDirectory(at: folder(), includingPropertiesForKeys: keys,
+                                                         options: [.skipsHiddenFiles])) ?? []
+        for url in urls where url.pathExtension.lowercased() == "md" {
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            guard values?.isDirectory == false, let modified = values?.contentModificationDate,
+                  modified >= since.addingTimeInterval(-60) else { continue }   // a minute's slack for the clock
+            guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
+            let head = (try? handle.read(upToCount: 16 * 1024)) ?? nil
+            try? handle.close()
+            guard let head else { continue }
+            let found = NoteFrontMatter.parse(String(decoding: head, as: UTF8.self)).value(for: "id")
+            if found?.caseInsensitiveCompare(id) == .orderedSame { return url }
+        }
+        return nil
     }
 
     // MARK: Change

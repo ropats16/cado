@@ -120,10 +120,12 @@ struct NoteFrontMatter {
 
     // MARK: Writing
 
-    /// Text of a new file.
-    static func render(title: String, date: Date, kind: String, duration: TimeInterval?, body: String) -> String {
+    /// Text of a new file. `id`: a meeting's stable id (#48), if any.
+    static func render(title: String, date: Date, kind: String, duration: TimeInterval?, body: String,
+                       id: String? = nil) -> String {
         var out = "---\ntitle: \(quote(title))\ndate: \(formatDate(date))\nkind: \(quote(kind))\n"
         if let duration { out += "duration: \(Int(duration.rounded()))\n" }
+        if let id { out += "id: \(quote(id))\n" }
         return out + "---\n\n" + body
     }
 

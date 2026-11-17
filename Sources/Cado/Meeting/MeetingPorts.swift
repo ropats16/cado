@@ -46,6 +46,10 @@ protocol MeetingEngine: AnyObject {
 /// Writes a meeting note into the notes library; returns its file.
 protocol MeetingNoteStore: AnyObject {
     func save(_ draft: NoteDraft) throws -> URL
+    /// The note saved for the meeting `id` (`NoteDraft.id`), if it's there:
+    /// a later launch's check that Cado didn't die between saving a note and
+    /// journaling it (#48). Only files changed since `since` are read.
+    func existingNote(id: String, since: Date) -> URL?
 }
 
 /// Where a meeting's audio is kept (and its note, when the notes library

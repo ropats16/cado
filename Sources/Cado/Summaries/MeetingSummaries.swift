@@ -83,6 +83,8 @@ final class SummarizingNoteStore: MeetingNoteStore {
         }
         return url
     }
+
+    func existingNote(id: String, since: Date) -> URL? { inner.existingNote(id: id, since: since) }
 }
 
 /// Meeting summaries (#34): after a meeting note is saved, and when asked
