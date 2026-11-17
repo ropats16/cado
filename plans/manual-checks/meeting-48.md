@@ -17,6 +17,28 @@ Already verified without a human:
   first, then the recovered one with every passage once; quitting while held
   pauses it; a recording without its details keeps its audio, or stays named
   `.unidentified` and is left alone.
+- `MeetingSessionTests` (review fixes): an attempt marked `.tried` whose
+  later writes reach the journal (the rename reopened its files) journals its
+  start before its results, so it isn't counted as stalled; while its start
+  can't be journaled nothing else of it is. A full disk waits one launch
+  (`.waited`), then the recording is set aside (moved, told once why and
+  where); a journal Cado can't write (permissions, read-only) or a wait that
+  can't be marked is set aside at once; with room after a wait it goes on and
+  the mark goes. Record Meeting stopped at once during a recovery's first
+  passage journals the pause before the new attempt (not a stall); a hold
+  during an asynchronous read-back goes on where it was, every passage once;
+  the hold's pause is recorded without waiting for the disk. A spool audio
+  file cut short is kept as far as it can be read, said once, and the spool
+  is done. A part of a note listed ahead of the whole note with the same id
+  doesn't stop the whole one being adopted; an adopted note is handed on for
+  its summary once journaled (`MeetingSummariesTests` too).
+- `MeetingSpoolTests`: `writeReadable` keeps what a short source has (checked
+  and flushed for that length, no file if nothing); a pause recorded for a
+  live meeting is in the journal at once and flushed in the background, even
+  during a 5 s round. `MeetingSpoolMarksTests`: `.tried.waited` names,
+  `.set-aside` folders left alone; only a full disk (ENOSPC/EDQUOT, also
+  wrapped in Cocoa 640, the error a write to a full volume really throws:
+  checked once on a 2 MB disk image) counts as waiting for room.
 - `MeetingReplayTests` (real on-disk spool and notes folder): the note saved
   but not journaled is not written twice; a folder with a damaged
   meeting.json becomes `Me.wav` in Meeting Audio, said once; one a newer Cado
@@ -97,8 +119,19 @@ the note file is written in `MeetingSession.complete`, kill Cado there.
       "quit unexpectedly"; the folder is gone.
 - [ ] Leave a meeting for recovery, fill the disk, relaunch twice: the first
       launch tries once (folder named `<id>.tried` while it runs); if it
-      can't finish, the next launch shows "Couldn't finish a meeting yet" and
-      doesn't transcribe. Free space, relaunch: the note appears.
+      can't finish, the next launch shows "Couldn't finish a meeting yet",
+      doesn't transcribe, and the folder is `<id>.tried.waited`. Free space,
+      relaunch: the note appears, the folder is gone.
+- [ ] Same, but leave the disk full for a third launch: "Couldn't finish a
+      meeting — Your Mac's disk is still full, so Cado couldn't finish …
+      and has stopped trying. Its recording is kept, unchanged, in …/Meeting
+      Audio/…"; the raw recording is there; later launches say nothing.
+- [ ] A recovery whose folder Cado can't write to: quit Cado, on a leftover's
+      folder in Meetings In Progress use Finder › Get Info › Sharing &
+      Permissions to give yourself Read only on `events.jsonl` (or lock it),
+      rename the folder to `<id>.tried`, relaunch: "Cado can't write to its
+      Meetings In Progress folder, so it couldn't finish … and has stopped
+      trying", told once, the recording moved to Meeting Audio.
 - [ ] A meeting whose note couldn't be saved (`<id>.unsaved`): free space,
       relaunch: the folder name goes back to plain `<id>` while it recovers,
       then the note appears saying it couldn't be saved when the meeting
@@ -129,6 +162,25 @@ the note file is written in `MeetingSession.complete`, kill Cado there.
       meeting for recovery and relaunch: recovery goes ahead without those
       notes downloading again (their cloud icon stays); one note for the
       meeting.
+
+## A recording cut short
+
+- [ ] Leave a meeting for recovery with Keep meeting audio on; quit Cado;
+      cut the leftover folder's `them.f32` to half its size (Terminal:
+      `truncate -s <half the size, a multiple of 4> them.f32`). Relaunch: the note appears; "Part of a meeting's audio is
+      missing — The end of the recording of … couldn't be read, so about …
+      at the end of its audio is missing from …"; `Others.wav` plays and is
+      that much shorter; the folder is gone from Meetings In Progress, and the
+      next launch says nothing.
+
+## Adopted note: summary and duplicates
+
+- [ ] With summaries on, use the debugger break from "A note saved just
+      before Cado stopped": after relaunch the adopted note gets its Summary
+      section like any saved note.
+- [ ] Put a copy of a meeting note with its last lines deleted (same `id`
+      line) in the notes folder next to it, then make the same meeting adopt
+      (debugger break as above): no third note; both files stay.
 
 ## Kept audio
 
@@ -163,3 +215,14 @@ the note file is written in `MeetingSession.complete`, kill Cado there.
   iCloud Drive that isn't downloaded isn't opened, so it isn't found either.
 - While a recovery is held for a new meeting, the menu and the Library show
   only the new meeting; the recovery shows again once that note is saved.
+- A recovery paused for a new meeting writes its pause without waiting for
+  the disk (so the recording starts at once): a power cut in the few
+  milliseconds before it reaches the disk loses the pause, as it could before
+  while the flush ran first. That attempt then counts as stalled only if it
+  had got nowhere; two are needed for a give-up, which still writes the note
+  and keeps the audio.
+- If Cado can't write anywhere (not to the spool folder, its name, or the
+  Meeting Audio folder: a read-only disk), a recording it has stopped trying
+  can't be marked so, and it is told again on each launch.
+- A recording whose audio can't be read at all (not just cut short) is still
+  retried on each launch, quietly after the first notice.
