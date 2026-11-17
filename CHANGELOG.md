@@ -7,6 +7,7 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 ### Added
 - Meetings are transcribed while you talk, so the note is ready shortly after you stop, even after an hour-long call (on a Mac that keeps up; a slower one finishes the rest after you stop).
 - A meeting interrupted by a crash, Force Quit or quitting Cado is finished the next time Cado starts, and its note says so. Up to about a second of audio just before a crash can be lost.
+- A meeting whose note can't be saved (the notes folder is unavailable or the disk is full) is kept and finished the next time Cado starts. Cado tells you once.
 - The menu shows "Recovering Meeting…" with progress while Cado finishes a meeting from an earlier run; Record Meeting waits until it's done.
 - Settings › Notes › Keep meeting audio: off by default, a meeting's audio is deleted once its note is saved; on, it's kept as WAV files in Cado's Meeting Audio folder. Audio is also kept when part of a meeting couldn't be transcribed.
 - Setup: an optional Notifications step, and "Almost there" now has a button for each step still to do.
@@ -14,7 +15,7 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 ### Changed
 - A meeting no longer sits in memory: its audio and transcript so far are written to a private folder as it's recorded, and deleted once the note is safely saved.
 - Quitting Cado during a meeting no longer writes a partial note: the complete note is finished the next time Cado starts.
-- If the disk fills up during a meeting, a notification says so; recording carries on.
+- A full disk no longer stops a meeting recording: Cado says so and keeps recording, but audio held in memory is lost if Cado quits unexpectedly before the note is saved.
 - Messages in the menu, Settings, setup and notifications say what to do inside Cado; no more terminal commands or "see log".
 - Engine and download errors are in plain words, without file paths.
 - Settings: the model download list opens by itself while a download runs or fails, or when the chosen model is missing.

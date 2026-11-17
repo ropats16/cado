@@ -95,9 +95,19 @@ The folders to watch (Finder › Go › Go to Folder…):
       volume — don't fill the real disk): record until it's full. A "Meeting
       audio isn't being saved to disk" notification appears once; recording
       goes on; the note on stop has the whole meeting. Free the space after.
+- [ ] Disk full mid-meeting, then force quit Cado before the note is saved:
+      after relaunch the recovered note lacks the part held in memory, and has
+      the part already on disk (see Limits).
 - [ ] Make `Meetings In Progress` impossible to create (e.g. a file with that
       name in its place): a meeting still records and writes its note (the
       log says why its audio isn't kept on disk).
+- [ ] Make the notes folder unavailable and fill the disk before you stop a
+      meeting: a "The meeting is safe" notice appears once; the audio goes to
+      `Meeting Audio` if that folder works, otherwise it stays in `Meetings In
+      Progress`; no note is written yet. Free the space and relaunch Cado: the menu
+      shows "Recovering Meeting…", then the note appears with the line "This
+      note couldn't be saved when the meeting ended; it was finished the next
+      time Cado started." `Meetings In Progress` is empty afterwards.
 
 ## Limits to know
 
@@ -105,4 +115,6 @@ The folders to watch (Finder › Go › Go to Folder…):
   tests, the seconds it takes depend on the Mac and model.
 - After a crash, up to about a second of audio right before it may be
   missing; after a power cut, a few more seconds.
-- With the disk full mid-meeting, that meeting isn't crash-safe.
+- With the disk full mid-meeting, the audio held in memory can't be recovered
+  if Cado quits unexpectedly before the note is saved; only the part already on
+  disk can. The note is still written when the meeting ends.

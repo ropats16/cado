@@ -299,9 +299,14 @@ and says why).
   folder (`~/Library/Application Support/Cado/Meetings In Progress`), readable
   only by your user account and left out of Time Machine backups. The audio is
   about 230 MB per hour for each side. The folder is deleted once the note is
-  safely saved. If the note can't be saved (for example the disk is full), the
-  folder is kept and Cado finishes the note the next time it starts. Two copies
-  of Cado on one Mac never touch each other's meetings.
+  safely saved. If the note can't be saved (for example the notes folder is
+  unavailable or the disk is full), Cado first tries to keep the audio in the
+  `Meeting Audio` folder. If that fails too, the recording stays in this folder
+  and Cado finishes the note the next time it starts, and tells you once. A
+  recording on disk is never deleted before its note is saved. The note then
+  says: "This note couldn't be saved when the meeting ended; it was finished the
+  next time Cado started." Two copies of Cado on one Mac never touch each
+  other's meetings.
 - **Keep meeting audio:** off by default, the meeting's audio is deleted once
   the note is saved. To keep it, turn on **Settings → Notes → Keep meeting
   audio**: each meeting's audio is then kept as `Me.wav` and `Others.wav`
@@ -319,14 +324,19 @@ and says why).
   and saves it with a line saying Cado quit unexpectedly and the note was
   recovered, then a notification. Up to about a second of audio right before
   the crash can be lost (a few more seconds after a power cut). Meetings with
-  no speech are just deleted. If one can't be recovered (its audio can't be
-  read, or recovering it keeps failing), its audio goes to the `Meeting Audio`
-  folder and a notification says so. While a recovery runs, the menu shows
-  **Recovering Meeting…** with its progress, and **Record Meeting** is
-  unavailable until it's done.
+  no speech are just deleted. If Cado can't recover a meeting after trying on
+  two launches, it stops trying: it saves a note with what was transcribed
+  before and keeps the audio in the `Meeting Audio` folder. If even that fails,
+  the untouched recording is moved to the `Meeting Audio` folder and Cado says
+  where it is ("Couldn't finish a meeting"). It is never deleted. While a
+  recovery runs, the menu shows **Recovering Meeting…** with its progress, and
+  **Record Meeting** is unavailable until it's done.
 - **Limits:** a meeting stops by itself after 2 hours (the note is still
-  written). If the disk fills up mid-meeting, Cado says so and recording goes
-  on. Without headphones the mic also hears the other
+  written). If the disk fills up mid-meeting, Cado says "Meeting audio isn't
+  being saved to disk" and recording goes on. From then on the audio is held in
+  memory until the note is written at the end. If Cado quits unexpectedly
+  before the note is saved, the part held in memory can't be recovered; only
+  the part already on disk can. Without headphones the mic also hears the other
   side, so their words can appear under "Me" too. Notes saved before this
   label changed say "Them"; they still open and show "Others" (the files
   aren't changed).
@@ -535,8 +545,9 @@ Mac until you turn it off.
 Meeting recording only happens when you click **Record Meeting**, and only
 records the meeting app you picked plus your mic. While it records, the audio
 and its transcript so far are written to a private folder on your Mac that only
-your user account can read, so a crash or a quit can't lose the meeting. That
-folder is deleted once the note is safely saved. The audio is kept after that
+your user account can read, so a crash or a quit can't lose the meeting (unless
+the disk was full; see [Limits](#meeting-notes)). That folder is deleted once
+the note is safely saved. The audio is kept after that
 only if you turn on **Keep meeting audio**, or if part of the meeting couldn't
 be transcribed. It never leaves your Mac.
 
