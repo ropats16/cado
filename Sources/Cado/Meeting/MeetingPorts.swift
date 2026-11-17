@@ -7,7 +7,8 @@ import Foundation
 // and time (`Support/Clock.swift`). Tests drive the session with WAV-backed
 // captures or fakes, an in-memory or temp-folder spool and a manual clock.
 //
-// Every port is called on main, and must call its callbacks on main.
+// Every port is called on main, and must call its callbacks on main, except
+// where said (slow file work).
 
 /// One side of a meeting, recorded for its whole length and handed over as
 /// it's recorded (it keeps none of it). `AudioCapture` with
@@ -49,7 +50,17 @@ protocol MeetingNoteStore: AnyObject {
     /// The note saved for the meeting `id` (`NoteDraft.id`), if it's there:
     /// a later launch's check that Cado didn't die between saving a note and
     /// journaling it (#48). Only files changed since `since` are read.
+    /// Called OFF the main thread (it lists the notes folder, and a note in
+    /// iCloud may have to download first), so it must be thread-safe.
     func existingNote(id: String, since: Date) -> URL?
+    /// The note's text as it is now; nil if it can't be read. Off main, like
+    /// `existingNote`.
+    func text(of note: URL) -> String?
+}
+
+extension MeetingNoteStore {
+    /// The file's UTF-8 text.
+    func text(of note: URL) -> String? { try? String(contentsOf: note, encoding: .utf8) }
 }
 
 /// Where a meeting's audio is kept (and its note, when the notes library
@@ -63,6 +74,10 @@ protocol MeetingArchive: AnyObject {
     /// gone), streamed, never loaded whole. Slow: called OFF the main
     /// thread, so it must be thread-safe.
     func writeAudio(_ audio: SpoolAudio, into folder: URL) throws
+    /// `folder` is one of this archive's, there and empty: audio can go
+    /// into it without overwriting anything (#48: the folder an adopted note
+    /// names). Off main, thread-safe.
+    func isFreeFolder(_ folder: URL) -> Bool
 }
 
 /// Notices to the user.

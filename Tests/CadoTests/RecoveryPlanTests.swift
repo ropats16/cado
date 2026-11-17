@@ -126,4 +126,83 @@ final class RecoveryPlanTests: XCTestCase {
         XCTAssertFalse(complete([hello, .recoveryStarted, .recoveryStarted]), "Crashed mid-transcription")
         XCTAssertFalse(complete([.stopped(at: 1, capReached: false), .recoveryStarted, .recoveryPaused]))
     }
+
+    // MARK: Adopting a note saved but not journaled (#48)
+
+    func testANoteIsWorthLookingForOnlyIfTheMeetingGotAsFarAsWritingIt() {
+        func may(_ events: [SpoolEvent], _ counts: [MeetingSpeaker: Int]? = nil) -> Bool {
+            RecoveryPlan(events: events, sampleCounts: counts ?? full).mayAdoptNote
+        }
+        let stop = SpoolEvent.stopped(at: 10, capReached: false)
+        XCTAssertFalse(may([]), "Died mid-meeting")
+        XCTAssertFalse(may([hello, .settled(.me, through: 50_000)]), "Still recording")
+        XCTAssertTrue(may([stop]))
+        XCTAssertTrue(may([.appQuit]), "A quit (journaled, or the folder's mark)")
+        XCTAssertTrue(may([.recoveryStarted, .recoveryGaveUp(reason: "stalled")]))
+        XCTAssertFalse(may([.recoveryStarted, .settled(.me, through: 160_000)]), "An attempt with audio left")
+        XCTAssertTrue(may([.recoveryStarted, .settled(.me, through: 160_000), .settled(.them, through: 160_000)]),
+                      "An attempt with nothing left to transcribe")
+        XCTAssertFalse(may([.settled(.me, through: 160_000), .settled(.them, through: 160_000)]),
+                       "Settled live, no stop: still recording")
+    }
+
+    func testNotAfterASaveThatFailedUnlessALaterAttemptCouldHaveSaved() {
+        func may(_ events: [SpoolEvent]) -> Bool { RecoveryPlan(events: events, sampleCounts: full).mayAdoptNote }
+        let stop = SpoolEvent.stopped(at: 10, capReached: false)
+        let failed = SpoolEvent.noteSaveFailed(reason: "full")
+        XCTAssertFalse(may([stop, failed]), "The save threw: what's there may be part of a note")
+        XCTAssertFalse(may([stop] + SpoolFolderMark.events(for: [.noteNotSaved])), "Said by the folder's name")
+        XCTAssertTrue(may([stop, failed, .recoveryStarted]), "A later attempt may have saved one")
+        XCTAssertTrue(may([stop] + SpoolFolderMark.events(for: [.noteNotSaved, .tried])), "The marked attempt came after")
+        XCTAssertFalse(may([stop, failed, .recoveryStarted, failed]))
+        XCTAssertFalse(may([stop, .noteSaved(note: "/n.md", keepAudio: false, audioFolder: nil)]), "Concluded: nothing to look for")
+    }
+
+    private func note(_ turns: [MeetingTranscript.Turn], caveats: [MeetingNote.Caveat] = []) -> String {
+        let draft = MeetingNote(appName: "Zoom", start: Date(timeIntervalSince1970: 0), duration: 10, turns: turns,
+                                caveats: caveats).draft()
+        return NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind, duration: draft.duration,
+                                      body: draft.body, id: "X")
+    }
+
+    func testOnlyAWholeNoteIsAdopted() {
+        let bye = SpoolEvent.transcribed(.me, range: 80_000..<96_000, offset: 5,
+                                         segments: [SpoolSegment(start: 0, text: "  Bye   now. ")])
+        let them = SpoolEvent.transcribed(.them, range: 40_000..<56_000, offset: 2.5,
+                                          segments: [SpoolSegment(start: 0, text: "Hi.")])
+        let plan = RecoveryPlan(events: [hello, them, bye, .stopped(at: 10, capReached: false)], sampleCounts: full)
+        let whole = note([.init(speaker: .me, text: "Hello."), .init(speaker: .them, text: "Hi."),
+                          .init(speaker: .me, text: "Bye now.")])
+        XCTAssertTrue(plan.isWholeNote(whole))
+        XCTAssertFalse(plan.isWholeNote(String(whole.dropLast(5))), "Cut off in the last passage")
+        XCTAssertFalse(plan.isWholeNote(String(whole.dropLast(1))), "No final newline")
+        XCTAssertFalse(plan.isWholeNote(String(whole.prefix(60))), "Cut off in the front matter")
+        XCTAssertFalse(plan.isWholeNote(note([.init(speaker: .me, text: "Hello."), .init(speaker: .them, text: "Hi.")])),
+                       "A passage missing")
+        XCTAssertFalse(plan.isWholeNote(note([.init(speaker: .me, text: "Bye now. Hello."), .init(speaker: .them, text: "Hi.")])),
+                       "Out of order")
+        XCTAssertTrue(plan.isWholeNote(note([.init(speaker: .me, text: "Hello. Sorry."), .init(speaker: .them, text: "Hi.")
+                                            , .init(speaker: .me, text: "Bye now.")])),
+                      "More than the journal has (it stopped taking events): fine")
+        XCTAssertFalse(RecoveryPlan(events: [], sampleCounts: full).isWholeNote("---\nid: \"X\"\n---\n\nx\n"),
+                       "Not a meeting note's body")
+    }
+
+    func testAnAdoptedNotesAudioIsAlwaysKeptWhereTheNoteSaysIfFree() {
+        let x = URL(fileURLWithPath: "/a/Meeting X", isDirectory: true)
+        XCTAssertEqual(RecoveryPlan.adoption(hasAudio: true, namedFolder: nil, namedFolderIsFree: false),
+                       .init(keepAudio: true, audioFolder: nil, namedFolderUnusable: false), "Kept, whatever the setting")
+        XCTAssertEqual(RecoveryPlan.adoption(hasAudio: true, namedFolder: x, namedFolderIsFree: true),
+                       .init(keepAudio: true, audioFolder: x, namedFolderUnusable: false))
+        XCTAssertEqual(RecoveryPlan.adoption(hasAudio: true, namedFolder: x, namedFolderIsFree: false),
+                       .init(keepAudio: true, audioFolder: nil, namedFolderUnusable: true))
+        XCTAssertEqual(RecoveryPlan.adoption(hasAudio: false, namedFolder: x, namedFolderIsFree: true),
+                       .init(keepAudio: false, audioFolder: nil, namedFolderUnusable: false), "Nothing to keep")
+    }
+
+    func testTheAudioFolderANoteNamesIsReadBack() {
+        let x = URL(fileURLWithPath: "/Users/me/Library/Meeting Audio/Meeting with Zoom — 1 Jan 2026 at 10 00 2")
+        XCTAssertEqual(RecoveryPlan.audioFolder(namedIn: note([], caveats: [.unfinished, .audioKept(x)]))?.path, x.path)
+        XCTAssertNil(RecoveryPlan.audioFolder(namedIn: note([.init(speaker: .me, text: "Hello.")])))
+    }
 }

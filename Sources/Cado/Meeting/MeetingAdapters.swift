@@ -95,6 +95,18 @@ final class FolderMeetingArchive: MeetingArchive {
         try audio.exportWAVs(to: folder) { $0.rawValue }
     }
 
+    /// Directly under `root`, a folder, holding nothing (Finder's
+    /// `.DS_Store` aside).
+    func isFreeFolder(_ folder: URL) -> Bool {
+        guard folder.standardizedFileURL.deletingLastPathComponent().path == root.standardizedFileURL.path else {
+            return false
+        }
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isFolder), isFolder.boolValue,
+              let items = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return false }
+        return items.allSatisfy { $0 == ".DS_Store" }
+    }
+
     /// Creates the first free `<name>`, `<name> 2`… (creating the leaf
     /// without intermediates fails if it exists, so two can't share one).
     func newFolder(name: String) throws -> URL {

@@ -46,7 +46,11 @@ import Foundation
 ///   room: a full disk never switches off the crash-loop guard.
 /// - A note carries its meeting's id (#48): a leftover without `.noteSaved`
 ///   whose note is in the notes folder anyway (Cado died in between) adopts
-///   it; never a second note.
+///   it, looked for off main; never a second note. Only a whole note, and
+///   never after a save that failed (it may have left part of one): then the
+///   note is written afresh. An adopted note's audio is always kept.
+/// - A folder without its details (no readable meeting.json) has its audio
+///   kept as WAVs, the folder itself moved in beside them: never deleted.
 /// - Recovery that gives up journals `.recoveryGaveUp` before writing the
 ///   note. A leftover that has it with no outcome after (Cado died writing
 ///   that note) isn't tried again: its folder is moved, as it is, into the
@@ -271,6 +275,11 @@ final class MeetingSession {
     /// A recovery held while a meeting the user started records and is
     /// written down (#48); resumed after it.
     private var held: Meeting?
+    /// A leftover's note is being looked for off main (#48): nothing else
+    /// recovers meanwhile.
+    private var lookingForNote = false
+    /// What's next for that leftover once it's found (or not): run when idle.
+    private var afterLookup: (() -> Void)?
     private var isQuitting = false
     /// Audio copies under way whose source lives only in memory: quitting
     /// waits for them (an on-disk spool's copy is just redone next launch).
@@ -371,6 +380,7 @@ final class MeetingSession {
     func quit(_ done: @escaping () -> Void) {
         isQuitting = true
         leftovers = []
+        afterLookup = nil   // its leftover is untouched: the next launch looks again
         recoveryRequested = false
         if let recovery = held {
             held = nil
@@ -573,6 +583,8 @@ final class MeetingSession {
     private func endSide(_ side: Side, _ meeting: Meeting) {
         side.ended = true
         queueChunks(side.chunker.finish(), of: side, meeting)
+        // A tail of silence settles too, so a later launch can tell nothing was left (`RecoveryPlan.mayAdoptNote`).
+        journalSettled(side, meeting, force: true)
     }
 
     private func transcribeRestOnceAllSidesEnded(_ meeting: Meeting) {
@@ -1033,13 +1045,19 @@ final class MeetingSession {
     // MARK: - Recovery
 
     private func startNextRecovery() {
-        guard !isQuitting, case .idle = state else { return }
+        guard !isQuitting, case .idle = state, !lookingForNote else { return }
         if recoveryRequested {
             recoveryRequested = false
             leftovers = spooling.leftovers()
             if !leftovers.isEmpty { Log.info("Meeting recovery: \(leftovers.count) unfinished meeting(s) found.") }
         }
-        while case .idle = state, !leftovers.isEmpty, !isQuitting {
+        while case .idle = state, !lookingForNote, !isQuitting {
+            if let next = afterLookup {
+                afterLookup = nil
+                next()
+                continue
+            }
+            guard !leftovers.isEmpty else { break }
             recover(leftovers.removeFirst())
         }
     }
@@ -1065,9 +1083,53 @@ final class MeetingSession {
         if let concluded = plan.concluded {
             return finishCopy(handle, concluded, title: title)
         }
-        if let note = notes.existingNote(id: info.id.uuidString, since: info.startDate) {
-            return adopt(note, handle, plan, title: title)
-        }
+        guard plan.mayAdoptNote else { return recoverAnew(handle, plan, events: events, title: title) }
+        lookForNote(handle, plan, events: events, title: title)
+    }
+
+    /// Cado may have died between saving the meeting's note and journaling
+    /// it (#48): the note is looked for by the meeting's id, off main (a
+    /// listing of the notes folder; a note in iCloud may download first),
+    /// and adopted only if it's whole (`RecoveryPlan.isWholeNote`); else the
+    /// note is written afresh, the other one left as it is. Until the
+    /// lookup is back no other leftover starts and this one is untouched
+    /// (its spool stays locked); a meeting the user starts meanwhile records
+    /// at once and this leftover goes on once that one is written down, as a
+    /// held recovery does. Quitting meanwhile leaves it for the next launch.
+    private func lookForNote(_ handle: MeetingSpoolHandle, _ plan: RecoveryPlan, events: [SpoolEvent], title: String) {
+        let notes = self.notes, archive = self.archive, info = handle.meeting
+        let hasAudio = !handle.audio().isEmpty
+        var found: (note: URL, adoption: RecoveryPlan.Adoption)?
+        var notWhole = false
+        var returned = false
+        lookingForNote = true
+        background({
+            guard let note = notes.existingNote(id: info.id.uuidString, since: info.startDate) else { return }
+            guard let text = notes.text(of: note), plan.isWholeNote(text) else { notWhole = true; return }
+            let named = RecoveryPlan.audioFolder(namedIn: text)
+            found = (note, RecoveryPlan.adoption(hasAudio: hasAudio, namedFolder: named,
+                                                 namedFolderIsFree: named.map(archive.isFreeFolder) ?? false))
+        }, { [weak self] in
+            guard let self else { return }
+            self.lookingForNote = false
+            guard !self.isQuitting else { return }
+            self.afterLookup = { [unowned self] in
+                if let found { return self.adopt(found.note, handle, found.adoption, title: title) }
+                if notWhole {
+                    Log.error("Meeting recovery: “\(title)” has a note that isn't whole (a save that failed); "
+                              + "writing it again, the other left as it is.")
+                }
+                self.recoverAnew(handle, plan, events: events, title: title)
+            }
+            if returned { self.startNextRecovery() }   // else the caller's loop runs it
+        })
+        returned = true
+    }
+
+    /// Rebuilds the leftover from its plan and transcribes what's left (or
+    /// sets it aside, if a give-up died writing its note).
+    private func recoverAnew(_ handle: MeetingSpoolHandle, _ plan: RecoveryPlan, events: [SpoolEvent], title: String) {
+        let info = handle.meeting
         if Self.diedAfterGivingUp(events) {
             return putAside(handle, events, title: title)
         }
@@ -1232,42 +1294,66 @@ final class MeetingSession {
     }
 
     /// Cado died between saving the meeting's note and journaling it (#48):
-    /// that note is the meeting's, found by its id; journaled now, never a
-    /// second one. The user hadn't heard of it: said now. Audio is kept under
-    /// the usual rule, into a folder of its own (the note's isn't known), and
-    /// the user is told where if the note promised one.
-    private func adopt(_ note: URL, _ handle: MeetingSpoolHandle, _ plan: RecoveryPlan, title: String) {
-        Log.info("Meeting recovery: “\(title)” has its note already (\(note.path)); not writing a second one.")
-        let failed = !plan.failures.isEmpty || plan.gaveUp
-        let keep = !handle.audio().isEmpty && (failed || keepAudio())
-        journalWrittenDown(handle, note: note.path, keepAudio: keep, folder: nil)
+    /// that note (whole) is the meeting's, found by its id; journaled now,
+    /// never a second one. The user hadn't heard of it: said now. Its audio
+    /// is kept whenever there is any (`RecoveryPlan.adoption`: the rule the
+    /// note was written under isn't known for sure), into the folder the
+    /// note names if that's free, else a new one, and the user is told where.
+    /// Adopted notes get no automatic summary: only a save hands a note on.
+    private func adopt(_ note: URL, _ handle: MeetingSpoolHandle, _ adoption: RecoveryPlan.Adoption, title: String) {
+        Log.info("Meeting recovery: “\(title)” has its note already; not writing a second one.")
+        let folder = adoption.keepAudio ? adoption.audioFolder ?? newArchiveFolder(title) : nil
+        journalWrittenDown(handle, note: note.path, keepAudio: adoption.keepAudio, folder: folder)
         feedback.noteSaved(note, title: "Meeting note saved", body: title)
-        finishCopy(handle, .init(note: note.path, audioPending: keep, audioFolder: nil, keepFailures: failed ? 1 : 0),
-                   title: title)
+        guard adoption.keepAudio else {
+            Log.info("Meeting recovery: “\(title)” was already written down; removing what was left of it.")
+            return handle.discard()   // saved, no audio at all
+        }
+        copyAudioThenDiscard(handle, into: folder, title: title, failuresSoFar: 0) { [feedback] kept in
+            guard let kept else { return }   // a failure is said by `audioNotCopied`
+            let notThere = adoption.namedFolderUnusable ? ", not in the folder its note names" : ""
+            feedback.notify(title: "Meeting audio kept", body: "The audio of “\(title)” is in \(kept.path)\(notThere).")
+        }
     }
 
     /// A spool folder with audio but no readable meeting.json (#48): what app,
     /// and when, isn't known, so no note can be written. Its audio is kept
-    /// as WAVs in a Meeting Audio folder of its own and the folder goes; the
-    /// user is told once where. If the copy fails, it stays where it is,
-    /// named so later launches leave it alone, and the user is told where.
+    /// as WAVs in a Meeting Audio folder of its own; once they're written
+    /// whole (`writeAudio` didn't throw), the spool folder itself, journal
+    /// and all (what was transcribed so far), is moved in beside them. Never
+    /// deleted. The user is told once where. If the WAVs or the move fail,
+    /// it stays where it is, named so later launches leave it alone, and the
+    /// user is told where.
     private func keepUnidentified(_ handle: MeetingSpoolHandle) {
         let title = MeetingNote.title(appName: "an unknown app", start: handle.meeting.startDate,
                                       locale: locale, timeZone: timeZone)
         Log.error("Meeting recovery: a recording without its details was found; keeping its audio as “\(title)”.")
         let found = "Cado found a meeting recording without its details (which app, and when), so it can't write its note."
-        let leaveIt = { [feedback] in
+        let leaveIt = { [feedback] (wavs: URL?) in
             guard handle.hasFolder else { return }
             handle.setMarks(handle.folderMarks.union([.unidentified]))   // if this fails, said again next launch
+            let also = wavs.map { " A copy of its audio is in \($0.path)." } ?? ""
             feedback.notify(title: "Couldn't finish a meeting",
                             body: "\(found) Its recording is kept, unchanged, in "
-                                + "\(handle.location?.path ?? "Cado's Meetings In Progress folder").")
+                                + "\(handle.location?.path ?? "Cado's Meetings In Progress folder").\(also)")
         }
-        guard !handle.audio().isEmpty else { return leaveIt() }   // not one whole sample: nothing to convert
-        copyAudioThenDiscard(handle, into: nil, title: title, failuresSoFar: 0, quietOnFailure: true) { [feedback] kept in
-            guard let kept else { return leaveIt() }
-            feedback.notify(title: "Couldn't finish a meeting", body: "\(found) Its audio is kept in \(kept.path).")
-        }
+        let audio = handle.audio()
+        // Not one whole sample: nothing to convert.
+        guard !audio.isEmpty, let folder = newArchiveFolder(title) else { return leaveIt(nil) }
+        let archive = self.archive
+        var failure: Error?
+        background({
+            do { try archive.writeAudio(audio, into: folder) } catch { failure = error }
+        }, { [feedback] in
+            if let failure {
+                Log.error("Couldn't keep the meeting's audio: \(failure.localizedDescription)")
+                return leaveIt(nil)
+            }
+            guard handle.moveFolder(into: folder) != nil else { return leaveIt(folder) }
+            Log.info("Meeting recovery: the recording without its details is kept in \(folder.path)")
+            feedback.notify(title: "Couldn't finish a meeting",
+                            body: "\(found) Its audio is kept in \(folder.path), with what was transcribed of it so far.")
+        })
     }
 
     /// Recovery gave up on it, and nothing came of that (no note saved, none

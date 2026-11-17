@@ -826,8 +826,9 @@ final class MeetingReplayTests: XCTestCase {
     // MARK: - #48 on a real spool
 
     /// A folder with audio whose meeting.json is unreadable: surfaced once,
-    /// its audio kept as WAVs in the archive, the folder gone; one a newer
-    /// Cado made is left as it is.
+    /// its audio kept as WAVs in the archive, the folder itself (journal and
+    /// all) moved in beside them, never deleted; one a newer Cado made is
+    /// left as it is.
     func testARecordingWithoutItsDetailsIsKeptAsWavsAndSaidOnce() async throws {
         _ = try standardWavs()
         let id = UUID().uuidString
@@ -845,8 +846,11 @@ final class MeetingReplayTests: XCTestCase {
         XCTAssertEqual(run.notices.titles, ["Couldn't finish a meeting"])
         let kept = try XCTUnwrap(contents(archiveDir).first)
         XCTAssertTrue(kept.hasPrefix("Meeting with an unknown app — "), kept)
-        XCTAssertEqual(contents(archiveDir.appendingPathComponent(kept)), ["Me.wav"])
-        XCTAssertTrue(run.notices.bodies[0].hasSuffix("Its audio is kept in \(archiveDir.appendingPathComponent(kept).path)."))
+        XCTAssertEqual(contents(archiveDir.appendingPathComponent(kept)), [id, "Me.wav"])
+        XCTAssertTrue(Set(contents(archiveDir.appendingPathComponent(kept).appendingPathComponent(id)))
+            .isSuperset(of: ["me.f32", "meeting.json"]), "Moved as it was")
+        XCTAssertTrue(run.notices.bodies[0].hasSuffix("Its audio is kept in \(archiveDir.appendingPathComponent(kept).path), "
+                                                      + "with what was transcribed of it so far."), run.notices.bodies[0])
         XCTAssertEqual(contents(spoolDir), [newer.lastPathComponent], "Only the newer Cado's folder is left")
         XCTAssertEqual(run.engine.submitted, 0)
 
@@ -880,9 +884,51 @@ final class MeetingReplayTests: XCTestCase {
         h = nil
 
         let next = try await relaunch()
+        try await waitFor("the audio copy") { contents(spoolDir).isEmpty && next.notices.titles.count == 2 }
         XCTAssertEqual(try notes().count, 1, "No second note")
         XCTAssertEqual(try onlyNote(), saved)
         XCTAssertEqual(next.engine.submitted, 0)
+        XCTAssertEqual(next.notices.titles, ["Meeting note saved", "Meeting audio kept"], "Adopted: the audio is kept")
+        XCTAssertEqual(contents(archiveDir.appendingPathComponent("Meeting with Zoom — 16 Nov 2026 at 14 32")), ["Me.wav"])
+    }
+
+    /// A save that failed on a full disk left part of the note (a Cado from
+    /// before #48's fix could), id and all, and nowhere else took the note.
+    /// With room again, the part isn't adopted or deleted: the whole note is
+    /// written beside it, and only then does the spool go.
+    func testAPartialNoteFromAFailedSaveIsNeitherAdoptedNorDeleted() async throws {
+        let (me, them) = try standardWavs()
+        try Data().write(to: notesDir)     // a file where the folders should be: the save fails
+        try Data().write(to: archiveDir)
+        var run: Run? = try makeRun(me: me, them: them)
+        try await start(run!)
+        run!.recorder.me.push(seconds: 9.5)
+        run!.recorder.them.push(seconds: 9.5)
+        run!.clock.advance(by: 9.5)
+        run!.session.stop()
+        run!.recorder.me.push(seconds: 0.3)
+        run!.recorder.them.push(seconds: 0.3)
+        try await waitFor("the attempt") { run!.session.status == .idle && !run!.notices.titles.isEmpty }
+        XCTAssertEqual(journaled("noteSaveFailed"), 1)
+        let id = try XCTUnwrap(contents(spoolDir).first)
+        drop(&run)
+
+        try FileManager.default.removeItem(at: notesDir)
+        try FileManager.default.removeItem(at: archiveDir)
+        try FileManager.default.createDirectory(at: notesDir, withIntermediateDirectories: true)
+        let whole = Self.note(duration: 10).replacingOccurrences(of: "duration: 10\n", with: "duration: 10\nid: \"\(id)\"\n")
+        let partial = notesDir.appendingPathComponent("2026-11-16 Meeting with Zoom — 16 Nov 2026 at 14 32.md")
+        let part = Data(whole.utf8.prefix(whole.utf8.count - 30))
+        try part.write(to: partial)
+
+        let next = try await relaunch()
+        XCTAssertEqual(try Data(contentsOf: partial), part, "Left as it is")
+        let files = try notes()
+        XCTAssertEqual(files.count, 2, "\(files)")
+        let written = try XCTUnwrap(files.first { $0 != partial })
+        let text = try String(contentsOf: written, encoding: .utf8)
+        XCTAssertTrue(text.hasSuffix(Self.standardTurns), text)
+        XCTAssertTrue(text.contains("This note couldn't be saved when the meeting ended"))
         XCTAssertEqual(next.notices.titles, ["Meeting note saved"])
         XCTAssertEqual(contents(spoolDir), [])
     }
