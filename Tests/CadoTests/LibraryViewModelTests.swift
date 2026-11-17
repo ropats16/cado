@@ -17,6 +17,11 @@ private final class FakeOpener: NoteOpening {
     func open(_ url: URL) { opened.append(url) }
 }
 
+private final class LibraryFakePasteboard: PasteboardWriting {
+    var written: [String] = []
+    func write(_ text: String) { written.append(text) }
+}
+
 /// #29: the Library window's state, over a real temp-folder library with a
 /// fake watcher and trasher.
 @MainActor
@@ -27,6 +32,7 @@ final class LibraryViewModelTests: XCTestCase {
     private let trasher = LibraryFakeTrasher()
     private let watcher = FakeFolderWatcher()
     private let opener = FakeOpener()
+    private let pasteboard = LibraryFakePasteboard()
     private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
     private var library: NotesLibrary!
     private var vm: LibraryViewModel!
@@ -36,7 +42,12 @@ final class LibraryViewModelTests: XCTestCase {
         dir = root.appendingPathComponent("Cado", isDirectory: true)
         library = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
                                timeZone: TimeZone(identifier: "UTC")!)
-        vm = LibraryViewModel(library: library, opener: opener)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        calendar.locale = Locale(identifier: "en_GB")
+        calendar.firstWeekday = 2
+        vm = LibraryViewModel(library: library, opener: opener, pasteboard: pasteboard,
+                              now: { [unowned self] in self.t0 + 3600 }, calendar: calendar)
     }
 
     override func tearDownWithError() throws { try? fm.removeItem(at: root) }
@@ -298,6 +309,143 @@ final class LibraryViewModelTests: XCTestCase {
         vm.openExternally(a.id)
         XCTAssertEqual(opener.revealed.map(\.lastPathComponent), [a.id])
         XCTAssertEqual(opener.opened.map(\.lastPathComponent), [a.id])
+    }
+
+    // MARK: date sections (#42)
+
+    /// t0 is Friday 15 Jan 2027, 08:00 UTC; the clock says an hour later.
+    func testSectionsGroupTheListByDateNewestFirst() async throws {
+        try add("Old", at: -40 * 86_400)
+        try add("Today", at: 0)
+        try add("Yesterday", at: -86_400)
+        try add("Monday", at: -4 * 86_400)
+        await vm.reload()
+        XCTAssertEqual(vm.sections.map(\.title), ["Today", "Yesterday", "This week", "December 2026"])
+        XCTAssertEqual(vm.sections.flatMap(\.rows).map(\.id), vm.notes.map(\.id), "Same order as the list")
+        XCTAssertEqual(vm.sections[0].rows[0].duration, "10 min")
+    }
+
+    func testSectionsFollowTheSearch() async throws {
+        try add("Today", at: 0, body: "budget")
+        try add("Old", at: -40 * 86_400)
+        await vm.reload()
+        await vm.setQuery("budget")
+        XCTAssertEqual(vm.sections.map(\.title), ["Today"])
+    }
+
+    // MARK: reading + copy (#42)
+
+    func testTheSelectedNoteIsReadAsTurns() async throws {
+        let a = try add("Sync", body: "Recorded from Zoom (Them) and your microphone (Me).\n\n**Me:** hi\n\n**Them:** hello\n")
+        await vm.reload()
+        XCTAssertNil(vm.reading)
+        await vm.select(a.id)
+        XCTAssertEqual(vm.reading?.header.app, "Zoom")
+        XCTAssertEqual(vm.reading?.turns.map(\.text), ["hi", "hello"])
+        XCTAssertEqual(vm.notes.first?.recordedApp, "Zoom")
+        await vm.select(nil)
+        XCTAssertNil(vm.reading)
+    }
+
+    func testCopyTranscriptPutsTheTurnsOnThePasteboard() async throws {
+        let a = try add("Sync", body: "Recorded from Zoom (Them) and your microphone (Me).\n\n**Me:** hi\n\n**Them:** hello\n")
+        let b = try add("Other", at: 10)
+        await vm.reload()
+        XCTAssertFalse(vm.canCopyTranscript)
+        vm.copyTranscript()
+        XCTAssertEqual(pasteboard.written, [], "Nothing selected")
+        await vm.select(a.id)
+        XCTAssertTrue(vm.canCopyTranscript)
+        XCTAssertFalse(vm.transcriptCopied)
+        vm.copyTranscript()
+        XCTAssertEqual(pasteboard.written, ["Me: hi\n\nThem: hello"])
+        XCTAssertTrue(vm.transcriptCopied)
+        await vm.select(b.id)
+        XCTAssertFalse(vm.transcriptCopied, "Cleared by the next selection")
+        vm.copyTranscript()
+        XCTAssertEqual(pasteboard.written.last, "Body of Other", "A note without turns copies its body")
+    }
+
+    // MARK: opening a given note (#42)
+
+    func testShowNoteClearsTheSearchAndSelectsIt() async throws {
+        let a = try add("Alpha")
+        try add("Beta", at: 10)
+        await vm.reload()
+        await vm.setQuery("beta")
+        await vm.show(noteID: a.id)
+        XCTAssertEqual(vm.query, "")
+        XCTAssertEqual(vm.selection, a.id)
+        XCTAssertEqual(vm.detail?.id, a.id)
+        XCTAssertEqual(titles(), ["Beta", "Alpha"])
+    }
+
+    func testShowingAGoneNoteSaysSoQuietly() async throws {
+        try add("Alpha")
+        await vm.show(noteID: "2026-01-01 Gone.md")
+        XCTAssertNil(vm.selection)
+        XCTAssertEqual(vm.message, "That note was deleted or renamed outside Cado.")
+    }
+
+    func testShowLatestMeetingNoteSkipsPlainNotes() async throws {
+        await vm.showLatestMeetingNote()
+        XCTAssertNil(vm.selection)
+        XCTAssertNil(vm.message)
+        try add("Early meeting", at: 0)
+        let later = try add("Later meeting", at: 50)
+        try library.create(NoteDraft(title: "Newest plain", date: t0 + 100, body: "x"))
+        await vm.showLatestMeetingNote()
+        XCTAssertEqual(vm.selection, later.id)
+    }
+
+    // MARK: in-progress meeting (#42)
+
+    func testAMeetingUnderWayShowsAboveTheNotes() async throws {
+        await vm.reload()
+        XCTAssertEqual(vm.listState, .empty)
+        vm.meetingStatusChanged(.recording(app: "Zoom", startedAt: 0, lost: []))
+        XCTAssertEqual(vm.inProgress?.title, "Meeting with Zoom")
+        XCTAssertEqual(vm.inProgress?.detail, "Recording…")
+        XCTAssertEqual(vm.listState, .notes, "Not the empty state while one is under way")
+        vm.meetingStatusChanged(.transcribing(app: "Zoom", done: 1, total: 3))
+        XCTAssertEqual(vm.inProgress?.detail, "Transcribing… 1 of 3")
+        await vm.setQuery("zzz")
+        XCTAssertNil(vm.inProgress, "Hidden while searching")
+        XCTAssertEqual(vm.listState, .noResults)
+        await vm.setQuery("")
+        XCTAssertNotNil(vm.inProgress)
+    }
+
+    /// Saved: the row stays until the list holds the note, then gives way.
+    func testTheSavedNoteReplacesTheInProgressRow() async throws {
+        vm.start()
+        await vm.settled()
+        vm.meetingStatusChanged(.transcribing(app: "Zoom", done: 3, total: 3))
+        let saved = try add("Meeting with Zoom")
+        vm.meetingStatusChanged(.idle)
+        XCTAssertNotNil(vm.inProgress, "No gap before the note is listed")
+        await vm.settled()
+        XCTAssertNil(vm.inProgress)
+        XCTAssertEqual(vm.notes.map(\.id), [saved.id])
+    }
+
+    /// Nothing saved (no speech, a failure): no ghost row.
+    func testAMeetingWithoutANoteLeavesNoRow() async throws {
+        await vm.reload()
+        vm.meetingStatusChanged(.recording(app: "Zoom", startedAt: 0, lost: []))
+        vm.meetingStatusChanged(.idle)
+        await vm.settled()
+        XCTAssertNil(vm.inProgress)
+        XCTAssertEqual(vm.listState, .empty)
+    }
+
+    func testANewMeetingStartingBeforeTheReloadLandsKeepsItsRow() async throws {
+        await vm.reload()
+        vm.meetingStatusChanged(.transcribing(app: "Zoom", done: 0, total: 0))
+        vm.meetingStatusChanged(.idle)
+        vm.meetingStatusChanged(.recording(app: "Teams", startedAt: 0, lost: []))
+        await vm.settled()
+        XCTAssertEqual(vm.inProgress?.app, "Teams")
     }
 
     // MARK: row text

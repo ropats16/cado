@@ -12,6 +12,15 @@ struct WorkspaceNoteOpener: NoteOpening {
     func open(_ url: URL) { NSWorkspace.shared.open(url) }
 }
 
+/// Where "Copy Transcript" puts text. Real one is the general pasteboard
+/// (`SystemClipboard`); fake in tests.
+protocol PasteboardWriting {
+    /// Replaces the contents with `text` as a plain string.
+    func write(_ text: String)
+}
+
+extension SystemClipboard: PasteboardWriting {}
+
 /// What the list column shows.
 enum LibraryListState: Equatable {
     case loading, empty, noResults, notes
@@ -21,12 +30,35 @@ enum LibraryListState: Equatable {
 /// text), the selected note and its body, rename and delete in flight, and a
 /// quiet message for what went wrong. Folder work runs off the main thread;
 /// a reload that's been overtaken by a newer one is dropped.
+///
+/// #42 adds what the window binds to: `sections` (the list by date, as
+/// rows), `inProgress` (a meeting being recorded or transcribed, above the
+/// notes), `reading` (the selected note as header + Me/Them turns),
+/// `copyTranscript()`, and `show(noteID:)` / `showLatestMeetingNote()` for
+/// the notification and the menu. The clock and calendar are injected.
 @MainActor
 final class LibraryViewModel: ObservableObject {
-    @Published private(set) var notes: [NoteSummary] = []
+    @Published private(set) var notes: [NoteSummary] = [] {
+        didSet { sections = LibrarySections.group(notes, now: now(), calendar: calendar) }
+    }
+    /// `notes` by date (Today, Yesterday, This week, then by month), newest
+    /// first, as display rows.
+    @Published private(set) var sections: [LibrarySection] = []
     @Published private(set) var query = ""
     @Published private(set) var selection: String?
-    @Published private(set) var detail: Note?
+    @Published private(set) var detail: Note? {
+        didSet {
+            reading = detail.map { NoteReading($0, calendar: calendar) }
+            if detail?.id != oldValue?.id { transcriptCopied = false }
+        }
+    }
+    /// The selected note as the detail pane reads it.
+    @Published private(set) var reading: NoteReading?
+    /// Set by `copyTranscript()`, cleared when the selection changes: for a
+    /// brief "Copied" confirmation.
+    @Published private(set) var transcriptCopied = false
+    /// The meeting being recorded or transcribed (any search); see `inProgress`.
+    @Published private(set) var meetingUnderWay: LibraryInProgressRow?
     /// One quiet line under the list; cleared by the next selection.
     @Published private(set) var message: String?
     @Published private(set) var hasLoaded = false
@@ -38,19 +70,36 @@ final class LibraryViewModel: ObservableObject {
 
     private let library: NotesLibrary
     private let opener: NoteOpening
+    private let pasteboard: PasteboardWriting
+    private let now: () -> Date
+    private let calendar: Calendar
     private var generation = 0
     private var pendingReload: Task<Void, Never>?
+    private var meetingStatus: MeetingStatus = .idle
 
-    init(library: NotesLibrary, opener: NoteOpening = WorkspaceNoteOpener()) {
+    /// `now` and `calendar` (time zone, locale, first weekday) date the
+    /// sections and format rows and the header.
+    init(library: NotesLibrary, opener: NoteOpening = WorkspaceNoteOpener(),
+         pasteboard: PasteboardWriting = SystemClipboard(),
+         now: @escaping () -> Date = Date.init, calendar: Calendar = .autoupdatingCurrent) {
         self.library = library
         self.opener = opener
+        self.pasteboard = pasteboard
+        self.now = now
+        self.calendar = calendar
     }
+
+    /// The in-progress meeting row, shown at the top of the list; hidden
+    /// while searching.
+    var inProgress: LibraryInProgressRow? { isSearching ? nil : meetingUnderWay }
 
     var listState: LibraryListState {
         if !hasLoaded { return .loading }
-        if !notes.isEmpty { return .notes }
-        return query.trimmingCharacters(in: .whitespaces).isEmpty ? .empty : .noResults
+        if !notes.isEmpty || inProgress != nil { return .notes }
+        return isSearching ? .noResults : .empty
     }
+
+    private var isSearching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
     // MARK: Lifecycle
 
@@ -134,6 +183,62 @@ final class LibraryViewModel: ObservableObject {
         selection = nil
         detail = nil
         renamingID = nil
+    }
+
+    // MARK: Opening a given note (#42)
+
+    /// Selects the note `id` (the notification for a saved meeting), clearing
+    /// a search that hides it. Gone: a quiet message.
+    func show(noteID id: String) async {
+        if isSearching { query = "" }
+        await reload()
+        guard notes.contains(where: { $0.id == id }) else {
+            message = Self.describe(NotesLibraryError.notFound(id), verb: "open")
+            return
+        }
+        await select(id)
+    }
+
+    /// Selects the newest meeting note ("Open Last Meeting Note"), read from
+    /// the folder, so it survives a relaunch. None: nothing changes.
+    func showLatestMeetingNote() async {
+        if isSearching { query = "" }
+        await reload()
+        guard let id = notes.first(where: { $0.kind.lowercased() == NoteKind.meeting })?.id else { return }
+        await select(id)
+    }
+
+    // MARK: Meeting under way (#42)
+
+    /// The meeting session's status (`MeetingStatus`): recording or
+    /// transcribing shows `inProgress`. On idle the list reloads (the note,
+    /// if one was saved, is on disk by then) and the row goes once the
+    /// reload lands, so the note replaces it without a gap; a meeting that
+    /// saved nothing leaves no row.
+    func meetingStatusChanged(_ status: MeetingStatus) {
+        meetingStatus = status
+        if let row = LibraryInProgressRow(status: status) {
+            meetingUnderWay = row
+            return
+        }
+        guard meetingUnderWay != nil else { return }
+        pendingReload = Task {
+            await reload()
+            if meetingStatus == .idle { meetingUnderWay = nil }
+        }
+    }
+
+    // MARK: Copy
+
+    /// The selected note has text to copy.
+    var canCopyTranscript: Bool { !(reading?.transcriptText.isEmpty ?? true) }
+
+    /// Copies the selected note's transcript (`NoteReading.transcriptText`:
+    /// "Me: …" paragraphs, no front matter) to the pasteboard.
+    func copyTranscript() {
+        guard let text = reading?.transcriptText, !text.isEmpty else { return }
+        pasteboard.write(text)
+        transcriptCopied = true
     }
 
     // MARK: Rename
