@@ -15,6 +15,8 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - A hand-made WhisperKit model folder with a damaged tokenizer file (in any place WhisperKit looks) is refused instead of making Cado download a replacement.
 
 ### Added
+- Settings › Meetings › Meeting Language: meetings can have their own language. "Same as dictation" (the default) keeps everything as it was. "Auto-detect" works out the language of each passage on its own, for meetings that mix languages such as Hindi and English: each comes out in its own script (Hindi in Devanagari), not translated. When the dictation model can't do that (Turbo, or an English-only model), meetings use a multilingual model of their own, loaded only while a meeting is transcribed, so dictation keeps its model. If that model isn't downloaded, the card says so and offers it.
+- Settings › Speech Model warns when the model only understands English but the language set isn't English, and says what to choose instead.
 - Right-click the mascot for Hide Mascot and Settings…; VoiceOver reads it as a button and can press it.
 - Meeting summaries on macOS 26 with Apple Intelligence: after a meeting note is saved, Apple Intelligence adds a Summary (key points, decisions, action items) above the transcript, written on your Mac. Long meetings are summarized in parts and combined. The note is saved first and is complete without a summary.
 - Library: a meeting's summary shows in a card above the transcript, with Regenerate Summary (or Summarize for a note without one). A new summary replaces the old one; the rest of the note is kept.

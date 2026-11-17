@@ -6,6 +6,16 @@ matters for dictation: short-clip latency, long-audio real-time factor, peak
 memory, model load time and word error rate. Output: a table on stdout and a
 versioned JSON report, so runs compare across engines, models, commits and Macs.
 
+## Mixed-language fixture (#47)
+
+`bash scripts/make_mixed_language_fixture.sh` synthesizes a Hindi + English
+meeting offline with macOS `say` (needs the Lekha voice installed; it never
+installs voices) into `.bench/fixtures/mixed-hi-en/`: `me.wav`/`them.wav` for
+`--meeting-test` (add `--meeting-language auto`), and a `manifest.tsv` with each
+sentence as a `short` clip and the whole conversation as one `long` clip, for
+`--bench --manifest … --runs 1 --language auto`. `GAP_SECONDS=0.3` makes a
+variant without pauses to cut at. Results: `plans/meeting-languages-47.md`.
+
 ## Running it on a Mac
 
 ```sh

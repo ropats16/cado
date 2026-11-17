@@ -1,0 +1,65 @@
+# Manual checks: meeting language (#47)
+
+What the tests can't reach: real voices and accents, a real call, Settings
+on screen, memory on an 8 GB Mac. Results and design: `plans/meeting-languages-47.md`.
+
+Already verified without a human:
+- `MeetingLanguageTests`: the setting (old configs → "Same as dictation"),
+  which model a meeting gets (dictation model when it fits, else a
+  multilingual one; never an English-only one for another language).
+- `MeetingLanguageSessionTests` / `MeetingSpoolLanguageTests`: the language
+  goes into the spool at start, every passage and the tail's prewarm carry
+  it, a recovery uses the spool's, an old spool without it uses the
+  dictation model.
+- `MeetingModelRouterTests`: the meeting model is made and loaded once, a new
+  language switches it, missing/failed → dictation model (no passage lost).
+- `SettingsMeetingLanguageTests`: the card's text and Download row, the
+  English-only warning, plain words.
+- `Cado --meeting-test` on the synthetic Hindi + English fixture
+  (`scripts/make_mixed_language_fixture.sh`): Same as dictation 58% WER,
+  Auto-detect 30%, English exact, Hindi in Devanagari.
+
+## Setup
+
+```sh
+make package
+pkill -x Cado
+open dist/Cado.app
+```
+
+A multilingual whisper model must be downloaded for Auto-detect meetings
+(Settings › Meetings › Meeting Language offers it if not).
+
+## Checks
+
+1. **Default unchanged.** Fresh config (or 0.3.0's): Settings › Meetings ›
+   Meeting Language shows "Same as dictation (English)" and "Meetings use the
+   dictation model, Turbo, in English." Record a short English meeting: the
+   log (`~/Library/Logs/Cado` / Console) has no "Meeting: loading" line.
+   Dictation still runs on Turbo.
+2. **Auto-detect.** Pick Auto-detect. The line names the meeting model
+   (e.g. Whisper small-q5_1). Record a call where two people alternate Hindi
+   and English sentences (pause between them). Expected: Hindi lines in
+   Devanagari, English lines in English, not translated, not romanised. The
+   log has "Meeting: loading … for meetings" once.
+3. **Dictation during the tail.** Right after Stop on a long Auto-detect
+   meeting, dictate a sentence: it comes out on Turbo, in English, without
+   waiting for the meeting.
+4. **Memory (8 GB Mac if available).** Activity Monitor › Memory for Cado:
+   during an Auto-detect meeting it rises (~0.7 GB with small) and drops
+   about 2 minutes after the note is saved.
+5. **Missing model.** Remove every multilingual `ggml-*.bin` (not `.en`) from
+   the models folder (menu › Advanced › Open Models Folder). Meeting Language on Auto-detect: the line is a
+   warning naming the model and "Download it below", with a Download row.
+   Download works and the warning turns into the normal line.
+6. **English-only warning.** Settings › Speech Model: Engine Whisper, Model
+   small.en-q5_1, then hand-edit `config.json` `"language": "hi"` (the picker
+   is greyed out for `.en` models). Settings shows "Whisper small.en-q5_1
+   only understands English, so Hindi comes out as English words. …".
+7. **Recovery keeps the language.** Start an Auto-detect meeting, speak
+   Hindi, Force Quit Cado (Activity Monitor) mid-meeting. Switch Meeting
+   Language back to Same as dictation, relaunch. The recovered note still has
+   the Hindi in Devanagari (the spool's `meeting.json` has `"language":"auto"`).
+8. **Mid-sentence switch (known limit).** Say one sentence that switches
+   language halfway without pausing ("हमें client को Friday तक report
+   भेजनी है"). It comes out in one script; note how readable it is.
