@@ -21,12 +21,19 @@ import AVFoundation
 // (no app-side buffering), so it survives a crash of the app. The files are
 // flushed to the disk itself (each to the drive, then one `F_FULLFSYNC` for
 // the drive's cache) on the milestone events (`isMilestone`: stop, quit, note
-// saved…) and otherwise at most every 5 seconds: a power cut loses at most
-// the last 5 s (plus the capture's half-second batch). Measured (#48, M-series
-// SSD, the three files after 1 s or 5 s of a meeting): a round with one
-// `F_FULLFSYNC` takes ~5 ms (p90 ~8 ms); three `F_FULLFSYNC`s took ~15 ms and
-// plain `fsync`s ~0.2 ms. Every 5 s that's ~0.1% of the main thread; a
-// shorter interval buys little for more drive flushes.
+// saved…), there and then, and otherwise at most every 5 seconds: a power cut
+// loses at most the last 5 s (plus the capture's half-second batch), a little
+// more if the disk is slow to flush. Measured (#48, M-series SSD, the three
+// files after 1 s or 5 s of a meeting): a round with one `F_FULLFSYNC` takes
+// ~5 ms (p90 ~8 ms); three `F_FULLFSYNC`s took ~15 ms and plain `fsync`s
+// ~0.2 ms. A slow, external or busy disk can take hundreds of ms, so the
+// 5-second round runs on a utility queue (`SpoolDiskSync`), never on the main
+// thread the audio is appended on; one round at a time, on duplicates of the
+// files' descriptors, so a close, rename or discard meanwhile can't pull a
+// file out from under it. The new folder and its meeting.json are flushed
+// once the same way when the spool is created: without that, a power cut
+// could keep the audio and journal but not meeting.json, and the folder
+// would come back unidentified.
 //
 // When the journal can't be written (the disk is full) but something must
 // still be remembered, the folder's name says it: `<uuid>.<mark>[.<mark>…]`
@@ -599,12 +606,60 @@ final class FallbackSpoolHandle: MeetingSpoolHandle {
 
 // MARK: - Folder
 
+/// How a folder spool gets its files to the disk itself (#48). Seams for tests.
+struct SpoolDiskSync {
+    /// Seconds since boot, for the 5-second interval.
+    var clock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    /// Runs a flush away from the main thread (a serial utility queue, so
+    /// rounds don't overlap one another).
+    var background: (@escaping () -> Void) -> Void = { SpoolDiskSync.queue.async(execute: $0) }
+    /// Flushes open descriptors (`flushToDisk`). Doesn't close them.
+    var flush: ([Int32]) -> Void = SpoolDiskSync.flushToDisk
+
+    static let queue = DispatchQueue(label: "Cado.MeetingSpool.flush", qos: .utility)
+
+    /// Each to the drive (`fsync`), then one `F_FULLFSYNC` (on the last),
+    /// which flushes the drive's cache with all of them in it (`fsync` if it
+    /// isn't supported). A failure is left to the next round.
+    static func flushToDisk(_ fds: [Int32]) {
+        for (i, fd) in fds.enumerated() {
+            if i == fds.count - 1, fcntl(fd, F_FULLFSYNC) == 0 { continue }
+            _ = fsync(fd)
+        }
+    }
+
+    /// Flushes `fds` in the background and then closes them: they're the
+    /// caller's to give away (opened or `dup`ed for this), so nothing else
+    /// can close them first. `done` runs after, on that queue.
+    func flushInBackground(_ fds: [Int32], done: @escaping () -> Void = {}) {
+        let flush = self.flush
+        background {
+            flush(fds)
+            for fd in fds { close(fd) }
+            done()
+        }
+    }
+}
+
+/// One background flush at a time per handle: a slow disk doesn't get a
+/// queue of them. Any thread.
+private final class FlushGate {
+    private let lock = NSLock()
+    private var busy = false
+    /// False if one is still going.
+    func begin() -> Bool { lock.lock(); defer { lock.unlock() }; if busy { return false }; busy = true; return true }
+    func end() { lock.lock(); busy = false; lock.unlock() }
+}
+
 /// On disk: `<root>/<uuid>/` with `meeting.json`, `me.f32` and `them.f32` (raw little-endian Float32, 16 kHz mono, append-only) and `events.jsonl` (one JSON object per line, append-only).
 final class FolderMeetingSpool: MeetingSpooling {
     private let root: URL
+    private let diskSync: SpoolDiskSync
 
-    init(root: URL = Paths.appSupportDir.appendingPathComponent("Meetings In Progress", isDirectory: true)) {
+    init(root: URL = Paths.appSupportDir.appendingPathComponent("Meetings In Progress", isDirectory: true),
+         diskSync: SpoolDiskSync = SpoolDiskSync()) {
         self.root = root
+        self.diskSync = diskSync
     }
 
     func create(_ meeting: SpooledMeeting) throws -> MeetingSpoolHandle {
@@ -625,7 +680,13 @@ final class FolderMeetingSpool: MeetingSpooling {
         let url = dir.appendingPathComponent(FolderSpoolHandle.infoName)
         try JSONEncoder().encode(info).write(to: url)
         try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        return FolderSpoolHandle(meeting: meeting, dir: dir, lock: lock)
+        // To the disk itself, once (#48): meeting.json, the folder's entries,
+        // the folder's own entry in the root. Off the main thread; opened now,
+        // so a rename or discard meanwhile can't make it miss.
+        let fds = [url, dir, root].map { open($0.path, O_RDONLY | O_CLOEXEC) }.filter { $0 >= 0 }
+        if fds.count < 3 { Log.info("Couldn't open the new meeting spool to flush it to disk") }
+        diskSync.flushInBackground(fds)
+        return FolderSpoolHandle(meeting: meeting, dir: dir, lock: lock, diskSync: diskSync)
     }
 
     /// Spools no open handle holds (another instance's live meeting is
@@ -674,7 +735,7 @@ final class FolderMeetingSpool: MeetingSpooling {
                     let created = (try? dir.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? Date()
                     let made = SpooledMeeting(id: UUID(uuidString: base) ?? UUID(), appName: "", appBundleID: "",
                                               startDate: created)
-                    let handle = FolderSpoolHandle(meeting: made, dir: dir, lock: lock)
+                    let handle = FolderSpoolHandle(meeting: made, dir: dir, lock: lock, diskSync: diskSync)
                     found.append(LeftoverMeeting(handle: handle, events: handle.readEvents(), marks: marks,
                                                  isUnidentified: true))
                 } else {
@@ -683,7 +744,7 @@ final class FolderMeetingSpool: MeetingSpooling {
                 }
                 continue
             }
-            let handle = FolderSpoolHandle(meeting: info.meeting, dir: dir, lock: lock)
+            let handle = FolderSpoolHandle(meeting: info.meeting, dir: dir, lock: lock, diskSync: diskSync)
             found.append(LeftoverMeeting(handle: handle, events: handle.readEvents(), marks: marks))
         }
         return found.sorted { $0.handle.meeting.startDate < $1.handle.meeting.startDate }
@@ -760,17 +821,21 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
     private var outputs: [String: Output] = [:]
     private var counts: [MeetingSpeaker: Int] = [:]
     private var silent: [MeetingSpeaker: Bool] = [:]
-    private var lastSync = ProcessInfo.processInfo.systemUptime
+    private let diskSync: SpoolDiskSync
+    private var lastSync: TimeInterval
+    private let flushGate = FlushGate()
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.outputFormatting = [.sortedKeys]
         return e
     }()
 
-    init(meeting: SpooledMeeting, dir: URL, lock: SpoolLock?) {
+    init(meeting: SpooledMeeting, dir: URL, lock: SpoolLock?, diskSync: SpoolDiskSync = SpoolDiskSync()) {
         self.meeting = meeting
         self.dir = dir
         self.lock = lock
+        self.diskSync = diskSync
+        lastSync = diskSync.clock()
         for s in MeetingSpeaker.allCases {
             let size = ((try? FileManager.default.attributesOfItem(atPath: url(s).path))?[.size] as? Int) ?? 0
             counts[s] = size / 4
@@ -826,19 +891,26 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         }
     }
 
-    /// Every 5 s, or at once (`now`: milestones), to the disk itself, which
-    /// survives power loss: each file to the drive (`fsync`), then one
-    /// `F_FULLFSYNC`, which flushes the drive's cache with all of them in it
-    /// (`fsync` alone if it isn't supported).
+    /// To the disk itself, which survives power loss (`SpoolDiskSync.flushToDisk`).
+    /// `now` (milestones): there and then, on this thread, so a caller can
+    /// rely on it having reached the disk when it returns. Otherwise every
+    /// 5 s, in the background, on `dup`s of the open files (their own
+    /// descriptors, closed by the flush): a close, rename (`setMarks`), move
+    /// or discard meanwhile leaves them valid, and an unlinked file's flush
+    /// is merely wasted. While one is still going (a slow disk) the next
+    /// round is skipped, not queued.
     private func syncIfDue(now force: Bool = false) {
-        let now = ProcessInfo.processInfo.systemUptime
+        let now = diskSync.clock()
         guard force || now - lastSync >= Self.syncInterval else { return }
         lastSync = now
-        let handles = outputs.values.compactMap(\.handle)
-        for (i, h) in handles.enumerated() {
-            if i == handles.count - 1, fcntl(h.fileDescriptor, F_FULLFSYNC) == 0 { continue }
-            try? h.synchronize()
-        }
+        let fds = outputs.values.compactMap { $0.handle?.fileDescriptor }
+        guard !fds.isEmpty else { return }
+        if force { diskSync.flush(fds); return }
+        guard flushGate.begin() else { return }
+        let copies = fds.map { dup($0) }.filter { $0 >= 0 }
+        guard !copies.isEmpty else { flushGate.end(); return }
+        let gate = flushGate
+        diskSync.flushInBackground(copies) { gate.end() }
     }
 
     func append(_ samples: [Float], for speaker: MeetingSpeaker) {
@@ -935,6 +1007,15 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
 
     /// `<uuid>[.<old marks>]` → `<uuid>[.<marks>]`, in place: a rename needs
     /// no free space. The lock is held throughout (it's on the open file).
+    ///
+    /// The files are closed (not for good) and reopened at the new name on
+    /// the next write. So a rename resets a write failure: after it, an
+    /// `append` or `record` that failed before (the disk was full, a file
+    /// couldn't be opened) is tried on disk again, and returns true / is
+    /// counted if it now works; `writeError` keeps the first failure. A fake
+    /// spool that models a full disk should do the same: once marked, let
+    /// `record` reach the journal again if there's room. A failed rename
+    /// changes nothing (the files stay open, failures stay failed).
     func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool {
         let base = dir.lastPathComponent.split(separator: ".", maxSplits: 1).first.map(String.init) ?? dir.lastPathComponent
         let name = SpoolFolderMark.folderName(base, marks)

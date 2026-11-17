@@ -619,3 +619,188 @@ final class MeetingSpoolWAVTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: dir.appendingPathComponent("them.wav").path))
     }
 }
+
+/// The 5-second flush runs off the main thread on descriptors of its own; a
+/// milestone flush is still done there and then (#48).
+final class MeetingSpoolFlushTests: XCTestCase {
+    private var root: URL!
+    private let fm = FileManager.default
+    private let meeting = SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "us.zoom.xos", startDate: Date())
+
+    /// What the flush saw: each descriptor's file (nil: not open) at the time.
+    private var flushed: [[UInt64?]] = []
+    private var queued: [() -> Void] = []
+    private var now: TimeInterval = 1_000
+
+    override func setUpWithError() throws {
+        root = fm.temporaryDirectory.appendingPathComponent("flush-\(UUID().uuidString)", isDirectory: true)
+    }
+    override func tearDownWithError() throws {
+        runQueued()
+        try? fm.removeItem(at: root)
+    }
+
+    private func spool() -> FolderMeetingSpool {
+        var sync = SpoolDiskSync()
+        sync.clock = { [unowned self] in now }
+        sync.background = { [unowned self] work in queued.append(work) }
+        sync.flush = { [unowned self] fds in flushed.append(fds.map(Self.inode)) }
+        return FolderMeetingSpool(root: root, diskSync: sync)
+    }
+
+    private static func inode(_ fd: Int32) -> UInt64? {
+        var st = stat()
+        return fstat(fd, &st) == 0 ? st.st_ino : nil
+    }
+    private static func inode(_ url: URL) -> UInt64? {
+        var st = stat()
+        return stat(url.path, &st) == 0 ? st.st_ino : nil
+    }
+    private static func isOpen(_ fd: Int32) -> Bool { fcntl(fd, F_GETFD) != -1 }
+
+    private func runQueued() {
+        let work = queued
+        queued = []
+        work.forEach { $0() }
+    }
+
+    private func spoolFiles(_ dir: URL) -> Set<UInt64?> {
+        Set([FolderSpoolHandle.fileName(.me), FolderSpoolHandle.fileName(.them), FolderSpoolHandle.eventsName]
+            .map { Self.inode(dir.appendingPathComponent($0)) })
+    }
+
+    /// Created: meeting.json (complete by then), the folder and the root are
+    /// flushed once, in the background, root last (its F_FULLFSYNC).
+    func testANewSpoolsMeetingJSONAndFolderAreFlushedOnceInTheBackground() throws {
+        let h = try spool().create(meeting)
+        let info = try XCTUnwrap(h.location).appendingPathComponent(FolderSpoolHandle.infoName)
+        let expected = [Self.inode(info), Self.inode(try XCTUnwrap(h.location)), Self.inode(root)]
+        XCTAssertTrue(flushed.isEmpty, "Not on the calling thread")
+        XCTAssertEqual(queued.count, 1)
+        h.discard()   // gone before the flush runs: its descriptors still hold
+        runQueued()
+        XCTAssertEqual(flushed.count, 1)
+        XCTAssertEqual(flushed[0], expected)
+    }
+
+    func testTheMeetingJSONIsCompleteWhenFlushed() throws {
+        var sync = SpoolDiskSync()
+        var seen: SpooledMeeting?
+        sync.background = { $0() }
+        let rootURL = root!
+        sync.flush = { _ in
+            let dirs = (try? FileManager.default.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil)) ?? []
+            let data = dirs.first.flatMap { try? Data(contentsOf: $0.appendingPathComponent(FolderSpoolHandle.infoName)) }
+            seen = data.flatMap { try? JSONDecoder().decode(FolderSpoolHandle.Info.self, from: $0) }?.meeting
+        }
+        _ = try FolderMeetingSpool(root: root, diskSync: sync).create(meeting)
+        XCTAssertEqual(seen, meeting)
+    }
+
+    func testThePeriodicFlushRunsInTheBackgroundOnItsOwnDescriptors() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        h.append([0.1], for: .me)
+        _ = h.record(.settled(.me, through: 1))
+        XCTAssertTrue(flushed.isEmpty && queued.isEmpty, "Not due yet")
+        now += 5
+        h.append([0.2], for: .them)
+        XCTAssertTrue(flushed.isEmpty, "Never on the capture's thread")
+        XCTAssertEqual(queued.count, 1)
+        runQueued()
+        XCTAssertEqual(flushed.count, 1)
+        XCTAssertEqual(Set(flushed[0]), spoolFiles(try XCTUnwrap(h.location)))
+    }
+
+    func testTheFlushsDescriptorsAreClosedAfterIt() throws {
+        var sync = SpoolDiskSync()
+        var clock: TimeInterval = 0
+        var given: [Int32] = []
+        var work: [() -> Void] = []
+        sync.clock = { clock }
+        sync.background = { work.append($0) }
+        sync.flush = { given += $0 }
+        let h = try FolderMeetingSpool(root: root, diskSync: sync).create(meeting)
+        work.forEach { $0() }; work = []; given = []
+        h.append([0.1], for: .me)
+        clock += 6
+        h.append([0.1], for: .me)
+        work.forEach { $0() }
+        XCTAssertEqual(given.count, 1)
+        XCTAssertFalse(given.contains(where: Self.isOpen), "Closed after the flush")
+        h.append([0.3], for: .me)   // the spool's own file is still open and working
+        XCTAssertEqual(try h.samples(0..<3, of: .me), [0.1, 0.1, 0.3])
+    }
+
+    /// The flush is still pending when the folder is renamed (closing its
+    /// files), moved or deleted: it flushes the same files, all still open.
+    func testAPendingFlushOutlivesARenameAndADiscard() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        h.append([0.1], for: .me); h.append([0.2], for: .them); _ = h.record(.settled(.me, through: 1))
+        let files = spoolFiles(try XCTUnwrap(h.location))
+        now += 5
+        h.append([0.3], for: .me)
+        XCTAssertEqual(queued.count, 1)
+        XCTAssertTrue(h.setMarks([.quit]))
+        h.append([0.4], for: .me)       // reopened at the new name
+        h.discard()
+        runQueued()
+        XCTAssertEqual(flushed.count, 1)
+        XCTAssertEqual(Set(flushed[0]), files)
+        XCTAssertFalse(flushed[0].contains(nil))
+    }
+
+    func testAPendingFlushOutlivesAMove() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        h.append([0.1], for: .me)
+        let files = Set([Self.inode(try XCTUnwrap(h.location).appendingPathComponent(FolderSpoolHandle.fileName(.me)))])
+        now += 5
+        h.append([0.2], for: .me)
+        let elsewhere = root.appendingPathComponent("kept", isDirectory: true)
+        try fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        XCTAssertNotNil(h.moveFolder(into: elsewhere))
+        runQueued()
+        XCTAssertEqual(Set(flushed[0]), files)
+    }
+
+    /// A slow disk: the next round is skipped while one is still going, not queued.
+    func testOnlyOneFlushIsInFlight() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        now += 5; h.append([0.1], for: .me)
+        now += 5; h.append([0.1], for: .me)
+        now += 5; h.append([0.1], for: .me)
+        XCTAssertEqual(queued.count, 1)
+        runQueued()
+        now += 5; h.append([0.1], for: .me)
+        XCTAssertEqual(queued.count, 1, "Once it's done, the next round goes")
+    }
+
+    /// A milestone (stop, quit, note saved…) is on the disk when `record` returns.
+    func testAMilestoneIsFlushedThereAndThen() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        h.append([0.1], for: .me)
+        XCTAssertTrue(h.record(.stopped(at: 1, capReached: false)))
+        XCTAssertEqual(flushed.count, 1, "Before record returned")
+        XCTAssertTrue(queued.isEmpty)
+        XCTAssertTrue(flushed[0].contains(Self.inode(try XCTUnwrap(h.location).appendingPathComponent(FolderSpoolHandle.eventsName))))
+    }
+
+    /// The real thing, end to end: flushes in the background and the spool keeps working.
+    func testTheRealBackgroundFlushRuns() throws {
+        var sync = SpoolDiskSync()
+        var clock: TimeInterval = 0
+        sync.clock = { clock }
+        let h = try FolderMeetingSpool(root: root, diskSync: sync).create(meeting)
+        h.append([0.1], for: .me)
+        clock += 6
+        h.append([0.2], for: .me)
+        SpoolDiskSync.queue.sync {}
+        h.discard()
+        SpoolDiskSync.queue.sync {}
+        XCTAssertFalse(fm.fileExists(atPath: root.appendingPathComponent(meeting.id.uuidString).path))
+    }
+}
