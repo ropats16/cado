@@ -419,6 +419,57 @@ final class NotesLibraryTests: XCTestCase {
         lib.stopWatching()
         XCTAssertNil(watcher.watched)
     }
+
+    // MARK: Durable create (#31)
+
+    private func durableDraft(_ title: String = "Sync") -> NoteDraft {
+        NoteDraft(title: title, date: t0, kind: NoteKind.meeting, duration: 60, body: "Hello")
+    }
+
+    func testCreateWritesCompleteFileAndFlushesFileThenFolder() throws {
+        var synced: [URL] = []
+        let lib = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
+                               timeZone: utc, sync: { synced.append($0) })
+        let note = try lib.create(durableDraft())
+        XCTAssertEqual(try String(contentsOf: note.summary.url, encoding: .utf8).contains("Hello"), true)
+        XCTAssertEqual(synced.map(\.lastPathComponent), [note.summary.id, dir.lastPathComponent])
+        XCTAssertEqual(note.body.contains("Hello"), true)
+    }
+
+    func testRealFlushWorksOnFileAndFolder() throws {
+        let lib = makeLibrary()
+        let note = try lib.create(durableDraft())
+        XCTAssertNoThrow(try Durable.sync(note.summary.url))
+        XCTAssertNoThrow(try Durable.sync(dir))
+    }
+
+    func testFlushFailureDoesNotFailTheSave() throws {
+        struct Boom: Error {}
+        let lib = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
+                               timeZone: utc, sync: { _ in throw Boom() })
+        let note = try lib.create(durableDraft())
+        XCTAssertTrue(fm.fileExists(atPath: note.summary.url.path))
+    }
+
+    func testNoOverwriteAndNumberingStillWork() throws {
+        let lib = makeLibrary()
+        let a = try lib.create(durableDraft()), b = try lib.create(durableDraft())
+        XCTAssertEqual(b.summary.id, a.summary.id.replacingOccurrences(of: ".md", with: " 2.md"))
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: dir.path).count, 2)
+    }
+
+    /// The file becomes unreadable right after the write: create still succeeds, one file.
+    func testCreateDoesNotThrowWhenReadBackWouldFail() throws {
+        let lib = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
+                               timeZone: utc, sync: { url in
+            if url.pathExtension == "md" { chmod(url.path, 0) }
+        })
+        let note = try lib.create(durableDraft())
+        XCTAssertEqual(note.summary.title, "Sync")
+        XCTAssertEqual(note.summary.kind, NoteKind.meeting)
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: dir.path).count, 1)
+        chmod(note.summary.url.path, 0o644)
+    }
 }
 
 /// The real FSEvents watcher against a temp folder.

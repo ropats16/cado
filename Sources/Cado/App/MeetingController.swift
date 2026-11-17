@@ -102,3 +102,28 @@ final class MeetingController: MeetingActivity {
         render?(MeetingMenuContent(status: session.status, choice: choice, now: clock.now, systemAudio: issue))
     }
 }
+
+/// Answers "may the app quit now?": asks the session to wrap up (which calls
+/// back at once if there's nothing to wait for) and says `.later` only if it
+/// didn't. The reply fires once, even if quit is requested again meanwhile.
+final class TerminationGate {
+    enum Decision: Equatable { case now, later }
+
+    private var waiting = false
+
+    func request(quit: (@escaping () -> Void) -> Void, reply: @escaping () -> Void) -> Decision {
+        if waiting { return .later }
+        waiting = true
+        var startedReturned = false
+        var finishedEarly = false
+        quit { [weak self] in
+            if !startedReturned { finishedEarly = true; return }
+            guard let self, self.waiting else { return }
+            self.waiting = false
+            reply()
+        }
+        startedReturned = true
+        if finishedEarly { waiting = false; return .now }
+        return .later
+    }
+}

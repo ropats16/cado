@@ -56,4 +56,45 @@ final class MeetingArchiveTests: XCTestCase {
         XCTAssertEqual(try names(in: folder), ["Note.md", "Others.wav"])
         XCTAssertEqual(try names(in: root), ["M"])
     }
+
+    // MARK: Note.md (#31)
+
+    func testWriteNoteIsCompleteAndLeavesNoTempFile() throws {
+        var synced = 0
+        let archive = FolderMeetingArchive(root: root, sync: { _ in synced += 1 })
+        let folder = try archive.newFolder(name: "M")
+        try archive.writeNote("# One", into: folder)
+        XCTAssertEqual(try String(contentsOf: folder.appendingPathComponent("Note.md"), encoding: .utf8), "# One")
+        XCTAssertEqual(try names(in: folder), ["Note.md"])
+        XCTAssertEqual(synced, 2)
+    }
+
+    /// Today a second write replaces the first; kept.
+    func testSecondWriteNoteReplaces() throws {
+        let archive = FolderMeetingArchive(root: root)
+        let folder = try archive.newFolder(name: "M")
+        try archive.writeNote("# One", into: folder)
+        try archive.writeNote("# Two", into: folder)
+        XCTAssertEqual(try String(contentsOf: folder.appendingPathComponent("Note.md"), encoding: .utf8), "# Two")
+        XCTAssertEqual(try names(in: folder), ["Note.md"])
+    }
+
+    func testFailedWriteLeavesNoPartialNoteOrTempFile() throws {
+        struct Full: Error {}
+        let archive = FolderMeetingArchive(root: root, write: { data, url in
+            try data.prefix(2).write(to: url)   // partial, then the disk fills
+            throw Full()
+        })
+        let folder = try archive.newFolder(name: "M")
+        XCTAssertThrowsError(try archive.writeNote("# Note", into: folder))
+        XCTAssertEqual(try names(in: folder), [])
+    }
+
+    func testFlushFailureDoesNotFailWriteNote() throws {
+        struct Boom: Error {}
+        let archive = FolderMeetingArchive(root: root, sync: { _ in throw Boom() })
+        let folder = try archive.newFolder(name: "M")
+        try archive.writeNote("# Note", into: folder)
+        XCTAssertEqual(try names(in: folder), ["Note.md"])
+    }
 }

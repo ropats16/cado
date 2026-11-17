@@ -120,12 +120,16 @@ final class NotesLibrary {
     private let trasher: NoteTrashing
     private let watcher: FolderWatching
     private let timeZone: TimeZone
+    /// Makes a new file or folder entry durable (see `Durable.sync`); a seam for tests.
+    private let sync: (URL) throws -> Void
     private let fileManager = FileManager.default
 
     init(folder: @escaping () -> URL,
          trasher: NoteTrashing = SystemTrasher(),
          watcher: FolderWatching = FSEventsFolderWatcher(),
-         timeZone: TimeZone = .current) {
+         timeZone: TimeZone = .current,
+         sync: @escaping (URL) throws -> Void = Durable.sync) {
+        self.sync = sync
         self.folder = folder
         self.trasher = trasher
         self.watcher = watcher
@@ -149,8 +153,16 @@ final class NotesLibrary {
         for n in 1... {
             let name = (n == 1 ? stem : "\(stem) \(n)") + ".md"
             do {
-                try data.write(to: dir.appendingPathComponent(name), options: .withoutOverwriting)
-                return try note(id: name)
+                let url = dir.appendingPathComponent(name)
+                try data.write(to: url, options: .withoutOverwriting)
+                // The file exists now: nothing below may throw, or the caller
+                // would save the meeting a second time.
+                for target in [url, dir] {
+                    do { try sync(target) } catch {
+                        Log.error("Couldn't flush \(target.lastPathComponent) to disk: \(error.localizedDescription)")
+                    }
+                }
+                return Self.parse(url: url, data: data, modified: draft.date)
             } catch let error as CocoaError where error.code == .fileWriteFileExists {
                 continue
             }
@@ -270,17 +282,21 @@ final class NotesLibrary {
     private func load(_ url: URL) -> Note? {
         let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey])
         guard values?.isDirectory == false, let data = try? Data(contentsOf: url) else { return nil }
+        return Self.parse(url: url, data: data, modified: values?.contentModificationDate)
+    }
+
+    private static func parse(url: URL, data: Data, modified: Date?) -> Note {
         let parsed = NoteFrontMatter.parse(String(decoding: data, as: UTF8.self))
         let filename = url.lastPathComponent
         let fallbackTitle = (filename as NSString).deletingPathExtension
         let title = parsed.value(for: "title").flatMap { $0.isEmpty ? nil : $0 } ?? fallbackTitle
         let date = parsed.value(for: "date").flatMap(NoteFrontMatter.parseDate)
-            ?? values?.contentModificationDate ?? Date(timeIntervalSince1970: 0)
+            ?? modified ?? Date(timeIntervalSince1970: 0)
         let kind = parsed.value(for: "kind").flatMap { $0.isEmpty ? nil : $0 } ?? NoteKind.note
         let duration = parsed.value(for: "duration").flatMap { TimeInterval($0) }.flatMap { $0 >= 0 ? $0 : nil }
         let app = NoteKind.isMeeting(kind) ? MeetingNote.recordedApp(inBody: parsed.body) : nil
         let summary = NoteSummary(id: filename, title: title, date: date, kind: kind, duration: duration,
-                                  preview: Self.preview(app == nil ? parsed.body : Self.afterIntro(parsed.body)),
+                                  preview: preview(app == nil ? parsed.body : afterIntro(parsed.body)),
                                   url: url, recordedApp: app)
         return Note(summary: summary, body: parsed.body)
     }
@@ -343,5 +359,17 @@ final class NotesLibrary {
         s = s.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         s = String(s.prefix(80)).trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespaces))
         return s.isEmpty ? "Untitled" : s
+    }
+}
+
+/// Making a just-written file (or its folder entry) survive a power cut.
+enum Durable {
+    /// `F_FULLFSYNC` (to the platter), else `fsync`. Works on a directory too.
+    static func sync(_ url: URL) throws {
+        let fd = open(url.path, O_RDONLY)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { close(fd) }
+        if fcntl(fd, F_FULLFSYNC) == 0 { return }
+        if fsync(fd) != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
 }

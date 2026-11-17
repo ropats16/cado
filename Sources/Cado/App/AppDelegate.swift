@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notes: notesLibrary,
         systemAudio: { [permissions] in permissions.systemAudio },
         keepAudio: { [configStore] in configStore.config.keepMeetingAudio })
+    private let termination = TerminationGate()
     /// Set once the first `.ready` asked the meetings to recover leftovers.
     private var askedMeetingRecovery = false
     /// The mascot, watching `activity`. Attached at launch; builds its panel
@@ -156,9 +157,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Quitting mid-meeting stops it and keeps it (audio + a note saying so)
     /// before the app goes; see `MeetingSession.quit`.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !meetings.isIdle else { return .terminateNow }
-        meetings.quit { sender.reply(toApplicationShouldTerminate: true) }
-        return .terminateLater
+        // Always through the session: idle can still mean an audio copy is
+        // running, and its quit calls back at once when there's nothing to wait for.
+        switch termination.request(quit: meetings.quit, reply: { sender.reply(toApplicationShouldTerminate: true) }) {
+        case .now: return .terminateNow
+        case .later: return .terminateLater
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
