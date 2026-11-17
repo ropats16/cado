@@ -45,6 +45,7 @@ final class RecoverySpoolHandle: MeetingSpoolHandle {
     }
 
     func record(_ event: SpoolEvent) -> Bool { journalStart() && inner.record(event) }
+    func recordFlushingLater(_ event: SpoolEvent) -> Bool { journalStart() && inner.recordFlushingLater(event) }
 
     func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool {
         guard inner.setMarks(marks) else { return false }

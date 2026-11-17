@@ -1163,6 +1163,29 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertEqual(session.status, .idle)
     }
 
+    /// The hold's pause is never flushed on main ahead of the meeting being
+    /// started, nor while it records: its flush runs in the background.
+    func testAHoldsPauseDoesntWaitForTheDisk() throws {
+        _ = leftover(bothStarted)
+        session.recoverLeftovers()
+        let disk = try XCTUnwrap(spool.left.first?.handle as? DurableSpoolHandle)
+        startBoth()                              // its passage is in the engine
+        engine.finishNext()                      // back while the new meeting records
+        XCTAssertEqual(disk.events.last, .recoveryPaused)
+        XCTAssertEqual(disk.flushedLater, [.recoveryPaused])
+    }
+
+    func testAHoldWithNothingInTheEnginePausesWithoutWaitingForTheDisk() throws {
+        session = makeSession(background: { _, _ in })   // its silence scan never answers
+        _ = leftover(bothStarted)
+        session.recoverLeftovers()
+        engine.finishAll()
+        let disk = try XCTUnwrap(spool.left.first?.handle as? DurableSpoolHandle)
+        startBoth()
+        XCTAssertEqual(disk.events.last, .recoveryPaused)
+        XCTAssertEqual(disk.flushedLater, [.recoveryPaused])
+    }
+
     /// Quitting while a recovery is held pauses it for the next launch (the
     /// new meeting is handled as any quit).
     func testQuittingWhileARecoveryIsHeldPausesItForNextLaunch() {
@@ -1301,6 +1324,8 @@ final class DurableSpoolHandle: MeetingSpoolHandle {
     private(set) var marks: [SpoolFolderMark] = []
     private(set) var folderMarks: Set<SpoolFolderMark> = []
     private(set) var movedTo: URL?
+    /// Events recorded with their flush left to the background.
+    private(set) var flushedLater: [SpoolEvent] = []
     init(_ inner: InMemorySpoolHandle, refuses: @escaping (SpoolEvent) -> Bool = { _ in false },
          marks: Set<SpoolFolderMark> = []) {
         self.inner = inner
@@ -1314,6 +1339,11 @@ final class DurableSpoolHandle: MeetingSpoolHandle {
     func record(_ event: SpoolEvent) -> Bool {
         if !journalFailed, refuses(event) { journalFailed = true }
         return journalFailed ? false : inner.record(event)
+    }
+    func recordFlushingLater(_ event: SpoolEvent) -> Bool {
+        guard record(event) else { return false }
+        flushedLater.append(event)
+        return true
     }
     func sampleCount(of speaker: MeetingSpeaker) -> Int { inner.sampleCount(of: speaker) }
     func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] { try inner.samples(range, of: speaker) }

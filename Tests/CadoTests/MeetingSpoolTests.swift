@@ -789,6 +789,25 @@ final class MeetingSpoolFlushTests: XCTestCase {
         XCTAssertTrue(flushed[0].contains(Self.inode(try XCTUnwrap(h.location).appendingPathComponent(FolderSpoolHandle.eventsName))))
     }
 
+    /// A milestone recorded for a live meeting's sake (#48: a recovery's
+    /// pause as Record Meeting starts) is in the journal at once and flushed
+    /// in the background, even while a 5-second round is still going.
+    func testAMilestoneCanBeFlushedInTheBackground() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        now += 5; h.append([0.1], for: .me)        // a round, still queued
+        XCTAssertEqual(queued.count, 1)
+        XCTAssertTrue(h.recordFlushingLater(.recoveryPaused))
+        XCTAssertTrue(flushed.isEmpty, "Not before it returned")
+        XCTAssertEqual(queued.count, 2, "Queued, not skipped")
+        let events = Self.inode(try XCTUnwrap(h.location).appendingPathComponent(FolderSpoolHandle.eventsName))
+        runQueued()
+        XCTAssertEqual(flushed.count, 2)
+        XCTAssertTrue(flushed[1].contains(events))
+        let reopened = FolderSpoolHandle(meeting: meeting, dir: try XCTUnwrap(h.location), lock: nil)
+        XCTAssertEqual(reopened.readEvents(), [.recoveryPaused])
+    }
+
     /// The real thing, end to end: flushes in the background and the spool keeps working.
     func testTheRealBackgroundFlushRuns() throws {
         var sync = SpoolDiskSync()

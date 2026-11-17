@@ -423,8 +423,21 @@ final class MeetingSession {
 
     /// A clean quit (or hold) during a recovery doesn't count against it
     /// (`.recoveryPaused`); with the journal full, the attempt's mark goes.
-    private func journalPause(_ spool: MeetingSpoolHandle) {
-        if !spool.record(.recoveryPaused) { endAttemptMark(spool) }
+    /// `forLiveMeeting` (a hold): the pause's flush to the disk runs in the
+    /// background (`recordFlushingLater`), so the meeting being recorded is
+    /// never held up by it.
+    ///
+    /// What that costs the crash-loop guard: nothing new. A power cut in the
+    /// few milliseconds before that flush is done loses the pause, as it did
+    /// while the flush ran on main before recording began (the window is the
+    /// flush itself, wherever it runs); the next launch can't tell the two
+    /// meetings' journals apart either way (each spool is folded alone), so
+    /// that attempt counts as stalled only if it got nowhere (no passage
+    /// back, no settled point moved), and it takes two for a give-up, which
+    /// still writes the note and keeps the audio.
+    private func journalPause(_ spool: MeetingSpoolHandle, forLiveMeeting: Bool = false) {
+        let journaled = forLiveMeeting ? spool.recordFlushingLater(.recoveryPaused) : spool.record(.recoveryPaused)
+        if !journaled { endAttemptMark(spool) }
     }
 
     /// Recovers the meetings earlier runs left unfinished (crashed, killed,
@@ -667,7 +680,7 @@ final class MeetingSession {
             // The held recovery's last passage: journaled, then the pause (a chunk boundary).
             recovery.inFlight = nil
             recordResult(result, of: job, recovery)
-            return journalPause(recovery.spool)
+            return journalPause(recovery.spool, forLiveMeeting: true)
         }
         guard let meeting = meeting(id), let job = meeting.inFlight else { return }
         meeting.inFlight = nil
@@ -1027,7 +1040,7 @@ final class MeetingSession {
         Log.info("Meeting recovery: the meeting with \(recovery.appName) waits while a new meeting records.")
         recovery.onHold = true
         held = recovery
-        if recovery.inFlight == nil { journalPause(recovery.spool) }
+        if recovery.inFlight == nil { journalPause(recovery.spool, forLiveMeeting: true) }
         state = .idle
     }
 

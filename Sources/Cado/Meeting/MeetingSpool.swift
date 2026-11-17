@@ -288,6 +288,8 @@ protocol MeetingSpoolHandle: AnyObject {
     func append(_ samples: [Float], for speaker: MeetingSpeaker)
     /// Appends to the journal. True if it's in it (a folder spool: written to the file); false if it couldn't be written (the disk is full, the folder is gone…).
     @discardableResult func record(_ event: SpoolEvent) -> Bool
+    /// `record`, except that a milestone's flush to the disk itself runs in the background instead of before it returns (#48: a recovery paused for a meeting being started mustn't hold that meeting up). In the journal as soon as `record` would be; on the disk itself a moment later (the flush is queued at once, ahead of any spool made after).
+    @discardableResult func recordFlushingLater(_ event: SpoolEvent) -> Bool
     /// First write/record failure, if any (disk full, folder gone…): after it, `samples(_:of:)` may throw and recovery may be incomplete.
     var writeError: Error? { get }
     /// Samples appended so far for one side.
@@ -315,6 +317,9 @@ protocol MeetingSpoolHandle: AnyObject {
 }
 
 extension MeetingSpoolHandle {
+    /// Nothing to flush (memory, fakes): `record`.
+    @discardableResult func recordFlushingLater(_ event: SpoolEvent) -> Bool { record(event) }
+
     /// Renames the folder to say `mark` alone (what it said before goes).
     @discardableResult func mark(_ mark: SpoolFolderMark) -> Bool { setMarks([mark]) }
 
@@ -558,6 +563,7 @@ final class FallbackSpoolHandle: MeetingSpoolHandle {
     }
 
     func record(_ event: SpoolEvent) -> Bool { primary.record(event) }
+    func recordFlushingLater(_ event: SpoolEvent) -> Bool { primary.recordFlushingLater(event) }
 
     func sampleCount(of speaker: MeetingSpeaker) -> Int {
         guard let start = memoryStart[speaker] else { return primary.sampleCount(of: speaker) }
@@ -926,14 +932,27 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         if silent[speaker] == true, samples.contains(where: { $0 != 0 }) { silent[speaker] = false }
     }
 
-    func record(_ event: SpoolEvent) -> Bool {
+    func record(_ event: SpoolEvent) -> Bool { journal(event, flushNow: true) }
+    func recordFlushingLater(_ event: SpoolEvent) -> Bool { journal(event, flushNow: false) }
+
+    private func journal(_ event: SpoolEvent, flushNow: Bool) -> Bool {
         guard var data = try? encoder.encode(event) else { return false }
         data.append(0x0A)
         guard let out = output(Self.eventsName) else { return false }
         if out.handle != nil, !endsWithNewline(out.url) { data.insert(0x0A, at: 0) }   // a torn line from a crash
         guard write(data, to: out) else { return false }
-        if event.isMilestone { syncIfDue(now: true) }
+        if event.isMilestone { flushNow ? syncIfDue(now: true) : flushSoon() }
         return true
+    }
+
+    /// A milestone's flush, queued now in the background on `dup`s of the
+    /// open files (as the 5-second round), even while a round is going: that
+    /// one may have started before this write.
+    private func flushSoon() {
+        let copies = outputs.values.compactMap { $0.handle?.fileDescriptor }.map { dup($0) }.filter { $0 >= 0 }
+        guard !copies.isEmpty else { return }
+        lastSync = diskSync.clock()
+        diskSync.flushInBackground(copies)
     }
 
     private var checkedEventsTail = false
