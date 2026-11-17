@@ -2,6 +2,11 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
+## Unreleased
+
+### Changed
+- A hand-made WhisperKit model folder with a damaged tokenizer file is refused instead of making Cado download a replacement.
+
 ## 0.3.0 - 2026-11-17
 
 ### Added

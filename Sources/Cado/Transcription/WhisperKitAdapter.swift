@@ -34,12 +34,13 @@ final class WhisperKitAdapter: TranscriptionAdapter {
     private let pipe: Unchecked<WhisperKit>
     private let options: DecodingOptions
 
-    init(modelFolder: String, language: String) throws {
+    /// `verifyTokenizer` runs before WhisperKit sees the folder (a seam for tests).
+    init(modelFolder: String, language: String,
+         verifyTokenizer: (URL) throws -> Void = { try WhisperKitLocalTokenizer.verify(folder: $0) }) throws {
         let folder = URL(fileURLWithPath: modelFolder, isDirectory: true)
-        // WhisperKit falls back to downloading a tokenizer it can't find locally.
-        guard FileManager.default.fileExists(atPath: folder.appendingPathComponent("tokenizer.json").path) else {
-            throw TranscriptionError.modelLoadFailed(path: modelFolder)
-        }
+        // WhisperKit falls back to downloading a tokenizer whose local load fails
+        // (F-07): parse it ourselves first and refuse the model if it doesn't.
+        try verifyTokenizer(folder)
         let start = Date()
         do {
             pipe = try Self.blocking(timeout: Self.loadTimeout) {
