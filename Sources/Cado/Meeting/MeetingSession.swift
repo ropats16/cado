@@ -337,7 +337,7 @@ final class MeetingSession {
         let startDate = date()
         let spool = makeSpool(SpooledMeeting(id: UUID(), appName: app.name, appBundleID: app.bundleID,
                                              startDate: startDate))
-        let cap = maxSeconds().flatMap { $0 > 0 ? $0 : nil } ?? MeetingLimit.backstopSeconds
+        let cap = MeetingLimit.cap(seconds: maxSeconds())
         let streams = recorder.streams(for: app, maxSeconds: cap)
         let meeting = Meeting(id: id, appName: app.name, startedAt: clock.now, startDate: startDate, spool: spool,
                               me: streams.me, them: streams.them)

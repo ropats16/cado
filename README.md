@@ -280,7 +280,7 @@ and says why).
   Webex, Discord, FaceTime, or a browser for Meet): it's picked for you and
   named in the menu. Several (e.g. Zoom and Chrome): pick one from the
   submenu. None: the submenu says so and lists the other apps playing audio.
-- **Or press ⌃⌥M** (the meeting hotkey; change it in **Settings → Meetings →
+- **Or press ⌃⌥M** (the meeting hotkey, with M being the key in the M position on a US keyboard; Settings shows the letter for your layout; change it in **Settings → Meetings →
   Hotkey**) to start, and again to stop. It records the meeting app
   that's on a call (using the microphone), else the one meeting app running;
   with several to choose from, it opens the avocado menu. **Record Meeting** /
@@ -493,7 +493,7 @@ opens the Settings tab with that hotkey (Dictation, or Meetings for `meetingHotk
 | `modelIdleMinutes`    | Idle minutes before unloading, when not kept warm (default 5). |
 | `hold`                | The hold-to-talk hotkey (see above).                |
 | `toggle`              | The press-to-start / press-to-stop hotkey.          |
-| `meetingHotkey`       | Starts or stops a meeting recording (default ⌃⌥M: `{"keyCode": 46, "modifiers": ["control", "option"]}`). |
+| `meetingHotkey`       | Starts or stops a meeting recording (default ⌃⌥M, the key in the M position on a US keyboard: `{"keyCode": 46, "modifiers": ["control", "option"]}`). |
 | `cancelKeyCode`       | Key that cancels a recording (default 53 = Esc).    |
 | `maxRecordingSeconds` | Auto-stop after this many seconds (default 600; `0` = no limit, capped at 30 min). |
 | `trailingSpace`       | Add a space after each dictation (default off).     |
@@ -507,7 +507,7 @@ opens the Settings tab with that hotkey (Dictation, or Meetings for `meetingHotk
 | `dictationHistory`    | Keep the last 10 dictations for **Recent Dictations** in the menu (default `false`). |
 | `keepMeetingAudio`    | Keep a meeting's audio after its note is saved (default `false`: deleted). |
 | `meetingDetection`    | Ask "Record this meeting?" / "Stop recording?" when a meeting app starts or stops using the mic (default `true`; macOS 14.4+). Never records by itself. |
-| `maxMeetingMinutes`   | A meeting stops by itself after this many minutes (default `120`; `0` = Off, which still stops after 24 hours). |
+| `maxMeetingMinutes`   | A meeting stops by itself after this many minutes (default `120`; `0` = Off; more than `1440` counts as 1440, so a meeting always stops after 24 hours). |
 | `meetingConsentShown` | The one-time recording-consent reminder was acknowledged (default `false`). |
 
 ---

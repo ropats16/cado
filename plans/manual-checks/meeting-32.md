@@ -99,3 +99,7 @@ macOS 14.4 or later. Watch the log: `log stream --predicate 'process == "Cado"'`
     "1 min (custom)". Set Off → a 3-minute recording isn't stopped.
 12. **Energy.** Activity Monitor › Energy with detection on and no call for a
     few minutes: Cado's impact stays near zero.
+
+## Added in review fixes
+- Mascot asking "Record this meeting?": let it time out (2 min) and click the spot right after it vanishes: no dictation starts.
+- On a non-US layout (e.g. French AZERTY; add it, never change your current one without wanting to): Settings › Meetings shows the letter for that layout on the default hotkey, and it still fires on the same physical key.

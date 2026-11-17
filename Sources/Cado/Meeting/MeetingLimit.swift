@@ -16,6 +16,13 @@ enum MeetingLimit {
         minutes > 0 ? minutes * 60 : nil
     }
 
+    /// The cap a meeting runs under: the setting (nil or <= 0 = Off), never
+    /// past the backstop (a hand-edited huge value would skip it).
+    static func cap(seconds: TimeInterval?) -> TimeInterval {
+        guard let seconds, seconds > 0 else { return backstopSeconds }
+        return min(seconds, backstopSeconds)
+    }
+
     /// "30 min", "1 hour", "2 hours", "90 min", or "Off" for `<= 0`.
     static func label(_ minutes: Double) -> String {
         guard minutes > 0 else { return "Off" }

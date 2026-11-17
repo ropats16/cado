@@ -45,4 +45,11 @@ final class MeetingLimitTests: XCTestCase {
         XCTAssertTrue(round.meetingConsentShown)
         XCTAssertEqual(round.meetingHotkey, edited.meetingHotkey)
     }
+
+    func testCapNeverPassesTheBackstop() {
+        XCTAssertEqual(MeetingLimit.cap(seconds: 3600), 3600)
+        XCTAssertEqual(MeetingLimit.cap(seconds: nil), MeetingLimit.backstopSeconds)
+        XCTAssertEqual(MeetingLimit.cap(seconds: 0), MeetingLimit.backstopSeconds)
+        XCTAssertEqual(MeetingLimit.cap(seconds: 999_999), MeetingLimit.backstopSeconds)
+    }
 }

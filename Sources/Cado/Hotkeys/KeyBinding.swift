@@ -192,6 +192,32 @@ struct KeyBinding: Codable, Equatable {
         keyCode == other.keyCode && chordModifiers == other.chordModifiers
     }
 
+    /// Whether one press could trigger both bindings: modifiers are matched
+    /// with "contains", so a binding fires whenever its modifiers are among
+    /// those held (a ⌃⇧ hold starts on the way to ⌃⇧M; ⌃M also passes ⌃⌥M).
+    /// Two keys on different key codes never overlap, nor do two sided
+    /// modifier keys. Includes identical chords.
+    func overlaps(_ other: KeyBinding) -> Bool {
+        // A single modifier key's modifier comes from its key code.
+        func mods(_ x: KeyBinding) -> Set<Modifier> {
+            if case .singleModifier(let k) = x.form { return [k.modifier] }
+            return Set(x.resolvedModifiers)
+        }
+        func isKey(_ x: KeyBinding) -> Bool { if case .key = x.form { return true } else { return false } }
+        func isSingle(_ x: KeyBinding) -> Bool { if case .singleModifier = x.form { return true } else { return false } }
+        if isUnmatchable || other.isUnmatchable { return false }
+        if isSameChord(as: other) { return true }
+        let (a, b) = (mods(self), mods(other))
+        switch (isKey(self), isKey(other)) {
+        case (true, true): return keyCode == other.keyCode && (a.isSubset(of: b) || b.isSubset(of: a))
+        case (true, false): return !b.isEmpty && b.isSubset(of: a)
+        case (false, true): return !a.isEmpty && a.isSubset(of: b)
+        case (false, false):
+            if isSingle(self), isSingle(other) { return false }
+            return a.isSubset(of: b) || b.isSubset(of: a)
+        }
+    }
+
     /// Canonical names for recognised modifiers, lowercased raw names otherwise,
     /// so two bindings with the same typo still compare equal.
     private var chordModifiers: Set<String> {
@@ -216,12 +242,16 @@ extension KeyBinding: CustomStringConvertible {
         switch keyCode {
         case spaceKeyCode: return "Space"
         case escapeKeyCode: return "Esc"
-        default: return letterKeys[keyCode] ?? "key\(keyCode)"
+        default: return keyLabel(keyCode) ?? letterKeys[keyCode] ?? "key\(keyCode)"
         }
     }
 
-    /// Letter and digit keys by key code, as printed on a US keyboard (key
-    /// codes are positions, so another layout may label the key otherwise).
+    /// What the current keyboard layout prints on a key code; tests swap it
+    /// to simulate another layout. Main thread.
+    nonisolated(unsafe) static var keyLabel: (Int) -> String? = KeyboardLayoutLabel.current
+
+    /// Letter and digit keys by key code, as printed on a US keyboard: the
+    /// fallback when the current layout can't say.
     private static let letterKeys: [Int: String] = [
         0: "A", 11: "B", 8: "C", 2: "D", 14: "E", 3: "F", 5: "G", 4: "H", 34: "I", 38: "J", 40: "K",
         37: "L", 46: "M", 45: "N", 31: "O", 35: "P", 12: "Q", 15: "R", 1: "S", 17: "T", 32: "U", 9: "V",

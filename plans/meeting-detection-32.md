@@ -30,7 +30,7 @@ filtering browsers out is one check in `MicUsers.meetingApps`.
   unanswered "Record?" is withdrawn after 2 min.
 - **Meeting hotkey ⌃⌥M:** same modifiers as the toggle (⌃⌥Space), M for
   meeting; not a macOS default nor used by Zoom/Teams/Meet/Slack; types
-  nothing. Letter names are US-layout positions.
+  nothing. Default is the key in the M position on a US keyboard; Settings shows the letter for the current layout (key codes stay stored).
 - **Mascot:** plain click keeps its dictation meaning when resting/listening;
   on the meeting mascot it stops the meeting; on the asking mascot it records.
   Its right-click / Control-click menu (#45: Hide Mascot, Settings…) leads

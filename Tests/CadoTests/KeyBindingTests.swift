@@ -112,6 +112,46 @@ final class KeyBindingTests: XCTestCase {
                      "Left Option must not pertain to Right Option")
     }
 
+    // MARK: - Layout labels
+
+    func testLabelFollowsTheCurrentLayout() {
+        let saved = KeyBinding.keyLabel
+        defer { KeyBinding.keyLabel = saved }
+        KeyBinding.keyLabel = { $0 == 46 ? "," : nil }   // AZERTY: the M position prints ","
+        XCTAssertEqual(KeyBinding.controlOptionM.description, "⌃⌥,")
+        XCTAssertEqual(KeyBinding(keyCode: 36, modifiers: []).description, "key36")
+        XCTAssertEqual(KeyBinding(keyCode: 0, modifiers: ["control"]).description, "⌃A", "falls back to the US table")
+        XCTAssertEqual(KeyBinding.controlOptionSpace.description, "⌃⌥Space")
+    }
+
+    func testPrintableLabels() {
+        XCTAssertEqual(KeyboardLayoutLabel.printable("m"), "M")
+        XCTAssertEqual(KeyboardLayoutLabel.printable(","), ",")
+        XCTAssertNil(KeyboardLayoutLabel.printable("\r"))
+        XCTAssertNil(KeyboardLayoutLabel.printable(" "))
+        XCTAssertNil(KeyboardLayoutLabel.printable(""))
+    }
+
+    func testRealLayoutGivesSomeLabelForLetterKeys() {
+        XCTAssertNotNil(KeyboardLayoutLabel.current(46), "the layout lookup works on this machine")
+    }
+
+    // MARK: - Overlap
+
+    func testOverlaps() {
+        let hold = KeyBinding.controlShift
+        let m = KeyBinding(keyCode: 46, modifiers: ["control", "shift"])
+        XCTAssertTrue(hold.overlaps(m), "⌃⇧ is held on the way to ⌃⇧M")
+        XCTAssertTrue(m.overlaps(hold))
+        XCTAssertFalse(KeyBinding.controlShift.overlaps(.controlOptionM))
+        XCTAssertTrue(KeyBinding(keyCode: 46, modifiers: ["control"]).overlaps(.controlOptionM), "⌃⌥M also holds ⌃")
+        XCTAssertFalse(KeyBinding(keyCode: 45, modifiers: ["control"]).overlaps(.controlOptionM), "other key")
+        XCTAssertTrue(KeyBinding.rightOption.overlaps(.controlOptionM), "an ⌥ press is part of ⌃⌥M")
+        XCTAssertFalse(KeyBinding.rightOption.overlaps(KeyBinding(keyCode: 58, modifiers: [])), "two sides")
+        XCTAssertTrue(KeyBinding.rightOption.overlaps(KeyBinding(keyCode: -1, modifiers: ["option", "shift"])))
+        XCTAssertFalse(KeyBinding(keyCode: -1, modifiers: []).overlaps(.controlShift))
+    }
+
     // MARK: - Description
 
     func testDescriptions() {
