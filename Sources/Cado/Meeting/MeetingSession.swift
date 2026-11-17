@@ -674,15 +674,16 @@ final class MeetingSession {
         if case .success(let passage) = result {
             let language = meeting.spool.meeting.language
             if PassageLanguage.remembers(meetingLanguage: language, duration: job.duration),
-               let detected = passage.transcript.language {
+               passage.detected, let detected = passage.transcript.language {
                 meeting.side(job.speaker).lastLanguage = detected
-            }
-            if passage.onFallbackModel, !meeting.ranOnFallbackModel {
-                meeting.ranOnFallbackModel = true
-                meeting.spool.record(.ranOnFallbackModel)   // if this fails, only a recovered note misses the line
             }
         }
         recordResult(result.map(\.transcript), of: job, meeting)
+        // After the passage's own result: a crash between would otherwise redo it, maybe on the proper model, with the line.
+        if case .success(let passage) = result, passage.onFallbackModel, !meeting.ranOnFallbackModel {
+            meeting.ranOnFallbackModel = true
+            meeting.spool.record(.ranOnFallbackModel)   // if this fails, only a recovered note misses the line
+        }
         submitNext(meeting)
         completeIfDone(meeting)
     }

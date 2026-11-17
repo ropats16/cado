@@ -117,6 +117,7 @@ final class MeetingPassageLanguageTests: XCTestCase {
         private(set) var jobs: [MeetingPassageJob] = []
         var detected: String? = "hi"
         var fallback = false
+        var wasDetected = true
         private var pending: [(Result<MeetingPassage, Error>) -> Void] = []
         func prewarm() {}
         func endPrewarm() {}
@@ -131,7 +132,7 @@ final class MeetingPassageLanguageTests: XCTestCase {
         func finishAll() { while !pending.isEmpty { finishOne() } }
         func finishOne() {
             let transcript = Transcript(segments: [.init(text: " हाँ", start: 0.1, end: 0.3)], language: detected)
-            pending.removeFirst()(.success(MeetingPassage(transcript: transcript, onFallbackModel: fallback)))
+            pending.removeFirst()(.success(MeetingPassage(transcript: transcript, onFallbackModel: fallback, detected: wasDetected)))
         }
     }
 
@@ -214,6 +215,23 @@ final class MeetingPassageLanguageTests: XCTestCase {
         engine.finishAll()
         XCTAssertEqual(notes.saved.count, 1)
         XCTAssertTrue(notes.saved[0].body.contains(caveat), notes.saved[0].body)
+    }
+
+    func testTheFallbackLineIsJournaledAfterThePassagesOwnResult() {
+        engine.fallback = true
+        record(longThenShort(), finish: false)
+        engine.finishOne()
+        let events = spool.last!.events
+        let fallback = events.firstIndex(of: .ranOnFallbackModel)
+        let transcribed = events.firstIndex { if case .transcribed = $0 { return true } else { return false } }
+        XCTAssertNotNil(transcribed)
+        XCTAssertLessThan(try XCTUnwrap(transcribed), try XCTUnwrap(fallback))
+    }
+
+    func testALanguageTheModelWasToldIsNotRememberedAsDetected() {
+        engine.wasDetected = false
+        record(longThenShort())
+        XCTAssertEqual(engine.jobs.map(\.hint), [nil, nil], "Nothing was detected, so nothing to hint")
     }
 
     func testWithoutAFallbackTheNoteSaysNothingOfIt() {
@@ -475,6 +493,43 @@ final class MeetingModelRouterTests: XCTestCase {
         XCTAssertEqual(result?.onFallbackModel, false, "It writes Hindi: nothing to warn about")
     }
 
+    func testOnlyAPassageThatDetectedItsLanguageSaysSo() {
+        // English-only dictation model standing in for an auto-detect meeting: "en" was forced, not detected.
+        choice = .own(spec("auto"), installed: false)
+        XCTAssertEqual(passage()?.detected, false, "Forced to English by the model")
+        choice = .own(spec("auto"), installed: true)
+        XCTAssertEqual(passage()?.detected, true, "The meeting model detects")
+        XCTAssertEqual(passage(hint: "hi")?.detected, false, "Told Hindi by the hint")
+        choice = .dictation
+        XCTAssertEqual(passage("en")?.detected, false, "Its own language")
+    }
+
+    func testAPassageOnTheDictationEngineLeavesADictationsHoldAlone() {
+        makeRouter(dictationIdleUnload: 0.1)
+        dictation.prewarm()   // the user started a dictation during the meeting's tail
+        XCTAssertEqual(run("en"), "dictation")   // a passage on the same engine
+        router.endPrewarm()   // the router took no hold
+        let idle = expectation(description: "idle")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { idle.fulfill() }
+        wait(for: [idle], timeout: 2)
+        XCTAssertEqual(run("en"), "dictation")
+        XCTAssertEqual(dictationLoads, 1, "Still held: never unloaded and reloaded")
+    }
+
+    func testAFailureReasonIsNotTheLastModelsReason() {
+        failing = ["auto"]
+        choice = .own(spec("auto"), installed: true)
+        XCTAssertEqual(run(), "dictation")
+        let first = router.failure(for: spec("auto"))
+        XCTAssertNotNil(first)
+        failing = ["hi"]
+        let other = ModelSpec(path: "/nonexistent/other.bin", sha256: nil, language: "hi")
+        choice = .own(other, installed: true)
+        settle()
+        XCTAssertEqual(run("hi", meeting: meeting2), "dictation")
+        XCTAssertNotNil(router.failure(for: other))
+    }
+
     func testAMeetingModelThatWontLoadIsTriedOncePerMeeting() {
         failing = ["auto"]
         choice = .own(spec("auto"), installed: true)
@@ -539,13 +594,37 @@ final class MeetingModelRouterTests: XCTestCase {
     }
 
     func testTheAppsMeetingModelIsLetGoSoonAfterTheMeeting() throws {
-        XCTAssertEqual(MeetingModelRouter.idleUnloadAfter, 120)
-        let router = MeetingModelRouter(dictation: dictation, options: EngineOptions()) { _ in
-            .own(ModelSpec(path: "/nonexistent/ggml-small-q5_1.bin", sha256: nil, language: "auto"), installed: true)
+        XCTAssertEqual(MeetingModelRouter.idleUnloadAfter, 120, "What the app uses")
+        // The app's init (registered engines), with a short delay: the meeting engine unloads, the dictation one stays.
+        let freed = expectation(description: "meeting model unloaded")
+        final class Tracked: TranscriptionAdapter {
+            let freed: XCTestExpectation
+            init(_ freed: XCTestExpectation) { self.freed = freed }
+            deinit { freed.fulfill() }
+            func transcribe(samples: [Float]) throws -> [Transcript.Segment] { [.init(text: "meeting", start: 0, end: 1)] }
         }
-        _ = router.engine(for: "auto")
-        XCTAssertEqual(try XCTUnwrap(router.meetingEngine).idleUnloadAfter, 120,
-                       "The convenience init's engine unloads after idleUnloadAfter")
+        struct Fake: EngineDescriptor {
+            let freed: XCTestExpectation
+            let kind = EngineKind.whisperKit
+            let acknowledgement = "Fake engine, for tests."
+            func resolve(_ choice: ModelChoice, in context: ModelContext) -> ModelSpec {
+                ModelSpec(path: context.modelsDir.path, sha256: nil, language: context.language, engine: kind)
+            }
+            func makeAdapter(_ options: EngineOptions) -> (ModelSpec) throws -> TranscriptionAdapter {
+                { _ in Tracked(freed) }
+            }
+        }
+        let meetingModel = ModelSpec(path: meetingFile.path, sha256: nil, language: "auto", engine: .whisperKit)
+        let app = MeetingModelRouter(dictation: dictation, options: EngineOptions(),
+                                     engines: EngineRegistry([WhisperEngine(), Fake(freed: freed)]), idleUnloadAfter: 0.1) { _ in
+            .own(meetingModel, installed: true)
+        }
+        let done = expectation(description: "passage")
+        app.transcribe([0.1], passage: MeetingPassageJob(meeting: nil, language: "auto")) { _ in done.fulfill() }
+        wait(for: [done], timeout: 5)
+        XCTAssertNotNil(app.meetingEngine)
+        wait(for: [freed], timeout: 5)   // after its idle delay, through the app's init
+        XCTAssertEqual(dictation.status, .ready, "The dictation model isn't the meeting's to unload")
     }
 }
 

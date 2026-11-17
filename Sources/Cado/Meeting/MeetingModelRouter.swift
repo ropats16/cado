@@ -25,8 +25,12 @@ import Foundation
 ///   its file, tries again. `failure(for:)` tells Settings, `onChange` when
 ///   to ask again.
 ///
-/// Jobs for the two engines run on their own queues, so a dictation during
-/// a meeting's transcription no longer waits for a passage. Main-thread only.
+/// Jobs for the meeting's own engine run on its own queue, so a dictation
+/// doesn't wait for them. A passage on the dictation engine (the dictation
+/// model decodes the meeting's language, or the fallback) shares its queue:
+/// a dictation then waits for at most the passage being decoded. Holds are
+/// counted per engine, so a passage ends only the hold its own prewarm
+/// took. Main-thread only.
 final class MeetingModelRouter: MeetingEngine {
     /// How long the meeting model stays loaded after its last job.
     static let idleUnloadAfter: TimeInterval = 120
@@ -69,13 +73,16 @@ final class MeetingModelRouter: MeetingEngine {
 
     /// The app's: the meeting model loads through the registered engines,
     /// with `options`, unloaded `idleUnloadAfter` after its last job.
-    convenience init(dictation: TranscriptionEngine, options: EngineOptions,
+    convenience init(dictation: TranscriptionEngine, options: EngineOptions, engines: EngineRegistry = .shared,
+                     idleUnloadAfter: TimeInterval = MeetingModelRouter.idleUnloadAfter,
                      choose: @escaping (String?) -> MeetingModel.Choice) {
-        self.init(dictation: dictation, choose: choose, makeEngine: Self.registered(options: options))
+        self.init(dictation: dictation, choose: choose,
+                  makeEngine: Self.registered(options: options, engines: engines, idleUnloadAfter: idleUnloadAfter))
     }
 
     /// The convenience init's engine factory (a seam for its test).
-    static func registered(options: EngineOptions, engines: EngineRegistry = .shared)
+    static func registered(options: EngineOptions, engines: EngineRegistry = .shared,
+                           idleUnloadAfter: TimeInterval = MeetingModelRouter.idleUnloadAfter)
         -> (ModelSpec) -> TranscriptionEngine {
         { spec in .registered(model: spec, options: options, engines: engines, idleUnloadAfter: idleUnloadAfter) }
     }
@@ -99,7 +106,7 @@ final class MeetingModelRouter: MeetingEngine {
     }
 
     func endPrewarm() {
-        (prewarmed ?? dictation).endPrewarm()
+        prewarmed?.endPrewarm()   // only the hold this router took
         prewarmed = nil
     }
 
@@ -117,16 +124,18 @@ final class MeetingModelRouter: MeetingEngine {
                     completion: @escaping (Result<MeetingPassage, Error>) -> Void) {
         if let id = passage.meeting, id != currentMeeting {
             currentMeeting = id
+            loggedFallback = nil   // a fallback is logged once per meeting
             retryFailedModels()
         }
         let route = route(passage.language, hint: passage.hint)
         // The job ends the hold on whichever engine it runs; one prewarmed
         // elsewhere (the choice changed since) is let go here.
-        if let held = prewarmed, held !== route.engine { held.endPrewarm() }
+        let ownsHold = prewarmed === route.engine
+        if let held = prewarmed, !ownsHold { held.endPrewarm() }
         prewarmed = nil
-        route.engine.run(samples, language: route.language) { [weak self] result, ranOn in
+        route.engine.run(samples, language: route.language, releasesHold: ownsHold) { [weak self] result, ranOn in
             DispatchQueue.main.async {
-                guard let self else { return completion(result.map { MeetingPassage(transcript: $0) }) }
+                guard let self else { return completion(result.map { MeetingPassage(transcript: $0, detected: false) }) }
                 self.finished(samples, passage, route, result, ranOn: ranOn, completion: completion)
             }
         }
@@ -204,15 +213,26 @@ final class MeetingModelRouter: MeetingEngine {
         // passage is redone on the dictation model rather than lost or
         // wrong, and the meeting's later ones go there directly.
         if let spec = first.own, ranOn != spec {
-            markFailed(spec, reason: lastFailureReason ?? Self.reason(result))
+            let reason = lastFailureReason ?? Self.reason(result)
+            lastFailureReason = nil   // this failure's; the next one brings its own
+            markFailed(spec, reason: reason)
             let redo = route(passage.language, hint: passage.hint)
-            return redo.engine.run(samples, language: redo.language) { result, _ in
+            return redo.engine.run(samples, language: redo.language, releasesHold: false) { result, _ in
                 DispatchQueue.main.async {
-                    completion(result.map { MeetingPassage(transcript: $0, onFallbackModel: redo.onFallbackModel) })
+                    completion(result.map {
+                        MeetingPassage(transcript: $0, onFallbackModel: redo.onFallbackModel, detected: self.detects(redo))
+                    })
                 }
             }
         }
-        completion(result.map { MeetingPassage(transcript: $0, onFallbackModel: first.onFallbackModel) })
+        completion(result.map { MeetingPassage(transcript: $0, onFallbackModel: first.onFallbackModel, detected: detects(first)) })
+    }
+
+    /// Whether the route's job detected its language (it was decoded under
+    /// auto-detect), as opposed to being told it: a forced language comes
+    /// back from the engine as if it were detected.
+    private func detects(_ route: Route) -> Bool {
+        (route.language ?? (route.own ?? route.engine.model).language) == ModelSpec.autoDetect
     }
 
     /// The meeting engine's last `.failed` reason, for `failure(for:)`.
@@ -222,8 +242,8 @@ final class MeetingModelRouter: MeetingEngine {
         if case .failed(let reason) = status {
             lastFailureReason = reason
             if let requested { markFailed(requested, reason: reason) }
-        } else if status == .loading || status == .verifying {
-            lastFailureReason = nil
+        } else {
+            lastFailureReason = nil   // any other status: the failure is over (or never was this model's)
         }
         onChange?()
     }

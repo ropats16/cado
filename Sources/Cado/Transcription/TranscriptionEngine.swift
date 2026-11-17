@@ -108,9 +108,12 @@ final class TranscriptionEngine: @unchecked Sendable {
     private var loadedSpec: ModelSpec?
     /// Set while the model is unloaded for idleness: what the next job reloads.
     private var idleSpec: ModelSpec?
-    /// Set by `prewarm()` until the next job (or `endPrewarm()`): a recording
-    /// is under way, so the model must not be unloaded however long it runs.
-    private var isHeld = false
+    /// Holds taken by `prewarm()`, each ended by the job it expected (or
+    /// `endPrewarm()`): while any is open a recording is under way, so the
+    /// model must not be unloaded however long it runs. A count, so a job
+    /// or release belonging to one holder never ends another's (a meeting's
+    /// passage never ends the hold of a dictation started in its tail).
+    private var holds = 0
     /// Bumped by every job and load; an idle timer only fires if it's unchanged.
     private var activity = 0
 
@@ -205,11 +208,11 @@ final class TranscriptionEngine: @unchecked Sendable {
 
     /// A job is coming (a recording started): reload an idle-unloaded model now
     /// so it's ready when the audio arrives, and keep it loaded — however long
-    /// the recording runs — until the next job is submitted or `endPrewarm()`.
+    /// the recording runs — until its job finishes or `endPrewarm()`.
     func prewarm() {
         queue.async { [self] in
             reloadIfIdle(warmUp: true)
-            isHeld = true
+            holds += 1
             noteActivity()
         }
     }
@@ -218,7 +221,7 @@ final class TranscriptionEngine: @unchecked Sendable {
     /// discarded): the idle clock runs again.
     func endPrewarm() {
         queue.async { [self] in
-            isHeld = false
+            holds = max(0, holds - 1)
             noteActivity()
         }
     }
@@ -247,7 +250,9 @@ final class TranscriptionEngine: @unchecked Sendable {
     /// so a meeting in another language can share the loaded model (#47).
     /// `completion` (on the engine's queue) also gets the model the job ran
     /// on: nil when none was loaded, the previous one after a failed switch.
-    func run(_ samples: [Float], language: String?,
+    /// The job ends one `prewarm()` hold when it finishes, unless
+    /// `releasesHold` is false (it isn't the job the hold was for).
+    func run(_ samples: [Float], language: String?, releasesHold: Bool = true,
              completion: @escaping (Result<Transcript, Error>, ModelSpec?) -> Void) {
         queue.async { [self] in
             reloadIfIdle(warmUp: false)   // the job itself pays the first-run costs
@@ -258,7 +263,7 @@ final class TranscriptionEngine: @unchecked Sendable {
                 result = .failure(TranscriptionError.modelNotLoaded)
             }
             let ranOn = adapter == nil ? nil : loadedSpec
-            isHeld = false
+            if releasesHold { holds = max(0, holds - 1) }
             noteActivity()
             completion(result, ranOn)
         }
@@ -377,7 +382,7 @@ final class TranscriptionEngine: @unchecked Sendable {
         guard let delay = lock.withLock({ _idleUnloadAfter }) else { return }
         let mark = activity
         queue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, self.activity == mark, !self.isHeld, self.adapter != nil,
+            guard let self, self.activity == mark, self.holds == 0, self.adapter != nil,
                   self.lock.withLock({ self._idleUnloadAfter }) != nil else { return }
             let spec = self.loadedSpec
             self.unload()

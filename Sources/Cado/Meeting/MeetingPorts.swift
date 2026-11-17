@@ -72,6 +72,9 @@ struct MeetingPassage: Equatable {
     /// (not downloaded, didn't load), and that model can't write the
     /// meeting's (non-English) language: the note says so.
     var onFallbackModel = false
+    /// The transcript's language was detected by the model (decoded under
+    /// auto-detect), not given to it: only then is it worth remembering.
+    var detected = true
 }
 
 extension MeetingEngine {
