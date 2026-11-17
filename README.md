@@ -507,12 +507,17 @@ file.
 | `huggingface.co` | `make setup` (`scripts/download_model.sh`) and the other `scripts/download_*_model.sh` scripts | Downloads whisper.cpp model files (and the VAD model for benchmarks), WhisperKit and Parakeet model folders. Each file is checked against a pinned SHA-256; WhisperKit/Parakeet files are also pinned to one repo commit. | You run the script |
 | `huggingface.co` | In the app, only when you click **Download** in Settings › Model | Downloads whisper.cpp model files (from the same place as `make model`, pinned by SHA-256 only, like the script) and WhisperKit/Parakeet model files (pinned by commit and SHA-256), each verified before use. A plain file request: no cookies, no account. | Yes, per click |
 | Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
-| `github.com` | Release builds of the app: about once a day while Cado runs, and when you choose **Check for Updates…** in the menu (or **Check Now** in Settings › Updates) | Fetches the update feed, `github.com/ropats16/cado/releases/latest/download/appcast.xml` ([Sparkle](https://sparkle-project.org)). If there's a newer version, Cado asks before installing it (unless you tick "Automatically download and install updates" in that prompt), then downloads its DMG from the same GitHub release (served via GitHub's `objects.githubusercontent.com`); the download must match the release's Ed25519 signature and Cado's code signature, or it's discarded. No system profile or identifier is sent (just a normal HTTPS request, with Cado's version in the User-Agent). Builds made with `make install`/`make package` never check. | On by default; turn off **Automatically check for updates** in Settings › Updates |
-| `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Help count Cado's users** (onboarding, or Settings › Usage Count) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. | Yes, **off by default** |
+| `github.com` | Release builds of the app: about once a day while Cado runs, and when you choose **Check for Updates…** in the menu (or **Check Now** in Settings › Updates) | Fetches the update feed, `github.com/ropats16/cado/releases/latest/download/appcast.xml` ([Sparkle](https://sparkle-project.org)). If there's a newer version, Cado asks before installing it (unless you tick "Automatically download and install updates" in that prompt), then downloads its DMG from the same GitHub release (GitHub redirects both the feed and the DMG to `release-assets.githubusercontent.com`); the download must match the release's Ed25519 signature and Cado's code signature, or it's discarded. No system profile or identifier is sent (just a normal HTTPS request, with Cado's version in the User-Agent). Builds made with `make install`/`make package` never check. | On by default; turn off **Automatically check for updates** in Settings › Updates |
+| `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Help count Cado's users** (onboarding, or Settings › Usage Count) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. Only sent by a build with a TelemetryDeck app ID; Cado 0.1.0 has none, so this switch sends nothing yet. | Yes, **off by default** |
 
-Downloads from `huggingface.co` may be redirected to Hugging Face's CDN. The
-speech libraries Cado uses (WhisperKit, FluidAudio) are set up never to
-download anything on their own; they only load model folders already on disk.
+Downloads from `huggingface.co` are mostly redirected to Hugging Face's CDN
+(`*.hf.co`, e.g. `us.aws.cdn.hf.co`; the host varies by region). The speech
+libraries Cado uses (WhisperKit, FluidAudio) are set up never to download
+anything on their own; they only load model folders already on disk. One
+exception: WhisperKit fetches a tokenizer from `huggingface.co` if a model
+folder's own `tokenizer.json` can't be read. Cado checks a downloaded model's
+files against their pins before loading it, so only a model folder you made
+yourself could hit that.
 
 **Building from source and developer tools** (not the app) also use the network:
 
