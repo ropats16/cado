@@ -8,6 +8,8 @@ and the Claude Code CLI. No audio or text is ever sent to the internet; the
 only network use is downloading models and a daily update check you can turn
 off (see [Privacy](#privacy)).
 
+> **Website:** <https://ropats16.github.io/cado/>
+>
 > **Install:** download the latest `Cado-<version>.dmg` from
 > [Releases](https://github.com/ropats16/cado/releases/latest), open it and
 > drag Cado to Applications. Or with Homebrew:
