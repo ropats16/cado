@@ -26,8 +26,13 @@ struct LibraryDetailView: View {
             }
         }
         .tint(Brand.Palette.accentText)   // links
-        // A note can come from anywhere: only web and mail links open (#27).
-        .environment(\.openURL, OpenURLAction { NoteLinkPolicy.opens($0) ? .systemAction : .discarded })
+        .noteLinks(linkAction)   // on the root: header, notices, turns, blocks
+    }
+
+    /// Every link click in the pane: a note can come from anywhere, so only
+    /// web and mail links open (#27, `LibraryViewModel.openLink`).
+    var linkAction: OpenURLAction {
+        OpenURLAction { [viewModel] url in viewModel.openLink(url) ? .handled : .discarded }
     }
 
     private func note(_ reading: NoteReading) -> some View {
@@ -110,6 +115,11 @@ struct LibraryDetailView: View {
         Label(text, systemImage: symbol)
             .font(Brand.Typography.body).foregroundStyle(Brand.Palette.inkSecondary)
     }
+}
+
+extension View {
+    /// Routes link clicks in this subtree through `action` (#27).
+    func noteLinks(_ action: OpenURLAction) -> some View { environment(\.openURL, action) }
 }
 
 private extension MarkdownBlock {

@@ -448,6 +448,21 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(vm.inProgress?.app, "Teams")
     }
 
+    // MARK: links (#27)
+
+    func testTheDetailPaneOpensOnlyWebAndMailLinks() async throws {
+        // The action the detail pane installs as `openURL` for everything in
+        // it (header, notices, turns, blocks): a disallowed scheme never
+        // reaches the opener, an allowed one goes through it, not the system.
+        let links = LibraryDetailView(viewModel: vm).linkAction
+        for blocked in ["file:///Applications/Calculator.app", "x-apple.systempreferences:com.apple.preference.security"] {
+            links(URL(string: blocked)!)
+        }
+        XCTAssertEqual(opener.opened, [])
+        links(URL(string: "https://example.com/spec")!)
+        XCTAssertEqual(opener.opened, [URL(string: "https://example.com/spec")!])
+    }
+
     // MARK: row text
 
     func testPreviewDropsMarkdownMarkers() {

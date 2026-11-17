@@ -313,6 +313,15 @@ final class LibraryViewModel: ObservableObject {
         if let note = notes.first(where: { $0.id == id }) { opener.open(note.url) }
     }
 
+    /// A link clicked in a note (#27): opens it only if `NoteLinkPolicy`
+    /// allows the scheme (web, mail); returns whether it did.
+    @discardableResult
+    func openLink(_ url: URL) -> Bool {
+        guard NoteLinkPolicy.opens(url) else { return false }
+        opener.open(url)
+        return true
+    }
+
     // MARK: Messages
 
     static func describe(_ error: Error, verb: String) -> String {
