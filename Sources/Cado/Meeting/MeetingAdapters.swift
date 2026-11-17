@@ -62,23 +62,18 @@ final class FolderMeetingArchive: MeetingArchive {
         self.root = root
     }
 
-    func keep(_ audio: MeetingSpoolHandle?, note: String?, name: String, into existing: URL?) throws -> URL {
-        let folder = try existing ?? newFolder(name)
-        do {
-            try audio?.exportAudio(to: folder) { $0.rawValue }
-        } catch {
-            if existing == nil { try? FileManager.default.removeItem(at: folder) }   // no empty folder left behind
-            throw error
-        }
-        if let note {
-            try Data(note.utf8).write(to: folder.appendingPathComponent("Note.md"))
-        }
-        return folder
+    func writeNote(_ markdown: String, into folder: URL) throws {
+        try Data(markdown.utf8).write(to: folder.appendingPathComponent("Note.md"))
+    }
+
+    func writeAudio(_ audio: SpoolAudio, into folder: URL) throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try audio.exportWAVs(to: folder) { $0.rawValue }
     }
 
     /// Creates the first free `<name>`, `<name> 2`… (creating the leaf
     /// without intermediates fails if it exists, so two can't share one).
-    private func newFolder(_ name: String) throws -> URL {
+    func newFolder(name: String) throws -> URL {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         for n in 1... {
             let folder = root.appendingPathComponent(n == 1 ? name : "\(name) \(n)", isDirectory: true)

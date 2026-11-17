@@ -48,13 +48,17 @@ protocol MeetingNoteStore: AnyObject {
     func save(_ draft: NoteDraft) throws -> URL
 }
 
-/// Keeps a meeting's audio — each side of `audio`, streamed from the spool,
-/// never loaded whole — and, when the note couldn't be saved, its Markdown,
-/// in a folder of its own; returns the folder. `folder` nil makes a new one
-/// named after `name` (never one another meeting has); else adds to that
-/// folder, one this archive returned earlier for the same meeting.
+/// Where a meeting's audio is kept (and its note, when the notes library
+/// couldn't take it): one folder per meeting.
 protocol MeetingArchive: AnyObject {
-    func keep(_ audio: MeetingSpoolHandle?, note: String?, name: String, into folder: URL?) throws -> URL
+    /// A new folder named after `name`, never one another meeting has. Main.
+    func newFolder(name: String) throws -> URL
+    /// Writes the note's Markdown into `folder`. Main.
+    func writeNote(_ markdown: String, into folder: URL) throws
+    /// Writes each side of `audio` as a WAV into `folder` (made if it's
+    /// gone), streamed, never loaded whole. Slow: called OFF the main
+    /// thread, so it must be thread-safe.
+    func writeAudio(_ audio: SpoolAudio, into folder: URL) throws
 }
 
 /// Notices to the user.

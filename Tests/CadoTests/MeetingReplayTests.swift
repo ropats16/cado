@@ -289,29 +289,37 @@ final class MeetingReplayTests: XCTestCase {
         run.recorder.them.push(seconds: 9.5)
         run.clock.advance(by: 9.5)
         _ = try await stop(run)
+        try await waitFor("the audio copy (off main)") { contents(spoolDir).isEmpty }
         XCTAssertEqual(contents(archiveDir), ["Meeting with Zoom — 16 Nov 2026 at 14 32"])
         XCTAssertEqual(contents(archiveDir.appendingPathComponent("Meeting with Zoom — 16 Nov 2026 at 14 32")),
                        ["Me.wav", "Others.wav"])
         XCTAssertEqual(contents(spoolDir), [])
     }
 
-    func testQuittingMidMeetingKeepsTheAudioAndLeavesNoLeftover() async throws {
+    /// H2: quitting mid-meeting leaves the meeting on disk (journaled as a
+    /// quit), writes no partial note, and the next launch writes it whole.
+    func testQuittingMidMeetingIsFinishedNextLaunch() async throws {
         let (me, them) = try standardWavs()
-        let run = try makeRun(me: me, them: them)
-        try await start(run)
-        run.recorder.me.push(seconds: 5)
-        run.recorder.them.push(seconds: 5)
-        run.clock.advance(by: 5)
+        var run: Run? = try makeRun(me: me, them: them)
+        try await start(run!)
+        run!.recorder.me.push(seconds: 9.5)
+        run!.recorder.them.push(seconds: 9.5)
+        run!.clock.advance(by: 9.5)
         var done = false
-        run.session.quit { done = true }
-        run.recorder.me.push(seconds: 0.3)
-        run.recorder.them.push(seconds: 0.3)
+        run!.session.quit { done = true }
+        run!.recorder.me.push(seconds: 0.3)
+        run!.recorder.them.push(seconds: 0.3)
         try await waitFor("the quit") { done }
-        XCTAssertTrue(try onlyNote().contains("> Cado quit before this meeting was fully transcribed."))
-        XCTAssertEqual(contents(archiveDir.appendingPathComponent("Meeting with Zoom — 16 Nov 2026 at 14 32")),
-                       ["Me.wav", "Others.wav"])
-        XCTAssertEqual(contents(spoolDir), [], "A quit isn't a crash: nothing to recover")
-        XCTAssertTrue(FolderMeetingSpool(root: spoolDir).leftovers().isEmpty)
+        XCTAssertEqual(try notes(), [], "No partial note")
+        XCTAssertEqual(contents(archiveDir), [], "Nothing copied on the way out")
+        XCTAssertEqual(contents(spoolDir).count, 1, "Left for the next launch")
+        run = nil
+
+        let relaunched = try await relaunch()
+        XCTAssertEqual(try onlyNote(), Self.note(duration: 10, caveat:
+            "Cado was quit during this meeting; the note was finished the next time Cado started."))
+        XCTAssertEqual(relaunched.notices.titles, ["Meeting note saved"])
+        try await waitFor("the spool to go") { contents(spoolDir).isEmpty }
     }
 
     // MARK: - Crash recovery (criterion 5)
@@ -438,37 +446,60 @@ final class MeetingReplayTests: XCTestCase {
         let note = try onlyNote()
         XCTAssertTrue(note.contains("> 4 of 4 passages couldn't be transcribed"))
         XCTAssertTrue(note.contains("> The meeting's audio is kept in `\(archiveDir.path)/Meeting with Zoom — 16 Nov 2026 at 14 32`."))
+        XCTAssertEqual(run.notices.titles, ["Meeting note recovered"])
+        try await waitFor("the audio copy (off main)") { contents(spoolDir).isEmpty }
         XCTAssertEqual(contents(archiveDir.appendingPathComponent("Meeting with Zoom — 16 Nov 2026 at 14 32")),
                        ["Me.wav", "Others.wav"])
-        XCTAssertEqual(run.notices.titles, ["Meeting note recovered"])
-        XCTAssertEqual(contents(spoolDir), [])
 
+        // Deterministic: nothing is left, so recovery lists nothing and stays idle.
+        XCTAssertTrue(FolderMeetingSpool(root: spoolDir).leftovers().isEmpty)
         let next = try makeRun(me: dir.appendingPathComponent("me.wav"), them: dir.appendingPathComponent("them.wav"))
         next.session.recoverLeftovers()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(next.session.status, .idle)
         XCTAssertEqual(next.engine.submitted, 0, "Nothing left to retry")
         XCTAssertEqual(try notes().count, 1)
     }
 
-    func testALeftoverWhoseAudioCantBeReadIsToldAndNeverTranscribedOverAndOver() async throws {
+    private func journaled(_ type: String) -> Int {
+        guard let folder = contents(spoolDir).first,
+              let text = try? String(contentsOf: spoolDir.appendingPathComponent(folder).appendingPathComponent("events.jsonl"),
+                                     encoding: .utf8) else { return 0 }
+        return text.components(separatedBy: "\"type\":\"\(type)\"").count - 1
+    }
+
+    /// Unreadable audio: the note is written from what's journaled (and says
+    /// it's incomplete); the audio can't be copied, so it stays in the spool,
+    /// the user is told once, and later launches only retry the copy — never
+    /// another note, never transcription again.
+    func testALeftoverWhoseAudioCantBeReadIsNotedOnceAndItsCopyRetried() async throws {
         try await crash(after: 9.5, holding: true) { $0.engine.submitted == 1 }
         let folder = spoolDir.appendingPathComponent(contents(spoolDir)[0])
-        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: folder.appendingPathComponent("me.f32").path)
-        for launch in 1...3 {
-            let run = try await relaunch()
-            XCTAssertEqual(run.notices.titles, ["Couldn't recover a meeting"], "launch \(launch)")
-            XCTAssertTrue(run.notices.bodies[0].hasSuffix("The audio stays in Cado's Meetings In Progress folder."))
+        let me = folder.appendingPathComponent("me.f32").path
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: me)
+        let first = try await relaunch()
+        try await waitFor("the failed copy") { journaled("audioKeepFailed") == 1 }
+        XCTAssertEqual(first.notices.titles, ["Meeting note recovered", "Couldn't keep the meeting's audio"])
+        XCTAssertTrue(first.notices.bodies[1].contains("It's safe in "), first.notices.bodies[1])
+        XCTAssertTrue(first.notices.bodies[1].contains(folder.lastPathComponent), "Names the folder")
+        XCTAssertTrue(try onlyNote().contains("> Cado couldn't finish transcribing this meeting"))
+
+        for launch in 2...3 {
+            let (wavMe, wavThem) = (dir.appendingPathComponent("me.wav"), dir.appendingPathComponent("them.wav"))
+            let run = try makeRun(me: wavMe, them: wavThem)
+            run.session.recoverLeftovers()
+            try await waitFor("retry \(launch)") { journaled("audioKeepFailed") == launch }
+            XCTAssertEqual(run.notices.titles, [], "Told once only (launch \(launch))")
             XCTAssertEqual(run.engine.submitted, 0)
         }
-        XCTAssertEqual(contents(archiveDir), [], "No half-made folder")
-        XCTAssertEqual(try notes(), [])
+        XCTAssertEqual(try notes().count, 1, "Never a second note")
 
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: folder.appendingPathComponent("me.f32").path)
-        let run = try await relaunch()
-        XCTAssertEqual(run.notices.titles, ["Couldn't recover a meeting"], "Tried too often: archived, not transcribed")
-        XCTAssertEqual(run.engine.submitted, 0)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: me)
+        let run = try makeRun(me: dir.appendingPathComponent("me.wav"), them: dir.appendingPathComponent("them.wav"))
+        run.session.recoverLeftovers()
+        try await waitFor("the copy") { contents(spoolDir).isEmpty }
+        XCTAssertEqual(run.notices.titles, ["Meeting audio kept"])
         XCTAssertEqual(contents(archiveDir.appendingPathComponent("Meeting with Zoom — 16 Nov 2026 at 14 32")),
                        ["Me.wav", "Others.wav"])
-        XCTAssertEqual(contents(spoolDir), [])
+        XCTAssertEqual(try notes().count, 1)
     }
 }

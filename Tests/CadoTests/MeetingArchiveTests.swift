@@ -27,10 +27,10 @@ final class MeetingArchiveTests: XCTestCase {
     func testTwoMeetingsWithTheSameNameGetTheirOwnFolders() throws {
         let archive = FolderMeetingArchive(root: root)
         let name = "Meeting with Zoom — 16 Nov 2026 at 14 32"
-        let first = try archive.keep(spool([.me: [Float](repeating: 0.1, count: 16_000)]),
-                                     note: nil, name: name, into: nil)
-        let second = try archive.keep(spool([.me: [Float](repeating: 0.2, count: 8_000)]),
-                                      note: nil, name: name, into: nil)
+        let first = try archive.newFolder(name: name)
+        try archive.writeAudio(spool([.me: [Float](repeating: 0.1, count: 16_000)]).audio(), into: first)
+        let second = try archive.newFolder(name: name)
+        try archive.writeAudio(spool([.me: [Float](repeating: 0.2, count: 8_000)]).audio(), into: second)
 
         XCTAssertEqual(first.lastPathComponent, name)
         XCTAssertEqual(second.lastPathComponent, name + " 2")
@@ -38,12 +38,21 @@ final class MeetingArchiveTests: XCTestCase {
         XCTAssertEqual(kept.length, 16_000, "The first meeting's audio is untouched")
     }
 
+    /// A retried copy goes to the folder named before, made again if gone.
+    func testAudioGoesIntoAFolderThatWasRemovedMeanwhile() throws {
+        let archive = FolderMeetingArchive(root: root)
+        let folder = try archive.newFolder(name: "M")
+        try FileManager.default.removeItem(at: folder)
+        try archive.writeAudio(spool([.me: [0.5]]).audio(), into: folder)
+        XCTAssertEqual(try names(in: folder), ["Me.wav"])
+    }
+
     func testAddingToAMeetingsFolderKeepsItsAudio() throws {
         let archive = FolderMeetingArchive(root: root)
-        let folder = try archive.keep(spool([.them: [0.1, 0.2]]), note: nil, name: "M", into: nil)
-        let again = try archive.keep(nil, note: "# Note", name: "M", into: folder)
+        let folder = try archive.newFolder(name: "M")
+        try archive.writeAudio(spool([.them: [0.1, 0.2]]).audio(), into: folder)
+        try archive.writeNote("# Note", into: folder)
 
-        XCTAssertEqual(again, folder)
         XCTAssertEqual(try names(in: folder), ["Note.md", "Others.wav"])
         XCTAssertEqual(try names(in: root), ["M"])
     }

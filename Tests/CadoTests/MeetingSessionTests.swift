@@ -78,24 +78,44 @@ final class MeetingSessionTests: XCTestCase {
         }
     }
 
+    /// Records what was kept, folder by folder; reads the audio it's given
+    /// (so an unreadable spool fails, as on disk).
     final class FakeArchive: MeetingArchive {
         struct Kept {
-            /// Samples per side with audio, read at the time of keeping.
+            /// Samples per side with audio (audio kept), else empty (the note).
             let sides: [MeetingSpeaker: Int]
             let note: String?
             let name: String
-            let into: URL?
+            let into: URL
         }
-        var error: Error?
+        var folderError: Error?, noteError: Error?, audioError: Error?
+        /// All three fail.
+        var error: Error? {
+            get { folderError }
+            set { folderError = newValue; noteError = newValue; audioError = newValue }
+        }
+        private(set) var folders: [URL] = []
         private(set) var kept: [Kept] = []
-        func keep(_ audio: MeetingSpoolHandle?, note: String?, name: String, into folder: URL?) throws -> URL {
-            if let error { throw error }
+        var audioKept: [Kept] { kept.filter { $0.note == nil } }
+        func newFolder(name: String) throws -> URL {
+            if let folderError { throw folderError }
+            let same = folders.filter { $0.lastPathComponent == name || $0.lastPathComponent.hasPrefix(name + " ") }.count
+            let url = URL(fileURLWithPath: "/archive/\(name)\(same > 0 ? " \(same + 1)" : "")")
+            folders.append(url)
+            return url
+        }
+        func writeNote(_ markdown: String, into folder: URL) throws {
+            if let noteError { throw noteError }
+            kept.append(Kept(sides: [:], note: markdown, name: folder.lastPathComponent, into: folder))
+        }
+        func writeAudio(_ audio: SpoolAudio, into folder: URL) throws {
+            if let audioError { throw audioError }
             var sides: [MeetingSpeaker: Int] = [:]
-            for speaker in MeetingSpeaker.allCases {
-                if let n = audio?.sampleCount(of: speaker), n > 0 { sides[speaker] = n }
+            for speaker in MeetingSpeaker.allCases where audio.count(of: speaker) > 0 {
+                _ = try audio.samples(0..<audio.count(of: speaker), of: speaker)
+                sides[speaker] = audio.count(of: speaker)
             }
-            kept.append(Kept(sides: sides, note: note, name: name, into: folder))
-            return folder ?? URL(fileURLWithPath: "/archive/\(name)\(kept.count > 1 ? " \(kept.count)" : "")")
+            kept.append(Kept(sides: sides, note: nil, name: folder.lastPathComponent, into: folder))
         }
     }
 
@@ -108,6 +128,8 @@ final class MeetingSessionTests: XCTestCase {
         var synthetic = false
         /// Spools whose audio can't be read back.
         var unreadable = false
+        /// Spools that count as on disk (`isDurable`), as the folder spool.
+        var durable = false
         var left: [LeftoverMeeting] = []
         private(set) var handles: [MeetingSpoolHandle] = []
         private(set) var listed = 0
@@ -115,6 +137,7 @@ final class MeetingSessionTests: XCTestCase {
             if let failCreate { throw failCreate }
             let handle: MeetingSpoolHandle = synthetic ? ToneSpoolHandle(meeting)
                 : unreadable ? UnreadableSpoolHandle(InMemorySpoolHandle(meeting))
+                : durable ? DurableSpoolHandle(InMemorySpoolHandle(meeting))
                 : room.map { FullDiskSpoolHandle(meeting, room: $0) } ?? InMemorySpoolHandle(meeting)
             handles.append(handle)
             return handle
@@ -122,6 +145,7 @@ final class MeetingSessionTests: XCTestCase {
         func leftovers() -> [LeftoverMeeting] { listed += 1; return left }
         var last: InMemorySpoolHandle? {
             (handles.last as? InMemorySpoolHandle) ?? (handles.last as? FullDiskSpoolHandle)?.inner
+                ?? (handles.last as? DurableSpoolHandle)?.inner
         }
     }
 
@@ -180,7 +204,7 @@ final class MeetingSessionTests: XCTestCase {
                        systemAudioPermission: { [unowned self] in permission },
                        keepAudio: { [unowned self] in keepAudio },
                        maxSeconds: maxSeconds, locale: Locale(identifier: "en_GB"),
-                       timeZone: TimeZone(identifier: "UTC")!, later: { $0() })
+                       timeZone: TimeZone(identifier: "UTC")!, later: { $0() }, background: { $0(); $1() })
     }
 
     /// 16 kHz audio of `seconds` with 200 Hz bursts (start, end, amplitude).
@@ -433,15 +457,16 @@ final class MeetingSessionTests: XCTestCase {
         engine.failing = [3]
         notes.error = Failure("The folder is read-only.")
         record()
-        XCTAssertEqual(archive.kept.count, 2, "The audio, then the note that couldn't be saved")
-        XCTAssertNil(archive.kept[0].into, "A new folder for this meeting")
-        XCTAssertEqual(archive.kept[1].into, URL(fileURLWithPath: "/archive/Meeting with Zoom — 16 Nov 2026 at 14 32"),
-                       "…and the note goes next to its audio")
-        XCTAssertTrue(archive.kept[1].sides.isEmpty)
+        let folder = URL(fileURLWithPath: "/archive/Meeting with Zoom — 16 Nov 2026 at 14 32")
+        XCTAssertEqual(archive.folders, [folder], "A new folder for this meeting")
+        XCTAssertEqual(archive.kept.map(\.into), [folder, folder], "The note goes next to its audio")
+        XCTAssertNotNil(archive.kept[0].note)
+        XCTAssertEqual(archive.kept[1].sides.count, 2)
 
         engine.failing = [3]
         record()   // a second meeting in the same minute
-        XCTAssertNil(archive.kept[2].into, "Its own folder, not the first meeting's")
+        XCTAssertEqual(archive.folders.last, URL(fileURLWithPath: "/archive/Meeting with Zoom — 16 Nov 2026 at 14 32 2"),
+                       "Its own folder, not the first meeting's")
     }
 
     func testEveryPassageFailingStillWritesANote() {
@@ -462,11 +487,14 @@ final class MeetingSessionTests: XCTestCase {
     func testANoteThatCannotBeSavedGoesToTheArchiveWithTheAudio() {
         notes.error = Failure("The folder is read-only.")
         record()
-        XCTAssertEqual(archive.kept.count, 1)
-        XCTAssertEqual(archive.kept[0].sides.count, 2)
+        XCTAssertEqual(archive.kept.count, 2, "The note, then the audio, in one folder")
         XCTAssertTrue(archive.kept[0].note?.contains("kind: \"meeting\"") == true)
         XCTAssertTrue(archive.kept[0].note?.contains("**Others:** Hi from them.") == true)
+        XCTAssertEqual(archive.kept[1].sides.count, 2)
         XCTAssertEqual(feedback.titles, ["Couldn't save the meeting note"])
+        XCTAssertEqual(feedback.notices[0].body, "The folder is read-only. The transcript and audio are in "
+                       + "/archive/Meeting with Zoom — 16 Nov 2026 at 14 32.")
+        XCTAssertEqual(spool.last?.isDiscarded, true, "Safe in the archive")
         XCTAssertEqual(feedback.savedNotes, [], "No note to open")
         XCTAssertEqual(session.status, .idle)
     }
@@ -479,7 +507,9 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertTrue(done)
     }
 
-    func testQuitWhileRecordingStopsKeepsTheAudioAndNotesIt() {
+    /// A meeting held only in memory (no disk spool) can't be finished next
+    /// launch: quitting writes down what there is and keeps the audio.
+    func testQuitWhileRecordingInMemoryKeepsTheAudioAndNotesIt() {
         startBoth()
         clock.advance(by: 30)
         var done = false
@@ -497,7 +527,7 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertEqual(session.status, .idle)
     }
 
-    func testQuitWhileTranscribingKeepsWhatIsDone() {
+    func testQuitWhileTranscribingInMemoryKeepsWhatIsDone() {
         startBoth()
         session.stop()
         recorder.me.finish(audio(10, [(1, 2, 0.2), (7, 8, 0.4)]))
@@ -715,7 +745,7 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertEqual(spool.last?.isDiscarded, true)
     }
 
-    func testQuitKeepsTheAudioWithTheSettingOffAndLeavesNoSpool() {
+    func testQuitInMemoryKeepsTheAudioWithTheSettingOff() {
         startBoth()
         recorder.me.deliver(audio(3, [(0.5, 1.5, 0.2)]))
         session.quit {}
@@ -725,13 +755,16 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertEqual(spool.last?.isDiscarded, true, "No leftover for the next launch")
     }
 
+    /// In memory (no disk spool), audio that can't be copied is gone: said so.
     func testAudioThatCantBeKeptIsSaidButTheNoteStands() {
         keepAudio = true
-        archive.error = Failure("The disk is full.")
+        archive.audioError = Failure("The disk is full.")
         record()
         XCTAssertEqual(notes.saved.count, 1)
-        XCTAssertEqual(feedback.titles, ["Couldn't keep the meeting's audio", "Meeting note saved"])
-        UserFacingCopy.assertPlain(feedback.notices[0].body)
+        XCTAssertEqual(feedback.titles, ["Meeting note saved", "Couldn't keep the meeting's audio"])
+        XCTAssertEqual(feedback.notices[1].body, "The audio of “Meeting with Zoom — 16 Nov 2026 at 14:32” couldn't be "
+                       + "copied to Cado's Meeting Audio folder, so it couldn't be kept.")
+        UserFacingCopy.assertPlain(feedback.notices[1].body)
     }
 
     // MARK: - Recovery (#31)
@@ -753,7 +786,7 @@ final class MeetingSessionTests: XCTestCase {
     func testAMeetingStillRecordingWhenCadoDiedIsRecovered() {
         let h = leftover(bothStarted)
         session.recoverLeftovers()
-        XCTAssertEqual(session.status, .transcribing(app: "Zoom", done: 0, total: 3))
+        XCTAssertEqual(session.status, .recovering(app: "Zoom", done: 0, total: 3))
         XCTAssertFalse(session.blocksDictation, "Recovery doesn't need the mic")
         engine.finishAll()
         XCTAssertEqual(notes.saved.count, 1)
@@ -778,7 +811,7 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertEqual(feedback.savedNotes, [URL(fileURLWithPath: "/notes/1.md")])
         XCTAssertTrue(h.isDiscarded)
         XCTAssertTrue(archive.kept.isEmpty)
-        XCTAssertEqual(feedback.statuses.first, .transcribing(app: "Zoom", done: 0, total: 0))
+        XCTAssertEqual(feedback.statuses.first, .recovering(app: "Zoom", done: 0, total: 0))
         XCTAssertEqual(feedback.statuses.last, .idle)
     }
 
@@ -789,7 +822,7 @@ final class MeetingSessionTests: XCTestCase {
                                            segments: [SpoolSegment(start: 0.3, text: "Hello from me.")])
         _ = leftover(bothStarted + [hello, hello])
         session.recoverLeftovers()
-        XCTAssertEqual(session.status, .transcribing(app: "Zoom", done: 1, total: 3))
+        XCTAssertEqual(session.status, .recovering(app: "Zoom", done: 1, total: 3))
         engine.finishAll()
         XCTAssertEqual(engine.jobs.sorted(), [3, 4], "Only what wasn't journaled")
         XCTAssertTrue(notes.saved[0].body.hasSuffix("**Me:** Hello from me.\n\n**Others:** Hi from them.\n\n**Me:** Bye now.\n"))
@@ -855,21 +888,40 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertTrue(h.isDiscarded, "Out of the spool: not tried again")
     }
 
-    /// A leftover that crashed Cado (or was quit) twice while being
-    /// recovered isn't transcribed a third time.
-    func testALeftoverRecoveryKeepsFailingOnGoesToTheArchive() {
-        let h = leftover(bothStarted + [.recoveryStarted, .recoveryStarted])
+    /// C3: a leftover that stalled twice while being recovered isn't
+    /// transcribed a third time — but what was journaled still makes a
+    /// note, which says so and where the audio is.
+    func testGivingUpStillSavesTheJournaledTranscriptWithTheAudio() {
+        let hello = SpoolEvent.transcribed(.me, range: 12_800..<37_600, offset: 0.8,
+                                           segments: [SpoolSegment(start: 0.3, text: "Hello from me.")])
+        let h = leftover(bothStarted + [hello, .recoveryStarted, .recoveryStarted])
         session.recoverLeftovers()
         XCTAssertTrue(engine.jobs.isEmpty)
-        XCTAssertTrue(notes.saved.isEmpty)
-        XCTAssertEqual(archive.kept.map(\.sides), [[.me: 160_000, .them: 160_000]])
-        XCTAssertEqual(feedback.titles, ["Couldn't recover a meeting"])
-        XCTAssertEqual(feedback.notices[0].body,
-                       "Cado quit unexpectedly during “Meeting with Zoom — 16 Nov 2026 at 14:32”, and its note couldn't be "
-                       + "recovered. The audio is kept in /archive/Meeting with Zoom — 16 Nov 2026 at 14 32.")
-        UserFacingCopy.assertPlain(feedback.notices[0].body)
-        XCTAssertTrue(h.isDiscarded)
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertEqual(notes.saved[0].body, """
+            Recorded from Zoom (Others) and your microphone (Me).
+
+            > Cado quit unexpectedly during this meeting. This note was recovered from what had been recorded.
+            > Cado couldn't finish transcribing this meeting, so this note has only what was transcribed before.
+            > The meeting's audio is kept in `/archive/Meeting with Zoom — 16 Nov 2026 at 14 32`.
+
+            **Me:** Hello from me.
+
+            """)
+        XCTAssertEqual(archive.audioKept.map(\.sides), [[.me: 160_000, .them: 160_000]])
+        XCTAssertEqual(feedback.titles, ["Meeting note recovered"])
+        XCTAssertTrue(h.isDiscarded, "Note saved and audio copied: done")
         XCTAssertEqual(session.status, .idle)
+    }
+
+    /// C3: clean quits during a recovery never count against it.
+    func testARecoveryPausedByQuittingGoesOnHoweverOften() {
+        _ = leftover(bothStarted + [.recoveryStarted, .recoveryPaused, .recoveryStarted, .recoveryPaused,
+                                    .recoveryStarted, .recoveryPaused])
+        session.recoverLeftovers()
+        engine.finishAll()
+        XCTAssertEqual(engine.jobs.count, 3)
+        XCTAssertFalse(notes.saved[0].body.contains("couldn't finish"))
     }
 
     /// Attempts that got further (quit during a long recovery) don't count.
@@ -892,32 +944,44 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertEqual(h.events.filter { $0 == .recoveryStarted }.count, 1)
     }
 
-    func testUnreadableAudioGoesToTheArchive() {
+    /// Unreadable audio: the note from what's journaled; the audio can't be
+    /// copied either, so the spool stays (durable) and the user is told once,
+    /// with where it is (L3).
+    func testUnreadableAudioIsNotedAndLeftWhereItIsWithOneNotice() {
         let h = InMemorySpoolHandle(SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "z", startDate: crashDate))
         h.append(audio(10, [(1, 2, 0.2)]), for: .me)
         let broken = UnreadableSpoolHandle(h)
         spool.left = [LeftoverMeeting(handle: broken, events: bothStarted)]
         session.recoverLeftovers()
-        XCTAssertEqual(feedback.titles, ["Couldn't recover a meeting"])
-        XCTAssertTrue(h.isDiscarded)
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertTrue(notes.saved[0].body.contains("> Cado couldn't finish transcribing this meeting"))
+        XCTAssertEqual(feedback.titles, ["Meeting note recovered", "Couldn't keep the meeting's audio"])
+        XCTAssertEqual(feedback.notices[1].body,
+                       "The audio of “Meeting with Zoom — 16 Nov 2026 at 14:32” couldn't be copied to Cado's Meeting Audio "
+                       + "folder yet. It's safe in /spool/\(h.meeting.id.uuidString); Cado will try again the next time it starts.")
+        UserFacingCopy.assertPlain(feedback.notices[1].body)
+        XCTAssertFalse(h.isDiscarded, "The last copy stays")
+        XCTAssertTrue(h.events.contains { if case .noteSaved(_, true, _) = $0 { return true } else { return false } })
 
-        // …and if even the audio can't be copied, it stays where it is.
-        let again = InMemorySpoolHandle(h.meeting)
-        again.append([0.1], for: .me)
-        spool.left = [LeftoverMeeting(handle: UnreadableSpoolHandle(again), events: bothStarted)]
-        archive.error = Failure("The disk is full.")
-        session.recoverLeftovers()
-        XCTAssertEqual(feedback.notices.last?.body,
-                       "Cado quit unexpectedly during “Meeting with Zoom — 16 Nov 2026 at 14:32”, and its note couldn't be "
-                       + "recovered. The audio stays in Cado's Meetings In Progress folder.")
-        XCTAssertFalse(again.isDiscarded)
+        // Next launch: no second note, no second notice; just another try.
+        spool.left = [LeftoverMeeting(handle: broken, events: h.events)]
+        let next = makeSession()
+        next.recoverLeftovers()
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertEqual(feedback.notices.count, 2)
+        XCTAssertFalse(h.isDiscarded)
     }
 
-    func testStartingAMeetingWhileRecoveringIsIgnoredUntilItsDone() {
+    /// L4: starting a meeting during a recovery says why it doesn't start.
+    func testStartingAMeetingWhileRecoveringIsRefusedWithAReason() {
         _ = leftover(bothStarted)
         session.recoverLeftovers()
         session.start(zoom)
-        XCTAssertTrue(recorder.requests.isEmpty, "As while any meeting is transcribing")
+        XCTAssertTrue(recorder.requests.isEmpty, "One meeting at a time")
+        XCTAssertEqual(feedback.titles, ["Meeting not started"])
+        XCTAssertEqual(feedback.notices[0].body, "Cado is still finishing a meeting with Zoom that wasn't finished. "
+                       + "Start the new one once it's done.")
+        UserFacingCopy.assertPlain(feedback.notices[0].body)
         engine.finishAll()
         session.start(zoom)
         XCTAssertEqual(recorder.requests.count, 1)
@@ -941,7 +1005,7 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertTrue(h.isDiscarded)
     }
 
-    func testQuittingDuringRecoveryLeavesTheLeftoverForNextLaunch() {
+    func testQuittingDuringRecoveryPausesItForNextLaunch() {
         let h = leftover(bothStarted)
         session.recoverLeftovers()
         engine.finishNext()
@@ -953,13 +1017,14 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertTrue(notes.saved.isEmpty)
         XCTAssertEqual(h.events.filter { if case .transcribed = $0 { return true } else { return false } }.count, 1,
                        "What it got through is journaled for next time")
+        XCTAssertEqual(h.events.last, .recoveryPaused, "Not counted as a failed attempt")
         engine.finishAll()
         XCTAssertTrue(notes.saved.isEmpty, "Late results are ignored")
     }
 
     func testRecoveryNoticesArePlain() {
         UserFacingCopy.assertPlain(MeetingNote(appName: "Zoom", start: crashDate, duration: 1, turns: [],
-                                               caveats: [.recoveredAfterCrash]).body)
+                                               caveats: [.finishedLater(.crashed)]).body)
     }
 }
 
@@ -1015,5 +1080,224 @@ extension MeetingSessionTests {
         record()
         XCTAssertTrue(engine.jobs.isEmpty)
         XCTAssertTrue(notes.saved[0].body.contains("> 3 of 3 passages couldn't be transcribed: Its recorded audio couldn't be read back."))
+    }
+}
+
+/// An in-memory spool that counts as on disk (`isDurable`), like the folder
+/// spool: what the session leaves for the next launch stays in it.
+final class DurableSpoolHandle: MeetingSpoolHandle {
+    let inner: InMemorySpoolHandle
+    init(_ inner: InMemorySpoolHandle) { self.inner = inner }
+    var meeting: SpooledMeeting { inner.meeting }
+    var writeError: Error? { nil }
+    var events: [SpoolEvent] { inner.events }
+    func append(_ samples: [Float], for speaker: MeetingSpeaker) { inner.append(samples, for: speaker) }
+    func record(_ event: SpoolEvent) { inner.record(event) }
+    func sampleCount(of speaker: MeetingSpeaker) -> Int { inner.sampleCount(of: speaker) }
+    func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] { try inner.samples(range, of: speaker) }
+    func isSilent(_ speaker: MeetingSpeaker) -> Bool { inner.isSilent(speaker) }
+    func audio() -> SpoolAudio { inner.audio() }
+    var isDurable: Bool { true }
+    var location: URL? { URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)") }
+    func discard() { inner.discard() }
+}
+
+/// #31 review: the spool is the last copy of the meeting.
+extension MeetingSessionTests {
+    private var durableSpool: DurableSpoolHandle? { spool.handles.last as? DurableSpoolHandle }
+
+    private func noteSavedEvents(_ events: [SpoolEvent]) -> [SpoolEvent] {
+        events.filter { if case .noteSaved = $0 { return true } else { return false } }
+    }
+
+    /// C1: neither the notes library nor the archive takes the note (a full
+    /// disk): the spool stays, and the user is told the meeting is safe.
+    func testANoteThatCantBeSavedAnywhereLeavesTheSpoolForNextLaunch() throws {
+        spool.durable = true
+        notes.error = Failure("The disk is full.")
+        archive.error = Failure("The disk is full.")
+        record()
+        let h = try XCTUnwrap(durableSpool)
+        XCTAssertFalse(h.inner.isDiscarded, "The last copy of the meeting")
+        XCTAssertEqual(h.events.last, .noteSaveFailed(reason: "The disk is full."))
+        XCTAssertEqual(feedback.titles, ["Couldn't save the meeting note"])
+        XCTAssertEqual(feedback.notices[0].body,
+                       "The disk is full. The meeting is safe: Cado will finish it the next time it starts.")
+
+        // The next launch writes it, saying why it's late.
+        notes.error = nil
+        archive.error = nil
+        spool.left = [LeftoverMeeting(handle: h, events: h.events)]
+        let next = makeSession()
+        next.recoverLeftovers()
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertTrue(notes.saved[0].body.contains("> This note couldn't be saved when the meeting ended; "
+                                                   + "it was finished the next time Cado started."))
+        XCTAssertTrue(notes.saved[0].body.contains("**Others:** Hi from them."))
+        XCTAssertTrue(h.inner.isDiscarded)
+    }
+
+    /// C1: the note went to the archive but the audio copy failed: the spool
+    /// stays for the copy, and the notice says so (the audio isn't there yet).
+    func testANoteInTheArchiveWithoutItsAudioKeepsTheSpool() throws {
+        spool.durable = true
+        notes.error = Failure("The folder is read-only.")
+        archive.audioError = Failure("The disk is full.")
+        record()
+        let h = try XCTUnwrap(durableSpool)
+        XCTAssertFalse(h.inner.isDiscarded)
+        XCTAssertEqual(archive.kept.count, 1, "Only the note")
+        XCTAssertEqual(feedback.notices.map(\.body), [
+            "The folder is read-only. The transcript is in /archive/Meeting with Zoom — 16 Nov 2026 at 14 32; "
+                + "the audio is safe and Cado copies it there the next time it starts.",
+        ])
+        XCTAssertEqual(noteSavedEvents(h.events),
+                       [.noteSaved(note: "/archive/Meeting with Zoom — 16 Nov 2026 at 14 32/Note.md", keepAudio: true,
+                                   audioFolder: "/archive/Meeting with Zoom — 16 Nov 2026 at 14 32")])
+    }
+
+    /// C2: `.noteSaved` is journaled before the spool goes; a leftover that
+    /// has it (Cado died after saving) never gets a second note.
+    func testAMeetingWrittenDownIsNeverWrittenAgain() throws {
+        spool.durable = true
+        record()
+        let h = try XCTUnwrap(durableSpool)
+        XCTAssertEqual(noteSavedEvents(h.events), [], "Discarded, events and all")
+        // As if Cado died between saving and deleting:
+        let events: [SpoolEvent] = [.sideStarted(.me, origin: 0),
+                                    .noteSaved(note: "/notes/1.md", keepAudio: false, audioFolder: nil)]
+        let left = leftover(events)
+        session.recoverLeftovers()
+        XCTAssertTrue(engine.jobs.count == 3, "Only the first meeting's jobs")
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertTrue(left.isDiscarded)
+        XCTAssertEqual(feedback.titles, ["Meeting note saved"])
+    }
+
+    /// H1: keep-audio on and the copy fails: the spool stays, the user is
+    /// told it's safe; next launch copies it and says so; no second note.
+    func testAFailedAudioCopyIsRetriedNextLaunch() throws {
+        spool.durable = true
+        keepAudio = true
+        archive.audioError = Failure("The disk is full.")
+        record()
+        let h = try XCTUnwrap(durableSpool)
+        XCTAssertFalse(h.inner.isDiscarded)
+        XCTAssertEqual(feedback.titles, ["Meeting note saved", "Couldn't keep the meeting's audio"])
+        XCTAssertTrue(feedback.notices[1].body.hasSuffix("Cado will try again the next time it starts."))
+
+        archive.audioError = nil
+        spool.left = [LeftoverMeeting(handle: h, events: h.events)]
+        makeSession().recoverLeftovers()
+        XCTAssertEqual(notes.saved.count, 1, "No second note")
+        XCTAssertEqual(archive.audioKept.map(\.into), [URL(fileURLWithPath: "/archive/Meeting with Zoom — 16 Nov 2026 at 14 32")],
+                       "Into the folder named before")
+        XCTAssertEqual(feedback.titles.last, "Meeting audio kept")
+        XCTAssertTrue(h.inner.isDiscarded)
+    }
+
+    /// M2: keep-audio on and nothing heard: the audio is still kept, and the
+    /// notice says where.
+    func testKeepMeetingAudioKeepsAMeetingWithNoSpeech() {
+        keepAudio = true
+        record(me: audio(10, []), them: audio(10, []))
+        XCTAssertTrue(notes.saved.isEmpty)
+        XCTAssertEqual(archive.audioKept.count, 1)
+        XCTAssertEqual(feedback.titles, ["Nothing recorded"])
+        XCTAssertTrue(feedback.notices[0].body.hasSuffix(
+            "Its audio is kept in /archive/Meeting with Zoom — 16 Nov 2026 at 14 32."))
+        XCTAssertEqual(spool.last?.isDiscarded, true)
+    }
+
+    /// M3: the copy runs off main; `.noteSaved` is journaled before it starts
+    /// and the spool goes only once it succeeded.
+    func testTheAudioCopyRunsInTheBackgroundAfterTheNoteIsJournaled() throws {
+        var queued: [(work: () -> Void, done: () -> Void)] = []
+        spool.durable = true
+        keepAudio = true
+        session = MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
+                                 feedback: feedback, activity: feedback, clock: clock,
+                                 date: { Date(timeIntervalSince1970: 1_794_839_520) },
+                                 systemAudioPermission: { .unconfirmed }, keepAudio: { true }, maxSeconds: 600,
+                                 locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!,
+                                 later: { $0() }, background: { queued.append(($0, $1)) })
+        record()
+        let h = try XCTUnwrap(durableSpool)
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertEqual(session.status, .idle, "Not waiting for the copy")
+        XCTAssertTrue(archive.audioKept.isEmpty, "Not copied on main")
+        XCTAssertEqual(noteSavedEvents(h.events).count, 1, "Journaled before the copy starts")
+        XCTAssertFalse(h.inner.isDiscarded)
+        XCTAssertEqual(queued.count, 1)
+        queued[0].work()
+        XCTAssertFalse(h.inner.isDiscarded, "Not until the completion, on main")
+        queued[0].done()
+        XCTAssertEqual(archive.audioKept.count, 1)
+        XCTAssertTrue(h.inner.isDiscarded)
+    }
+
+    /// H2: quitting mid-meeting with the meeting on disk writes no partial
+    /// note and copies nothing: it journals the quit and leaves the spool;
+    /// the next launch writes the whole note, saying Cado was quit.
+    func testQuittingMidMeetingLeavesItForTheNextLaunchToFinish() throws {
+        spool.durable = true
+        startBoth()
+        recorder.me.deliver(audio(3, [(0.5, 1.5, 0.2)]))   // one job in flight
+        clock.advance(by: 30)
+        var done = false
+        session.quit { done = true }
+        XCTAssertFalse(done, "Waits for the streams' last samples")
+        recorder.me.finish(audio(7, [(4, 5, 0.4)]))
+        recorder.them.finish(audio(10, [(3, 5, 0.3)]))
+        XCTAssertTrue(done)
+        XCTAssertTrue(notes.saved.isEmpty, "No partial note")
+        XCTAssertTrue(archive.kept.isEmpty, "Nothing copied on the way out")
+        XCTAssertEqual(engine.jobs.count, 1, "Nothing more submitted")
+        XCTAssertEqual(engine.prewarms, 0)
+        let h = try XCTUnwrap(durableSpool)
+        XCTAssertFalse(h.inner.isDiscarded)
+        XCTAssertTrue(h.events.contains(.appQuit))
+        XCTAssertTrue(h.events.contains(.stopped(at: 30, capReached: false)))
+
+        spool.left = [LeftoverMeeting(handle: h, events: h.events)]
+        let next = makeSession()
+        next.recoverLeftovers()
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.count, 1)
+        let body = notes.saved[0].body
+        XCTAssertTrue(body.contains("> Cado was quit during this meeting; the note was finished the next time Cado started."))
+        XCTAssertTrue(body.hasSuffix("**Me:** Hello from me.\n\n**Others:** Hi from them.\n\n**Me:** Bye now.\n"))
+        XCTAssertEqual(notes.saved[0].duration, 30)
+        XCTAssertEqual(feedback.titles, ["Meeting note saved"])
+        XCTAssertTrue(h.inner.isDiscarded)
+    }
+
+    func testQuittingWhileTranscribingLeavesItForTheNextLaunchToo() throws {
+        spool.durable = true
+        startBoth()
+        session.stop()
+        recorder.me.finish(audio(10, [(1, 2, 0.2), (7, 8, 0.4)]))
+        recorder.them.finish(audio(10, [(3, 5, 0.3)]))
+        engine.finishNext()
+        var done = false
+        session.quit { done = true }
+        XCTAssertTrue(done, "At once")
+        XCTAssertTrue(notes.saved.isEmpty)
+        XCTAssertEqual(engine.endPrewarms, 0)
+        let h = try XCTUnwrap(durableSpool)
+        XCTAssertTrue(h.events.contains(.appQuit))
+        XCTAssertFalse(h.inner.isDiscarded)
+    }
+
+    /// L2: a side lost mid-meeting gets its last chunk transcribed then, not
+    /// at stop.
+    func testALostSidesLastChunkIsTranscribedAtOnce() {
+        startBoth()
+        recorder.them.deliver(audio(2, [(0.5, 2, 0.3)]))   // still talking when it's lost
+        XCTAssertTrue(engine.jobs.isEmpty)
+        recorder.them.onSourceLost?()
+        XCTAssertEqual(engine.jobs, [3], "Before the stop")
+        XCTAssertEqual(session.status, .recording(app: "Zoom", startedAt: 1_000, lost: [.them]))
     }
 }

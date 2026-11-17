@@ -76,9 +76,10 @@ struct MeetingNote: Equatable {
         case transcriptionFailed(failed: Int, of: Int, reason: String)
         /// Cado quit before transcription finished.
         case quitBeforeTranscribing
-        /// Cado quit unexpectedly (crashed, was force-quit, lost power)
-        /// during the meeting; the note was recovered on a later launch.
-        case recoveredAfterCrash
+        /// The note was finished on a later launch (#31), and why.
+        case finishedLater(RecoveryPlan.Reason)
+        /// Recovery gave up: the note has only what was transcribed before.
+        case unfinished
         /// Where the meeting's audio was kept (after a failure or quit).
         case audioKept(URL)
     }
@@ -170,8 +171,14 @@ struct MeetingNote: Equatable {
             return "\(failed) of \(total) passages couldn't be transcribed: \(reason)"
         case .quitBeforeTranscribing:
             return "Cado quit before this meeting was fully transcribed."
-        case .recoveredAfterCrash:
+        case .finishedLater(.crashed):
             return "Cado quit unexpectedly during this meeting. This note was recovered from what had been recorded."
+        case .finishedLater(.quit):
+            return "Cado was quit during this meeting; the note was finished the next time Cado started."
+        case .finishedLater(.noteNotSaved):
+            return "This note couldn't be saved when the meeting ended; it was finished the next time Cado started."
+        case .unfinished:
+            return "Cado couldn't finish transcribing this meeting, so this note has only what was transcribed before."
         case .audioKept(let url):
             return "The meeting's audio is kept in `\(url.path)`."
         }
