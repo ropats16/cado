@@ -3,7 +3,7 @@ import SwiftUI
 // The Settings window's building blocks in Cado's brand (#18): a titled
 // card per section, a label-and-control row, and the tone of a status line.
 
-/// A section: a rounded headline with its symbol, over a `surface` card.
+/// A section: a bold headline with its symbol, over a `surface` card.
 struct SettingsSection<Content: View>: View {
     let title: String
     let systemImage: String
@@ -13,8 +13,9 @@ struct SettingsSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
-                    .foregroundStyle(Brand.Palette.accent)
-                    .frame(width: 20)   // titles line up whatever the symbol's width
+                    .foregroundStyle(Brand.Palette.accentText)
+                    .frame(width: 28, height: 28)
+                    .background(Brand.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: 8))
                     .accessibilityHidden(true)
                 Text(title)
                     .foregroundStyle(Brand.Palette.ink)
@@ -35,12 +36,13 @@ struct SettingsCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) { content }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 16)
             .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Brand.Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Brand.Palette.outline(contrast)))
+            .shadow(color: Brand.Palette.ink.opacity(0.035), radius: 3, x: 0, y: 2)
     }
 }
 
@@ -98,5 +100,5 @@ struct StatusLine: View {
 
 extension View {
     /// A card row's vertical rhythm.
-    func settingsRowPadding() -> some View { padding(.vertical, 8) }
+    func settingsRowPadding() -> some View { padding(.vertical, 10) }
 }

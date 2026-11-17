@@ -22,8 +22,10 @@ struct LibraryView: View {
                 HSplitView {
                     sidebar
                         .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
+                        .background(Brand.Palette.surfaceSecondary)
                     LibraryDetailView(viewModel: viewModel)
                         .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Brand.Palette.surface)
                 }
             }
         }

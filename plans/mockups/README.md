@@ -1,34 +1,50 @@
-# Cado revamp mockups
+# Cado revamp mockups — revision 5
 
-Open `site-mockup.html` (landing page) and `app-mockup.html` (app windows) in a browser. Both are self-contained, light + dark (follows system; a Theme button overrides). Only external request is an optional Google Fonts stylesheet (Fraunces); falls back to system serif.
+Open [site-mockup.html](site-mockup.html) and [app-mockup.html](app-mockup.html) in a browser. These are the approved static design studies. Their production implementation lives in `site/` and `Sources/Cado/`. Both follow the system theme; the Theme button cycles through light, dark and auto. They now use local system fonts and make no font requests.
 
 ## Direction
 
-Roughly 55/45 professional/playful. Warm paper surfaces, deep ink-green text, a serif for headlines and note titles, SF Rounded kept for UI/body, one deep-avocado accent used for the primary button, active tab, "Me" and selection. Product UI leads the hero; the mascot moves from centrepiece to a calm character that peeks over the window and acts as the status indicator.
+More professional, still recognisably Cado. Keep the current site's confident sans-serif typography and friendly mascot, combined with the generous spacing and product-led presentation of [Granola](https://www.granola.ai/). The user's preference for simpler layouts takes priority over the elaborate effects in the latest [TASTE guidance](https://github.com/Leonxlnx/taste-skill).
 
-## Kept from today
+- Bold native sans-serif replaces Fraunces and rounded body text. Titles use tighter spacing; app controls retain compact native proportions.
+- Pure white replaces the warm off-white page background. White windows and pale green secondary surfaces have clearer separation.
+- A more saturated forest green anchors buttons, text emphasis and selections; the privacy band uses a richer deep green.
+- The original production hero title and description are restored. A large avocado sits beside the copy on desktop and below it on mobile, with the entire Library window beneath.
+- Raised leaf-green buttons (`#61C45E`) use dark text, a solid green base and rounded rectangular corners. Their pressed state depresses the face.
+- The three steps now sit in generous pale-green cards, with larger mascots, bold titles and clear step numbers.
+- The mascot remains in the wordmark, beside the hero copy, and in relevant app states.
 
-- Avocado mascot art (all poses, unchanged SVGs), warm cream/leaf-green palette, cheek-pink and pulse-coral accents.
-- Copy and honest claims: on-device, MIT, plain Markdown, Me/Others, network table, permissions, brew install.
-- Hero shows the real Library; hold-to-talk story; light + dark.
+| Role | Light value |
+| --- | --- |
+| Page | `#FFFFFF` |
+| Window | `#FFFFFF` |
+| Secondary surface | `#F1F5EE` |
+| Primary text | `#16291E` |
+| Primary action | `#137343` |
+| Accent text | `#10683B` |
+| Selection | `#E4F3DC` |
+| Privacy band | `#103E29` |
 
-## Cues from the reference (not copied)
+Dark mode retains deep green surfaces, with a clearer mint accent (`#8FE0A4`) and brighter secondary labels.
 
-- Large serif display type with generous whitespace and slow section rhythm.
-- Product screenshot as the hero, not an illustration.
-- Quiet hairline-and-card UI, restrained colour, one dark inverted band for the trust section.
-- Calm, factual copy; a fact strip instead of badges.
+## What to review
 
-## Decisions to react to
+1. Does the bolder all-sans direction recover the clarity of the current site?
+2. Is the white/green balance bright enough while retaining warmth?
+3. Does the mascot feel appropriately present alongside the more professional layout?
 
-1. **Typeface:** Fraunces (serif) for headings + SF Rounded body. Alternative: all-sans, or serif only on the website.
-2. **Accent:** deep green (#2b5f27 light / #9bdc86 dark) replacing the system bright green on buttons and links. Apple system green stays only for live-status dots. Mixed-in app tint changes if you want the app to keep stock green.
-3. **Mascot playfulness:** only in hero (peeking), 3-step cards, overlay states and download. No 3D buttons, bounce or glow. Dial up by enlarging the hero mascot back to centre.
-4. **Summaries:** shown in the Library and site as "Coming soon" tag. Keep the tag until shipped.
-5. **Dark band** for Private by design: keep it (strong trust signal) or stay on paper tones.
+All six app studies remain: Settings, Library, menu bar, overlay states, meeting prompt and onboarding. Controls inside illustrated windows are static; the theme control and website section links work. Summary content and the Launch sync note are illustrative; the website mockup retains its historical Coming soon summary label; the production site describes the shipped summary options. Placeholder download/GitHub controls are not release links.
 
-## What implementing touches
+## Validation
 
-- Site: `site/index.html`, `site/styles.css` (new tokens, fonts, sections; real screenshots replace the HTML window; local font file needed to keep "no third-party requests").
-- App: `Sources/Cado/Brand/Brand.swift` (accentText/accent, serif title font), `Settings/SettingsView.swift` (tabs), `Library/LibraryView.swift` + `LibraryDetailView.swift` (summary block, segmented control), `App/StatusMenu.swift`, `Onboarding/OnboardingView.swift`, new meeting-detection prompt and summary views, overlay unchanged.
-- Mockup copy and sample note (Launch sync) is invented placeholder.
+Rendered both pages in Chromium at 1440, 768 and 390 pixels, in light and dark modes. No JavaScript errors; theme switching works. The app settings tab strip scrolls horizontally on narrow screens. The approved direction has now been applied to the production website and native Swift app, retaining real controls, native settings tabs and shipped features. The native Library screenshot is rendered from the updated app.
+
+## Mascot motion
+
+Listening artwork has two outer rings and no red pit ring; the outermost ring is farther out and lighter. The larger hero mascot cycles through the original idle, listening, thinking and done artwork over 16 seconds. Listening gently pulses, thinking tilts, and completion makes a small hop. There is no visible animation control; reduced-motion preferences show a static idle pose. The loop pauses when the browser tab is hidden. All artwork is embedded in the mockup.
+
+Small green line icons identify the four product facts and three macOS permission explanations. They are decorative inline SVGs; visible text remains the accessible label.
+
+## Finishing pass
+
+Pure white remains the page background. A localized pale-green halo and soft ground shadow frame the mascot. The step cards and download panel use slightly stronger green-tinted edges, subtle surface shading and shallow shadows. Headings and key labels have firmer weight; icons sit on small tinted tiles. Secondary buttons have a restrained raised edge and hover/press feedback.

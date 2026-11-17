@@ -7,7 +7,7 @@ import SwiftUI
 /// would be Liquid Glass on macOS 26, which Cado doesn't adopt).
 struct LibraryDetailView: View {
     @ObservedObject var viewModel: LibraryViewModel
-    /// About 75 characters of body text (SF Rounded 13 pt averages ~6 pt).
+    /// About 75 characters of body text (SF Pro 13 pt averages ~6 pt).
     static let readingWidth: CGFloat = 460
 
     var body: some View {
