@@ -186,8 +186,8 @@ struct OnboardingContent: Equatable {
     }
 
     private static func model(_ engine: EngineReadiness, _ facts: OnboardingModelFacts) -> OnboardingStep {
-        var step = OnboardingStep(id: .model, state: .todo, title: "Speech model",
-                                  detail: "Cado transcribes right on this Mac, so it needs a speech model.")
+        var step = OnboardingStep(id: .model, state: .todo, title: "Pick a speech model",
+                                  detail: "It downloads once and then runs on your Mac. You can change it later in Settings.")
         let chosen = facts.options.first { $0.key == facts.selected } ?? facts.options.first
 
         switch engine.status {
@@ -235,6 +235,7 @@ struct OnboardingContent: Equatable {
             let get = download(chosen, facts)
             step.state = get.state
             step.primary = get.button
+            if step.primary?.title == "Download" { step.primary?.title = "Download and continue" }
             step.progress = get.progress
             step.note = get.note
         }

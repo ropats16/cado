@@ -46,6 +46,8 @@ final class LibraryWindowController: NSObject, NSWindowDelegate {
         )
         w.title = "Cado Library"
         w.isReleasedWhenClosed = false
+        w.titlebarAppearsTransparent = true
+        w.backgroundColor = Brand.Palette.NS.windowBar
         w.contentMinSize = NSSize(width: 600, height: 360)
         w.contentView = NSHostingView(rootView: LibraryView(viewModel: viewModel))
         return w

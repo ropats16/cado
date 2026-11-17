@@ -18,25 +18,56 @@ struct SettingsView: View {
     @Environment(\.colorSchemeContrast) var contrast
 
     /// The window's fixed width; wide enough for the longest model name.
-    static let width: CGFloat = 560
+    static let width: CGFloat = 720
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                switch navigator.tab {
-                case .general: generalTab
-                case .dictation: dictationTab
-                case .speechModel: modelTab
-                case .meetings: meetingsTab
+        VStack(spacing: 0) {
+            HStack(spacing: 2) {
+                ForEach([SettingsTab.general, .dictation, .meetings, .speechModel, .mascotNotes]) { tab in
+                    Button { navigator.tab = tab } label: {
+                        Text(tab.title)
+                            .font(.system(size: 13, weight: navigator.tab == tab ? .bold : .medium))
+                            .foregroundStyle(navigator.tab == tab ? Brand.Palette.accentText : Brand.Palette.inkSecondary)
+                            .padding(.horizontal, 14).padding(.vertical, 10)
+                            .overlay(alignment: .bottom) {
+                                if navigator.tab == tab { Rectangle().fill(Brand.Palette.accentText).frame(height: 2) }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(navigator.tab == tab ? .isSelected : [])
                 }
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 20)
+            .padding(.horizontal, 12).padding(.top, 8)
+            .background(Brand.Palette.windowBar)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(navigator.tab.title).font(.system(size: 21.6, weight: .bold))
+                            .foregroundStyle(Brand.Palette.ink).accessibilityAddTraits(.isHeader)
+                        if navigator.tab == .meetings {
+                            Text("Notes are saved as Markdown on this Mac.")
+                                .font(.system(size: 12.5)).foregroundStyle(Brand.Palette.inkSecondary)
+                        }
+                    }
+                    switch navigator.tab {
+                    case .general: generalTab
+                    case .dictation: dictationTab
+                    case .speechModel: modelTab
+                    case .meetings: meetingsTab
+                    case .mascotNotes: mascotNotesTab
+                    }
+                }
+                .padding(.horizontal, 26)
+                .padding(.top, 22).padding(.bottom, 26)
+            }
         }
         .font(Brand.Typography.body)
         .toggleStyle(.switch)
+        .buttonStyle(SettingsActionStyle())
         .tint(Brand.Palette.accent)
-        .background(Brand.Palette.background)
+        .background(Brand.Palette.surface)
         .frame(minWidth: Self.width, maxWidth: Self.width, minHeight: 360)
         .onDisappear {
             // Window closed mid-capture: remove the monitor and resume the tap.

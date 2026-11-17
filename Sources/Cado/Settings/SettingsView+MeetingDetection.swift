@@ -5,12 +5,26 @@ import SwiftUI
 extension SettingsView {
     /// Asking "Record this meeting?" when a meeting app starts using the mic.
     var meetingDetectionSection: some View {
-        SettingsSection(title: "Ask to Record", systemImage: "bell.badge") {
-            toggleRow("Ask to record meetings", isOn: viewModel.meetingDetection) { viewModel.setMeetingDetection($0) }
-                .disabled(!viewModel.canDetectMeetings)
-            StatusLine(text: viewModel.canDetectMeetings ? SettingsViewModel.meetingsNote
-                       : SettingsViewModel.meetingsUnsupportedNote)
-                .padding(.bottom, 8)
+        SettingsSection(title: "Detection", systemImage: "bell.badge") {
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Offer to record when a meeting starts").fontWeight(.semibold).accessibilityHidden(true)
+                    Text(viewModel.canDetectMeetings ? "Cado asks first. It never records on its own." : SettingsViewModel.meetingsUnsupportedNote)
+                        .font(.system(size: 12)).foregroundStyle(Brand.Palette.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Toggle("Offer to record when a meeting starts", isOn: Binding(
+                    get: { viewModel.meetingDetection }, set: { viewModel.setMeetingDetection($0) }))
+                    .labelsHidden().disabled(!viewModel.canDetectMeetings)
+            }.padding(.vertical, 12)
+            CardDivider()
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Meeting apps").fontWeight(.semibold)
+                Text("Zoom, Teams, Slack, Webex, Discord, FaceTime, and browser calls such as Google Meet.")
+                    .font(.system(size: 12)).foregroundStyle(Brand.Palette.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }.padding(.vertical, 12)
         }
     }
 

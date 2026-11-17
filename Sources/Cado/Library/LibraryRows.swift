@@ -66,20 +66,21 @@ struct LibraryRowView: View {
                     }
                     .accessibilityLabel("Note title")
             } else {
-                Text(row.title).font(Brand.Typography.font(.body, weight: .semibold))
-                    .foregroundStyle(Brand.Palette.ink).lineLimit(1)
+                Text(row.title).font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(viewModel.selection == row.id ? Brand.Palette.accentText : Brand.Palette.ink).lineLimit(1)
             }
             Text([row.time, row.day, row.duration, row.app].compactMap { $0 }.joined(separator: " · "))
-                .font(Brand.Typography.font(.subheadline))
+                .font(.system(size: 11.5))
                 .foregroundStyle(Brand.Palette.inkSecondary).lineLimit(1)
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 8)
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(viewModel.selection == row.id ? Brand.Palette.selection : Color.clear, in: RoundedRectangle(cornerRadius: 8))
         .overlay(alignment: .leading) {
             if viewModel.selection == row.id {
                 RoundedRectangle(cornerRadius: 2).fill(Brand.Palette.accent)
-                    .frame(width: 3).padding(.vertical, 8)
+                    .frame(width: 3).padding(.vertical, 1)
             }
         }
         .contentShape(Rectangle())

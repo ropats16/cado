@@ -3,7 +3,7 @@ import SwiftUI
 /// The selected note (#42): a header (title, date, duration, app), any
 /// notices, then the body: Me/Others turns and Markdown blocks
 /// (`NoteReading`), in a reading column. Copy Transcript (⇧⌘C) and Show in
-/// Finder sit under the header: the window has no toolbar (a toolbar here
+/// Finder live in the header action menu: the window has no toolbar (a toolbar here
 /// would be Liquid Glass on macOS 26, which Cado doesn't adopt).
 struct LibraryDetailView: View {
     @ObservedObject var viewModel: LibraryViewModel
@@ -38,17 +38,28 @@ struct LibraryDetailView: View {
     private func note(_ reading: NoteReading) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header(reading.header)
-            actions.padding(.top, 12)
             if viewModel.showsDetailTabs {
-                Picker("Note content", selection: $viewModel.selectedDetailTab) {
+                HStack(spacing: 0) {
                     ForEach(LibraryDetailTab.allCases, id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
+                        Button { viewModel.selectedDetailTab = tab } label: {
+                            Text(tab.rawValue).font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(viewModel.detailTab == tab ? Brand.Palette.ink : Brand.Palette.inkSecondary)
+                                .padding(.horizontal, 12).padding(.vertical, 3)
+                                .background {
+                                    if viewModel.detailTab == tab {
+                                        RoundedRectangle(cornerRadius: 6).fill(Brand.Palette.surface)
+                                            .shadow(color: .black.opacity(0.12), radius: 1, y: 1)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(viewModel.detailTab == tab ? .isSelected : [])
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 210)
-                .padding(.top, 20).padding(.bottom, 20)
+                .padding(2)
+                .background(Brand.Palette.groupedBackground, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.Palette.ink.opacity(0.18)))
+                .padding(.top, 18).padding(.bottom, 16)
             } else {
                 Divider().padding(.vertical, 20)
             }
@@ -60,6 +71,13 @@ struct LibraryDetailView: View {
             }
             if viewModel.detailTab == .summary {
                 LibrarySummarySlot(viewModel: viewModel)
+                // The approved Summary view includes a short transcript preview;
+                // the Transcript tab remains the complete, selectable recording.
+                ForEach(Array(reading.items.compactMap { item -> NoteReading.Turn? in
+                    if case .turn(let turn) = item { return turn }; return nil
+                }.prefix(2).enumerated()), id: \.offset) { index, turn in
+                    TurnView(turn: turn).padding(.top, index == 0 ? 18 : 10)
+                }
             } else {
                 ForEach(Array(reading.items.enumerated()), id: \.offset) { index, item in
                     Group {
@@ -88,21 +106,26 @@ struct LibraryDetailView: View {
     }
 
     private func header(_ header: NoteReading.Header) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(header.title).font(Brand.Typography.pageTitle).foregroundStyle(Brand.Palette.ink)
-                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top) {
+                Text(header.title).font(.system(size: 24, weight: .bold)).tracking(-0.24)
+                    .foregroundStyle(Brand.Palette.ink)
+                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Menu { actions } label: { Image(systemName: "ellipsis.circle") }
+                    .menuStyle(.borderlessButton).fixedSize()
+                    .accessibilityLabel("Note actions")
+            }
             Text(([header.dateText, header.duration, header.app].compactMap { $0 }).joined(separator: " · "))
-                .font(Brand.Typography.caption)
+                .font(.system(size: 12))
                 .foregroundStyle(Brand.Palette.inkSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(header.accessibilityLabel)
-        .accessibilityAddTraits(.isHeader)
+        .accessibilityElement(children: .contain)
     }
 
     private var actions: some View {
-        HStack(spacing: 8) {
+        Group {
             Button {
                 viewModel.copyTranscript()
             } label: {
@@ -164,24 +187,19 @@ struct TurnView: View {
     private var isMe: Bool { turn.speaker == .me }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Capsule()
-                .fill(isMe ? Brand.Palette.accent : Brand.Palette.inkSecondary.opacity(contrast == .increased ? 0.8 : 0.35))
-                .frame(width: 3)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 5) {
-                    Image(systemName: isMe ? "person.fill" : "person.2.fill").imageScale(.small)
-                    Text(turn.speakerLabel)
-                    if let time = turn.timestampText {
-                        Text(time).foregroundStyle(Brand.Palette.inkSecondary).fontWeight(.regular)
-                    }
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(turn.speakerLabel).font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(isMe ? Brand.Palette.accentText : Brand.Palette.inkSecondary)
+                if let time = turn.timestampText {
+                    Text(time).font(.system(size: 10.5)).foregroundStyle(Brand.Palette.inkTertiary)
                 }
-                .font(Brand.Typography.font(.subheadline, weight: .semibold))
-                .foregroundStyle(isMe ? Brand.Palette.accentText : Brand.Palette.inkSecondary)
-                MarkdownInline.text(turn.text).font(Brand.Typography.body)
-                    .lineSpacing(MarkdownBlockView.lineSpacing)
-                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
+            .frame(width: 64, alignment: .leading).padding(.top, 1)
+            MarkdownInline.text(turn.text).font(.system(size: 13))
+                .foregroundStyle(Brand.Palette.ink)
+                .lineSpacing(3).textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(turn.accessibilityLabel)
