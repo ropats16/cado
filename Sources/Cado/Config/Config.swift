@@ -71,6 +71,10 @@ struct Config: Codable {
     /// Who writes summaries: a `SummaryProvider` raw value. Kept as written;
     /// read it through `summaryProviderChoice`.
     var summaryProvider: String
+    /// Name meeting notes after the matching calendar event (#38). Off unless
+    /// the user switches it on (Settings, onboarding); that is also what asks
+    /// macOS for Calendar access. Missing in older configs = off.
+    var nameMeetingsFromCalendar: Bool
 
     static var defaults: Config {
         Config(
@@ -98,7 +102,8 @@ struct Config: Codable {
             dictationHistory: false,
             keepMeetingAudio: false,
             meetingSummaries: true,
-            summaryProvider: SummaryProvider.onDevice.rawValue
+            summaryProvider: SummaryProvider.onDevice.rawValue,
+            nameMeetingsFromCalendar: false
         )
     }
 
@@ -112,7 +117,8 @@ struct Config: Codable {
          usagePing: Bool = false,
          notesFolder: String = "", notesFolderBookmark: String? = nil,
          dictationHistory: Bool = false, keepMeetingAudio: Bool = false,
-         meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue) {
+         meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue,
+         nameMeetingsFromCalendar: Bool = false) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -140,6 +146,7 @@ struct Config: Codable {
         self.keepMeetingAudio = keepMeetingAudio
         self.meetingSummaries = meetingSummaries
         self.summaryProvider = summaryProvider
+        self.nameMeetingsFromCalendar = nameMeetingsFromCalendar
     }
 
     init(from decoder: Decoder) throws {
@@ -177,6 +184,8 @@ struct Config: Codable {
         keepMeetingAudio = try c.decodeIfPresent(Bool.self, forKey: .keepMeetingAudio) ?? d.keepMeetingAudio
         meetingSummaries = try c.decodeIfPresent(Bool.self, forKey: .meetingSummaries) ?? d.meetingSummaries
         summaryProvider = try c.decodeIfPresent(String.self, forKey: .summaryProvider) ?? d.summaryProvider
+        nameMeetingsFromCalendar = try c.decodeIfPresent(Bool.self, forKey: .nameMeetingsFromCalendar)
+            ?? d.nameMeetingsFromCalendar
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this

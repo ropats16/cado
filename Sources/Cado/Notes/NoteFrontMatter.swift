@@ -121,9 +121,14 @@ struct NoteFrontMatter {
     // MARK: Writing
 
     /// Text of a new file.
-    static func render(title: String, date: Date, kind: String, duration: TimeInterval?, body: String) -> String {
+    /// `event` and `attendees` (#38) are optional extra keys: only written
+    /// when there is something to say, and ignored by readers that don't know them.
+    static func render(title: String, date: Date, kind: String, duration: TimeInterval?, body: String,
+                       event: String? = nil, attendees: [String] = []) -> String {
         var out = "---\ntitle: \(quote(title))\ndate: \(formatDate(date))\nkind: \(quote(kind))\n"
         if let duration { out += "duration: \(Int(duration.rounded()))\n" }
+        if let event, !event.isEmpty { out += "event: \(quote(event))\n" }
+        if !attendees.isEmpty { out += "attendees: [\(attendees.map(quote).joined(separator: ", "))]\n" }
         return out + "---\n\n" + body
     }
 

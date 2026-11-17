@@ -247,6 +247,7 @@ final class MeetingSession {
     private let background: (@escaping () -> Void, @escaping () -> Void) -> Void
     private let locale: Locale
     private let timeZone: TimeZone
+    private let calendarNaming: MeetingCalendarNaming   // #38
     let maxSeconds: TimeInterval
 
     private var state: State = .idle
@@ -280,6 +281,7 @@ final class MeetingSession {
          keepAudio: @escaping () -> Bool = { false },
          maxSeconds: TimeInterval = MeetingSession.defaultMaxSeconds,
          locale: Locale = .current, timeZone: TimeZone = .current,
+         calendarNaming: MeetingCalendarNaming = .off,
          later: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) },
          background: @escaping (@escaping () -> Void, @escaping () -> Void) -> Void = { work, done in
              DispatchQueue.global(qos: .utility).async {
@@ -301,6 +303,7 @@ final class MeetingSession {
         self.maxSeconds = maxSeconds
         self.locale = locale
         self.timeZone = timeZone
+        self.calendarNaming = calendarNaming
         self.later = later
         self.background = background
     }
@@ -333,7 +336,8 @@ final class MeetingSession {
         let id = meetingCount
         let startDate = date()
         let spool = makeSpool(SpooledMeeting(id: UUID(), appName: app.name, appBundleID: app.bundleID,
-                                             startDate: startDate))
+                                             startDate: startDate,
+                                             event: calendarNaming.event(forMeetingStartingAt: startDate)))
         let streams = recorder.streams(for: app, maxSeconds: maxSeconds)
         let meeting = Meeting(id: id, appName: app.name, startedAt: clock.now, startDate: startDate, spool: spool,
                               me: streams.me, them: streams.them)
@@ -702,7 +706,7 @@ final class MeetingSession {
         let noteNamesFolder = failed && spool.hasAllAudioOnDisk
         if noteNamesFolder, let folder { caveats.append(.audioKept(folder)) }
         let note = MeetingNote(appName: app, start: meeting.startDate, duration: meeting.duration,
-                               turns: turns, caveats: caveats)
+                               turns: turns, caveats: caveats, event: meeting.spool.meeting.event)
         let draft = note.draft(locale: locale, timeZone: timeZone)
         do {
             let url = try notes.save(draft)
@@ -760,7 +764,8 @@ final class MeetingSession {
         Log.error("Couldn't save the meeting note: \(error.localizedDescription)")
         let spool = meeting.spool, title = title(meeting)
         let markdown = NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind,
-                                              duration: draft.duration, body: draft.body)
+                                              duration: draft.duration, body: draft.body,
+                                              event: draft.event, attendees: draft.attendees)
         let reason = error.localizedDescription
         if let folder = folder ?? newArchiveFolder(title), (try? archive.writeNote(markdown, into: folder)) != nil {
             journalWrittenDown(spool, note: folder.appendingPathComponent("Note.md").path, keepAudio: hasAudio, folder: folder)
@@ -817,7 +822,8 @@ final class MeetingSession {
         var caveats = caveats(meeting)
         caveats.append(.quitBeforeTranscribing)
         let draft = MeetingNote(appName: meeting.appName, start: meeting.startDate, duration: meeting.duration,
-                                turns: MeetingTranscript.turns(meeting.pieces), caveats: caveats)
+                                turns: MeetingTranscript.turns(meeting.pieces), caveats: caveats,
+                                event: meeting.spool.meeting.event)
             .draft(locale: locale, timeZone: timeZone)
         do {
             let url = try notes.save(draft)
@@ -969,7 +975,7 @@ final class MeetingSession {
         let info = handle.meeting
         let counts = handle.audio().counts
         var plan = RecoveryPlan(events: leftover.events, sampleCounts: counts)
-        let title = MeetingNote.title(appName: info.appName, start: info.startDate, locale: locale, timeZone: timeZone)
+        let title = MeetingNote.title(appName: info.appName, start: info.startDate, event: info.event, locale: locale, timeZone: timeZone)
         if plan.concluded == nil {
             // What the journal couldn't take, the folder's name says.
             switch leftover.mark {
@@ -1123,7 +1129,8 @@ final class MeetingSession {
     // MARK: - Helpers
 
     private func title(_ meeting: Meeting) -> String {
-        MeetingNote.title(appName: meeting.appName, start: meeting.startDate, locale: locale, timeZone: timeZone)
+        MeetingNote.title(appName: meeting.appName, start: meeting.startDate, event: meeting.spool.meeting.event,
+                          locale: locale, timeZone: timeZone)
     }
 
     private func describe(_ speaker: MeetingSpeaker, _ meeting: Meeting) -> String {

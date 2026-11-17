@@ -7,7 +7,7 @@ import AVFoundation
 // meeting the app didn't get to finish.
 //
 // On disk: `<root>/<uuid>/` holding
-//   meeting.json   {"version":1,"id","appName","appBundleID","startDate"}, written once
+//   meeting.json   {"version":1,"id","appName","appBundleID","startDate","event"?}, written once
 //   me.f32         raw little-endian Float32, 16 kHz mono, append-only
 //   them.f32       same, for the meeting app's audio
 //   events.jsonl   one JSON object per line ("type" says which), append-only
@@ -36,6 +36,9 @@ struct SpooledMeeting: Codable, Equatable {
     let appName: String
     let appBundleID: String
     let startDate: Date
+    /// The calendar event the note is named after (#38), decided when the
+    /// meeting started so a recovered meeting keeps it. nil: not used.
+    var event: MatchedEvent? = nil
 }
 
 /// One transcribed sentence-ish segment, relative to its chunk's start.
@@ -607,11 +610,15 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         let appName: String
         let appBundleID: String
         let startDate: Date
+        /// Optional (#38): older files lack it and open as before.
+        let event: MatchedEvent?
         init(version: Int, meeting: SpooledMeeting) {
             self.version = version; id = meeting.id; appName = meeting.appName
-            appBundleID = meeting.appBundleID; startDate = meeting.startDate
+            appBundleID = meeting.appBundleID; startDate = meeting.startDate; event = meeting.event
         }
-        var meeting: SpooledMeeting { SpooledMeeting(id: id, appName: appName, appBundleID: appBundleID, startDate: startDate) }
+        var meeting: SpooledMeeting {
+            SpooledMeeting(id: id, appName: appName, appBundleID: appBundleID, startDate: startDate, event: event)
+        }
     }
 
     static let infoName = "meeting.json"

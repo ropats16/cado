@@ -20,13 +20,21 @@ struct NoteDraft: Equatable {
     /// Seconds, when it means something (meetings).
     var duration: TimeInterval?
     var body: String
+    /// The calendar event a meeting was named after (#38): its title and the
+    /// other people's names (never emails). Written as `event` and
+    /// `attendees` front-matter keys; nil/empty writes nothing.
+    var event: String?
+    var attendees: [String]
 
-    init(title: String, date: Date, kind: String = NoteKind.note, duration: TimeInterval? = nil, body: String) {
+    init(title: String, date: Date, kind: String = NoteKind.note, duration: TimeInterval? = nil, body: String,
+         event: String? = nil, attendees: [String] = []) {
         self.title = title
         self.date = date
         self.kind = kind
         self.duration = duration
         self.body = body
+        self.event = event
+        self.attendees = attendees
     }
 }
 
@@ -169,7 +177,8 @@ final class NotesLibrary {
         let dir = folder()
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         let text = NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind,
-                                          duration: draft.duration, body: draft.body)
+                                          duration: draft.duration, body: draft.body,
+                                          event: draft.event, attendees: draft.attendees)
         let data = Data(text.utf8)
         let stem = baseName(date: draft.date, title: draft.title)
         for n in 1... {

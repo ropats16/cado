@@ -210,7 +210,7 @@ final class MeetingSessionTests: XCTestCase {
         session = makeSession()
     }
 
-    private func makeSession(maxSeconds: TimeInterval = 600,
+    private func makeSession(maxSeconds: TimeInterval = 600, calendarNaming: MeetingCalendarNaming = .off,
                              background: @escaping (@escaping () -> Void, @escaping () -> Void) -> Void = { $0(); $1() })
         -> MeetingSession {
         MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
@@ -219,7 +219,8 @@ final class MeetingSessionTests: XCTestCase {
                        systemAudioPermission: { [unowned self] in permission },
                        keepAudio: { [unowned self] in keepAudio },
                        maxSeconds: maxSeconds, locale: Locale(identifier: "en_GB"),
-                       timeZone: TimeZone(identifier: "UTC")!, later: { $0() }, background: background)
+                       timeZone: TimeZone(identifier: "UTC")!, calendarNaming: calendarNaming,
+                       later: { $0() }, background: background)
     }
 
     /// 16 kHz audio of `seconds` with 200 Hz bursts (start, end, amplitude).
@@ -787,6 +788,64 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertEqual(feedback.notices[1].body, "The audio of “Meeting with Zoom — 16 Nov 2026 at 14:32” couldn't be "
                        + "copied to Cado's Meeting Audio folder, so it couldn't be kept.")
         UserFacingCopy.assertPlain(feedback.notices[1].body)
+    }
+
+    // MARK: - Calendar titles (#38)
+
+    private func calendarSession(access: CalendarAccess = .granted, enabled: Bool = true,
+                                 events: [CalendarEventInfo]) -> MeetingSession {
+        let calendar = CalendarNamingTests.FakeCalendar(access: access)
+        calendar.events = events
+        return makeSession(calendarNaming: MeetingCalendarNaming(isEnabled: { enabled }, calendar: calendar))
+    }
+
+    private var syncEvent: CalendarEventInfo {
+        let start = Date(timeIntervalSince1970: 1_794_839_520 - 60)
+        return CalendarEventInfo(title: "Weekly sync", start: start, end: start.addingTimeInterval(1800),
+                                 attendees: [.init(name: "Ada"), .init(name: "ada@example.com")])
+    }
+
+    func testAMeetingStartedDuringAnEventIsNamedAfterIt() {
+        session = calendarSession(events: [syncEvent])
+        record()
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertEqual(notes.saved[0].title, "Weekly sync")
+        XCTAssertEqual(notes.saved[0].event, "Weekly sync")
+        XCTAssertEqual(notes.saved[0].attendees, ["Ada"], "No email addresses")
+        XCTAssertEqual(feedback.notices.last?.body.hasPrefix("Weekly sync"), true)
+    }
+
+    func testTurnedOffDeniedOrUnmatchedKeepsTodaysTitle() {
+        for scenario in [(CalendarAccess.granted, false, [syncEvent]), (.denied, true, [syncEvent]),
+                         (.notDetermined, true, [syncEvent]), (.granted, true, [])] {
+            setUp()
+            session = calendarSession(access: scenario.0, enabled: scenario.1, events: scenario.2)
+            record()
+            XCTAssertEqual(notes.saved.first?.title, "Meeting with Zoom — 16 Nov 2026 at 14:32", "\(scenario)")
+            XCTAssertNil(notes.saved.first?.event)
+        }
+    }
+
+    func testTheEventIsDecidedAtStartAndJournaledWithTheMeeting() throws {
+        session = calendarSession(events: [syncEvent])
+        startBoth()
+        let spooled = try XCTUnwrap(spool.last).meeting
+        XCTAssertEqual(spooled.event, MatchedEvent(title: "Weekly sync", attendees: ["Ada"]))
+    }
+
+    func testARecoveredMeetingKeepsItsEventTitle() {
+        let meeting = SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "us.zoom.xos", startDate: crashDate,
+                                     event: MatchedEvent(title: "Weekly sync", attendees: ["Ada"]))
+        let h = InMemorySpoolHandle(meeting)
+        h.append(audio(10, [(1, 2, 0.2), (7, 8, 0.4)]), for: .me)
+        h.append(audio(10, [(3, 5, 0.3)]), for: .them)
+        spool.left.append(LeftoverMeeting(handle: DurableSpoolHandle(h), events: bothStarted))
+        session.recoverLeftovers()
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertEqual(notes.saved[0].title, "Weekly sync")
+        XCTAssertEqual(notes.saved[0].attendees, ["Ada"])
+        XCTAssertEqual(notes.saved[0].date, crashDate)
     }
 
     // MARK: - Recovery (#31)
