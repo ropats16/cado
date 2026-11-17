@@ -29,8 +29,9 @@ import Foundation
 ///   the piece stays. Anything else (a reply reusing a few of Others' words)
 ///   leaves the piece alone.
 /// - A short piece (fewer than `minWords`: "Yeah.", "Bye.") is a repeat only
-///   if Others said exactly that, starting at nearly the same moment
-///   (`shortSlack` before to `skew` after).
+///   if an Others piece starts with exactly those words at nearly the same
+///   moment (`shortSlack` before to `skew` after), or ends with them as the
+///   Me piece ends. A backchannel over the middle of Others' sentence stays.
 ///
 /// Repeats are removed only in a meeting that shows bleed: at least
 /// `evidencePieces` Me pieces with a long repeat. With headphones nothing
@@ -54,7 +55,7 @@ enum SpeakerBleedFilter {
         /// A long run that starts this close to Others' is said with them:
         /// a person doesn't repeat five words at once, the speakers do.
         var together: TimeInterval = 0.75
-        /// Short pieces must start this close after their Others twin.
+        /// Short pieces must start (or end) this close after their Others twin.
         var shortSlack: TimeInterval = 0.75
         /// Pieces with fewer words count as short; runs shorter never count.
         var minWords = 3
@@ -191,8 +192,13 @@ enum SpeakerBleedFilter {
         guard !me.words.isEmpty else { return .keep }
 
         if me.words.count < settings.minWords {
+            // Only where an Others piece starts or ends: there its words' times are real.
+            let n = me.words.count
             let twin = others.pieces.contains {
-                $0.start >= me.start - settings.shortSlack && $0.start <= me.start + settings.skew && $0.words == me.words
+                $0.start >= me.start - settings.shortSlack && $0.start <= me.start + settings.skew
+                    && $0.words.prefix(n).elementsEqual(me.words)
+                    || $0.end >= me.end - settings.shortSlack && $0.end <= me.end + settings.skew
+                    && $0.words.suffix(n).elementsEqual(me.words)
             }
             return twin ? .drop : .keep
         }

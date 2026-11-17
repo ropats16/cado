@@ -71,6 +71,21 @@ final class SpeakerBleedFilterTests: XCTestCase {
         XCTAssertEqual(texts(pieces), [])
     }
 
+    func testAShortRepeatOfHowOthersStartedOrEndedIsDropped() {
+        // The engine split the bleed differently: a word or two on its own.
+        let pieces = onSpeakers([them(6.8, " Great, so I think we should ship it on Friday.", end: 10.08),
+                                 me(6.84, " Great.", end: 7.64),
+                                 them(31.12, " Move the launch to March, got it.", end: 33.68),
+                                 me(32.94, " Got it.", end: 33.58)])
+        XCTAssertEqual(texts(pieces), [])
+    }
+
+    func testAShortPieceInTheMiddleOfOthersStays() {
+        let pieces = onSpeakers([them(10, " Yeah, I think so, yeah, the numbers look good.", end: 14),
+                                 me(11.5, " Yeah.", end: 11.8)])
+        XCTAssertEqual(texts(pieces), [" Yeah."])
+    }
+
     func testAShortRepeatAtADifferentMomentStays() {
         let pieces = onSpeakers([them(12, " Sounds good.", end: 12.8), me(13.5, " Sounds good.", end: 14.2)])
         XCTAssertEqual(texts(pieces), [" Sounds good."])
