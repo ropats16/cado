@@ -73,22 +73,46 @@ final class LibraryViewModel: ObservableObject {
     private let pasteboard: PasteboardWriting
     private let now: () -> Date
     private let calendar: Calendar
+    private let notifications: NotificationCenter
     private var generation = 0
     private var pendingReload: Task<Void, Never>?
     private var meetingStatus: MeetingStatus = .idle
     /// Idle with the row still up: the next reload that lands removes it.
     private var rowEndsOnReload = false
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
     /// `now` and `calendar` (time zone, locale, first weekday) date the
-    /// sections and format rows and the header.
+    /// sections and format rows and the header; the sections regroup when
+    /// `notifications` says the day or the time zone changed.
     init(library: NotesLibrary, opener: NoteOpening = WorkspaceNoteOpener(),
          pasteboard: PasteboardWriting = SystemClipboard(),
-         now: @escaping () -> Date = Date.init, calendar: Calendar = .autoupdatingCurrent) {
+         now: @escaping () -> Date = Date.init, calendar: Calendar = .autoupdatingCurrent,
+         notifications: NotificationCenter = .default) {
         self.library = library
         self.opener = opener
         self.pasteboard = pasteboard
         self.now = now
         self.calendar = calendar
+        self.notifications = notifications
+        for name in [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange] {
+            observers.append(notifications.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated { self?.regroup() }
+                } else {
+                    Task { @MainActor in self?.regroup() }
+                }
+            })
+        }
+    }
+
+    deinit {
+        for observer in observers { notifications.removeObserver(observer) }
+    }
+
+    /// Today/Yesterday/This week moved (midnight, a time-zone change): the
+    /// same notes, grouped again.
+    private func regroup() {
+        sections = LibrarySections.group(notes, now: now(), calendar: calendar)
     }
 
     /// The in-progress meeting row, shown at the top of the list; hidden

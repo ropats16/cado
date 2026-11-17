@@ -472,6 +472,26 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(listedWhenRowWent, [true])
     }
 
+    // MARK: sections over time (#42)
+
+    func testSectionsRegroupAtMidnightAndOnATimeZoneChange() async throws {
+        let center = NotificationCenter()
+        var clock = t0 + 3600
+        vm = LibraryViewModel(library: library, opener: opener, pasteboard: pasteboard,
+                              now: { clock }, notifications: center)
+        try add("Alpha")
+        await vm.reload()
+        XCTAssertEqual(vm.sections.map(\.title), ["Today"])
+        clock += 86_400
+        center.post(name: .NSCalendarDayChanged, object: nil)
+        await vm.settled()
+        XCTAssertEqual(vm.sections.map(\.title), ["Yesterday"])
+        clock += 86_400 * 30
+        center.post(name: .NSSystemTimeZoneDidChange, object: nil)
+        await vm.settled()
+        XCTAssertNotEqual(vm.sections.map(\.title), ["Yesterday"])
+    }
+
     /// Nothing saved (no speech, a failure): no ghost row.
     func testAMeetingWithoutANoteLeavesNoRow() async throws {
         await vm.reload()
