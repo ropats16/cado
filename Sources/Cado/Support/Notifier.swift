@@ -92,6 +92,16 @@ final class NotificationClicks: NSObject, UNUserNotificationCenterDelegate {
 /// The live `NotificationPermissionPort`: `UNUserNotificationCenter`, in
 /// the bundled app only (it traps unbundled, where it says `.unavailable`).
 final class SystemNotificationPermission: NotificationPermissionPort {
+    private let bundleID: String
+    /// `NSWorkspace.open`: false when nothing handled the URL.
+    private let open: (URL) -> Bool
+
+    init(bundleID: String = Bundle.main.bundleIdentifier ?? AppInfo.bundleID,
+         open: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }) {
+        self.bundleID = bundleID
+        self.open = open
+    }
+
     func current(_ completion: @escaping (NotificationPermission) -> Void) {
         guard Notifier.isBundled else { return DispatchQueue.main.async { completion(.unavailable) } }
         UNUserNotificationCenter.current().getNotificationSettings { settings in
@@ -108,11 +118,14 @@ final class SystemNotificationPermission: NotificationPermissionPort {
         }
     }
 
-    /// System Settings › Notifications, at Cado's entry.
+    /// System Settings › Notifications at Cado's entry; the Notifications
+    /// pane itself if that link doesn't open.
     func openSettings() {
-        let id = Bundle.main.bundleIdentifier ?? AppInfo.bundleID
-        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
-            NSWorkspace.shared.open(url)
+        let links = ["x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(bundleID)",
+                     "x-apple.systempreferences:com.apple.preference.notifications"]
+        for link in links {
+            if let url = URL(string: link), open(url) { return }
+            Log.info("Couldn't open \(link)")
         }
     }
 }
