@@ -226,6 +226,41 @@ final class MascotOverlayPanelTests: XCTestCase {
         XCTAssertNil(view.hitTest(view.convert(CGPoint(x: full.maxX - 2, y: full.minY + 2), to: view.superview)))
     }
 
+    /// Right-click menu (#45): Hide Mascot and Settings…, wired to the callbacks.
+    func testRightClickMenuHasHideAndSettings() throws {
+        let adapter = try makeAdapter()
+        var hid = 0, opened = 0
+        adapter.onHide = { hid += 1 }
+        adapter.onOpenSettings = { opened += 1 }
+        adapter.show()
+        let view = try XCTUnwrap(adapter.window?.contentView as? MascotHostingView)
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [],
+                                                     timestamp: 0, windowNumber: 0, context: nil,
+                                                     eventNumber: 0, clickCount: 1, pressure: 1))
+        let menu = try XCTUnwrap(view.menu(for: event))
+        XCTAssertEqual(menu.items.map(\.title), ["Hide Mascot", "Settings…"])
+        for item in menu.items { _ = item.target?.perform(item.action) }
+        XCTAssertEqual(hid, 1)
+        XCTAssertEqual(opened, 1)
+    }
+
+    /// VoiceOver (#45): one named button; pressing it is a click; Hide and
+    /// Settings… are its actions.
+    func testVoiceOverSeesAButtonThatClicks() throws {
+        let adapter = try makeAdapter()
+        var clicks = 0
+        adapter.onClick = { clicks += 1 }
+        adapter.show()
+        let view = try XCTUnwrap(adapter.window?.contentView as? MascotHostingView)
+        XCTAssertTrue(view.isAccessibilityElement())
+        XCTAssertEqual(view.accessibilityRole(), .button)
+        XCTAssertEqual(view.accessibilityLabel(), "Cado mascot")
+        XCTAssertNotNil(view.accessibilityHelp())
+        XCTAssertTrue(view.accessibilityPerformPress())
+        XCTAssertEqual(clicks, 1)
+        XCTAssertEqual(view.accessibilityCustomActions()?.map(\.name), ["Hide Mascot", "Settings…"])
+    }
+
     /// The window takes mouse events only while the pointer is over the body,
     /// so a click on the margin reaches the app underneath.
     func testTakesMouseEventsOnlyOverTheBody() throws {
