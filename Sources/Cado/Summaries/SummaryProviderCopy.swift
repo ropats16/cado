@@ -17,9 +17,7 @@ extension SummaryProvider {
     var settingsNote: String {
         switch self {
         case .onDevice:
-            return "After a meeting note is saved, Apple Intelligence adds a summary to it: key points, decisions "
-                + "and action items. It runs on this Mac, so nothing is sent anywhere. You can summarize a note "
-                + "again from the Library."
+            return "Key points, decisions and action items in English, written on this Mac by Apple Intelligence."
         case .openRouter:
             return "After a meeting note is saved, its text is sent over the internet to OpenRouter and the company "
                 + "that runs the model you chose, and the summary they write is added to the note. Only the "

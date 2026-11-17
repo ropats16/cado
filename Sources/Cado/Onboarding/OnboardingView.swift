@@ -8,13 +8,13 @@ import AppKit
 struct OnboardingView: View {
     @ObservedObject var viewModel: OnboardingViewModel
 
-    static let size = CGSize(width: 520, height: 560)
+    static let size = CGSize(width: 560, height: 560)
 
     var body: some View {
         let step = viewModel.step
         VStack(spacing: 0) {
             StepDots(steps: viewModel.content.steps, current: viewModel.current)
-                .padding(.top, 18)
+                .padding(.top, 28)
 
             // Centred; scrolls only if it can't fit (large text sizes).
             ViewThatFits(in: .vertical) {
@@ -23,15 +23,15 @@ struct OnboardingView: View {
                 ScrollView { page(step) }
             }
 
-            Divider()
             navigation(step)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
+                .padding(.horizontal, 32)
+                .padding(.bottom, 24)
+                .padding(.top, 18)
         }
         .font(Brand.Typography.body)
         .tint(Brand.Palette.accent)
         .frame(width: Self.size.width, height: Self.size.height)
-        .background(Brand.Palette.background)
+        .background(Brand.Palette.surface)
     }
 
     // MARK: - Parts
@@ -40,7 +40,7 @@ struct OnboardingView: View {
         VStack(spacing: 12) {
             StepHero(step: step)
             Text(step.title)
-                .font(Brand.Typography.font(.title, weight: .bold))
+                .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(Brand.Palette.ink)
                 .accessibilityAddTraits(.isHeader)
             if step.id == .ready, step.state == .done {
@@ -57,9 +57,10 @@ struct OnboardingView: View {
             if step.id == .ready, step.state != .done { usagePingChoice }
             if step.id == .model { modelChoice }
             status(step)
-            if step.id != .ready, step.progress == nil { stepButtons(step) }
+            if step.id != .ready, step.progress == nil,
+               step.id != .model || step.primary == nil { stepButtons(step) }
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, 32)
         .padding(.vertical, 16)
     }
 
@@ -150,7 +151,7 @@ struct OnboardingView: View {
                     // Prominent (and Return) while it's the thing to do.
                     if step.state == .todo {
                         Button(primary.title) { viewModel.perform(primary.action) }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(OnboardingButtonStyle(primary: true))
                             .keyboardShortcut(.defaultAction)
                     } else {
                         Button(primary.title) { viewModel.perform(primary.action) }
@@ -158,6 +159,7 @@ struct OnboardingView: View {
                 }
             }
             .controlSize(.large)
+            .buttonStyle(OnboardingButtonStyle())
         }
     }
 
@@ -168,7 +170,16 @@ struct OnboardingView: View {
                 Button("Back") { viewModel.back() }
             }
             Spacer()
-            if let forward = viewModel.forwardTitle {
+            if step.id == .model, step.progress == nil, let primary = step.primary {
+                if let forward = viewModel.forwardTitle {
+                    Button(forward) { viewModel.forward() }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Brand.Palette.inkSecondary)
+                }
+                Button(primary.title) { viewModel.perform(primary.action) }
+                    .buttonStyle(OnboardingButtonStyle(primary: true))
+                    .keyboardShortcut(.defaultAction)
+            } else if let forward = viewModel.forwardTitle {
                 let stepHasDefault = step.primary != nil && step.state == .todo
                 if stepHasDefault {
                     Button(forward) { viewModel.forward() }
@@ -178,22 +189,22 @@ struct OnboardingView: View {
                 }
             } else if let primary = step.primary {
                 Button(primary.title) { viewModel.perform(primary.action) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(OnboardingButtonStyle(primary: true))
                     .keyboardShortcut(.defaultAction)
             }
         }
         .controlSize(.large)
+        .buttonStyle(OnboardingButtonStyle())
     }
 
     // MARK: - Model choice
 
     @ViewBuilder
     private var modelChoice: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 8) {
             if viewModel.showsModelPicker {
-                SettingsCard {
-                    ForEach(Array(viewModel.modelOptions.enumerated()), id: \.element.id) { index, option in
-                        if index > 0 { CardDivider() }
+                VStack(spacing: 8) {
+                    ForEach(viewModel.modelOptions) { option in
                         ModelOptionRow(option: option, isSelected: option.key == viewModel.selectedModel,
                                        isEnabled: viewModel.canChooseModel) {
                             viewModel.perform(.selectModel(option.key))
@@ -211,20 +222,46 @@ struct OnboardingView: View {
     }
 }
 
+/// The mockup's compact rectangular controls, keeping native Button keyboard
+/// handling and accessibility while making the shape and emphasis explicit.
+private struct OnboardingButtonStyle: ButtonStyle {
+    var primary = false
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(primary ? (scheme == .dark ? Brand.Palette.background : Color.white)
+                             : Brand.Palette.inkSecondary)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 9)
+            .background(primary ? Brand.Palette.accent : Brand.Palette.surface,
+                        in: RoundedRectangle(cornerRadius: 9))
+            .overlay {
+                RoundedRectangle(cornerRadius: 9)
+                    .strokeBorder(primary ? Brand.Palette.accent : Brand.Palette.outline(contrast))
+            }
+            .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
+            .contentShape(RoundedRectangle(cornerRadius: 9))
+    }
+}
+
 // MARK: - Step dots
 
-/// Where you are: a dot per step, the current one long, finished ones filled.
+/// Where you are: a slim bar per real step, the current one green.
 private struct StepDots: View {
     let steps: [OnboardingStep]
     let current: OnboardingStepID
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             ForEach(steps, id: \.id) { step in
                 Capsule()
                     .fill(color(step))
-                    .frame(width: step.id == current ? 22 : 8, height: 8)
+                    .frame(width: 22, height: 4)
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: current)
@@ -258,7 +295,11 @@ private struct StepHero: View {
                 mascot(Self.idle)
             case .ready:
                 mascot(step.state == .done ? Self.done : Self.idle)
-            case .microphone, .accessibility, .model, .notifications, .calendar:
+            case .model:
+                Image(nsImage: Self.idle)
+                    .resizable()
+                    .frame(width: 72, height: 72)
+            case .microphone, .accessibility, .notifications, .calendar:
                 symbol
             }
         }
@@ -317,23 +358,27 @@ private struct ModelOptionRow: View {
     let isSelected: Bool
     let isEnabled: Bool
     let select: () -> Void
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         Button(action: select) {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                     .font(.system(size: 15))
                     .foregroundStyle(isSelected ? Brand.Palette.accent : Brand.Palette.inkSecondary)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
-                        Text(option.title).foregroundStyle(Brand.Palette.ink)
+                        Text(option.title)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Brand.Palette.ink)
                         if option.isRecommended {
                             Text("Recommended")
                                 .font(Brand.Typography.font(.caption2, weight: .semibold))
                                 .foregroundStyle(Brand.Palette.accentText)   // AA on the tint (BrandTests)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 1)
-                                .background(Brand.Palette.accent.opacity(Brand.Palette.badgeTintOpacity), in: Capsule())
+                                .background(isSelected ? Brand.Palette.surface
+                                            : Brand.Palette.accent.opacity(Brand.Palette.badgeTintOpacity), in: Capsule())
                         }
                     }
                     Text(option.detail)
@@ -347,10 +392,15 @@ private struct ModelOptionRow: View {
                         .foregroundStyle(Brand.Palette.inkSecondary)
                 }
             }
-            .padding(.vertical, 9)
-            .padding(.horizontal, 8)
-            .background(isSelected ? Brand.Palette.selection : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 8))
+            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .background(isSelected ? Brand.Palette.leaf : Brand.Palette.surfaceSecondary,
+                        in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(isSelected ? Brand.Palette.accentText : Brand.Palette.outline(contrast),
+                                  lineWidth: isSelected ? 2 : 1)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

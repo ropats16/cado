@@ -37,17 +37,22 @@ struct SummaryCard: View {
     }
 
     private var card: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Label(SummarySection.heading, systemImage: "sparkles")
-                    .font(Brand.Typography.headline).foregroundStyle(Brand.Palette.ink)
+                Text(SummarySection.heading.uppercased())
+                    .font(.system(size: 10.5, weight: .semibold)).tracking(0.63)
+                    .foregroundStyle(Brand.Palette.inkTertiary)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 8)
+                if let attribution = panel.blocks?.compactMap(Self.aside).first(where: { $0.hasPrefix("Summarized on this Mac") }) {
+                    Text("Made on your Mac").font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(Brand.Palette.accentText).help(attribution)
+                }
                 if panel.isWorking {
                     ProgressView().controlSize(.small)
                     Text("Summarizing…").font(Brand.Typography.caption).foregroundStyle(Brand.Palette.inkSecondary)
                 } else if panel.canSummarize {
-                    Button(panel.buttonTitle, action: summarize).controlSize(.small)
+                    Button(panel.buttonTitle, action: summarize).buttonStyle(SettingsActionStyle())
                 }
             }
             .accessibilityElement(children: .contain)
@@ -61,7 +66,7 @@ struct SummaryCard: View {
                                     .foregroundStyle(Brand.Palette.inkSecondary)
                                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                             } else {
-                                MarkdownBlockView(block: block)
+                                summaryBlock(block, index: index, blocks: blocks)
                             }
                         }
                         .padding(.top, index == 0 ? 0 : Self.gap(blocks[index - 1], block))
@@ -83,10 +88,35 @@ struct SummaryCard: View {
                 StatusLine(text: problem, tone: .problem)
             }
         }
-        .padding(20)
+        .padding(.horizontal, 16).padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Brand.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Brand.Palette.outline(contrast)))
+        .background(Brand.Palette.groupedBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Brand.Palette.outline(contrast)))
+    }
+
+    @ViewBuilder private func summaryBlock(_ block: MarkdownBlock, index: Int, blocks: [MarkdownBlock]) -> some View {
+        switch block {
+        case .heading(_, let title):
+            MarkdownInline.text(title).font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Brand.Palette.inkSecondary).accessibilityAddTraits(.isHeader)
+        case .bullet(let text, let depth):
+            let section = blocks.prefix(index).reversed().compactMap { block -> String? in
+                if case .heading(_, let title) = block { return title }; return nil
+            }.first
+            HStack(alignment: .top, spacing: 8) {
+                if section?.lowercased() == "action items" {
+                    RoundedRectangle(cornerRadius: 4).strokeBorder(Brand.Palette.ink.opacity(0.18), lineWidth: 1.5)
+                        .frame(width: 13, height: 13).padding(.top, 3).accessibilityHidden(true)
+                } else {
+                    Text("•").frame(width: 10)
+                }
+                MarkdownInline.text(text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.system(size: 13)).foregroundStyle(Brand.Palette.ink).lineSpacing(3)
+            .padding(.leading, CGFloat(depth) * 18)
+        default:
+            MarkdownBlockView(block: block)
+        }
     }
 
     /// A paragraph that is all italics (`_…_`), as `SummarySection` writes
@@ -100,9 +130,9 @@ struct SummaryCard: View {
     /// Lists tight, a little more above a subheading.
     static func gap(_ before: MarkdownBlock, _ block: MarkdownBlock) -> CGFloat {
         switch (before, block) {
-        case (_, .heading): return 14
-        case (.heading, _): return 6
-        case (.bullet, .bullet), (.numbered, .numbered): return 4
+        case (_, .heading): return 10
+        case (.heading, _): return 4
+        case (.bullet, .bullet), (.numbered, .numbered): return 3
         default: return 10
         }
     }

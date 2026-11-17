@@ -14,6 +14,12 @@ extension SettingsViewModel {
     /// The chosen provider can run on this Mac now.
     var summariesAvailable: Bool { summaryAvailability.isAvailable }
 
+    /// Model preparation is temporary: keep the saved preference editable
+    /// while generation itself continues to require full availability.
+    var canChangeMeetingSummaries: Bool {
+        summariesAvailable || summaryAvailability == .unavailable(.modelNotReady)
+    }
+
     var summariesNote: String {
         if showsOpenRouterConsent { return OpenRouterCopy.pendingNote }
         return SummarySettingsCopy.note(summaryAvailability, provider: configStore.config.summaryProviderChoice)

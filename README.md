@@ -33,9 +33,9 @@ off (see [Privacy](#privacy)).
   while it transcribes and hops when your text lands, then gets out of the
   way. Drag it anywhere, even mid-dictation; each display remembers its own
   spot. It never takes focus, clicks next to it pass straight through, and
-  it's hidden from screen shares and recordings (Settings › Dictation can show
+  it's hidden from screen shares and recordings (Settings › Mascot & Notes can show
   it).
-- **Always-visible option** (Settings › Dictation › Always show the mascot, off by
+- **Always-visible option** (Settings › Mascot & Notes › Always show the mascot, off by
   default): a small resting Cado stays on screen; click it to start
   dictating, click again to stop. Right-click it for **Record Meeting**, **Hide Mascot** and **Settings…**.
 - **Works everywhere** by pasting (and restoring your clipboard afterward), so it
@@ -528,6 +528,17 @@ Meetings says why and nothing changes.
   It runs on your Mac; nothing is sent anywhere. The note is saved first and
   is complete without a summary: summarizing never delays or risks it, and if
   Cado quits or the summary fails, the note just has no summary.
+- **Language and quality:** summaries are written in English, including for
+  mixed-language meetings. They focus on clear takeaways, explicit decisions,
+  and tasks rather than reproducing each turn. A summary cannot recover words
+  that speech recognition got wrong. For Hindi/English meetings, choose
+  **Settings › Meetings › More meeting settings › Meeting Language › Auto-detect**
+  and use a downloaded multilingual speech model; dictation can keep its own
+  language and model. Speech-model language support is separate from summary-model
+  support: [Apple Intelligence does not currently support Hindi](https://support.apple.com/en-us/121115). English output
+  does not remove that input-language limitation. OpenRouter is an optional
+  alternative with a model that supports your meeting's languages (text leaves
+  your Mac only after you explicitly set it up).
 - **Long meetings:** the on-device model reads only a few pages at a time, so
   Cado summarizes a long transcript in parts (cut between turns) and then
   combines them. A part the model declines (it can refuse some topics) is left
@@ -536,7 +547,7 @@ Meetings says why and nothing changes.
   **Regenerate Summary** (or **Summarize** for a note without one, such as one
   saved before summaries or with them off). The new summary replaces the old
   one in place; the rest of the note, including anything you added, is kept.
-- **Turn off:** Settings › Meetings › **Summarize meetings** (on by
+- **Turn off:** Settings › Meetings › **Write a summary after each meeting** (on by
   default). Existing summaries stay; you can still summarize a note from the
   Library. Automatic summaries skip very short meetings (under about 40
   words). If you edit the transcript while a summary is being written, Cado

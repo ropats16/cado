@@ -5,7 +5,7 @@ import AppKit
 /// app's other messages point to ("Settings › Speech Model", "Settings ›
 /// Dictation"), so renaming one means updating that copy.
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, dictation, speechModel, meetings
+    case general, dictation, speechModel, meetings, mascotNotes
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .dictation: return "Dictation"
         case .speechModel: return "Speech Model"
         case .meetings: return "Meetings"
+        case .mascotNotes: return "Mascot & Notes"
         }
     }
 
@@ -24,6 +25,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .dictation: return "keyboard"
         case .speechModel: return "waveform"
         case .meetings: return "person.2.wave.2"
+        case .mascotNotes: return "face.smiling"
         }
     }
 

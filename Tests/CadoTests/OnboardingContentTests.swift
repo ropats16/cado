@@ -120,14 +120,14 @@ final class OnboardingContentTests: XCTestCase {
     func testAMissingModelOffersTheRecommendedDownload() {
         let step = content(engine: .missing).step(.model)
         XCTAssertEqual(step.state, .todo)
-        XCTAssertEqual(step.primary, OnboardingButton(title: "Download", action: .download(Self.turbo.key)))
+        XCTAssertEqual(step.primary, OnboardingButton(title: "Download and continue", action: .download(Self.turbo.key)))
         XCTAssertNil(step.progress)
         XCTAssertTrue(step.detail.contains("Turbo (English/EU)"), step.detail)
     }
 
     func testTheChosenModelIsTheOneDownloaded() {
         let step = content(engine: .missing, selected: Self.small.key).step(.model)
-        XCTAssertEqual(step.primary, OnboardingButton(title: "Download", action: .download(Self.small.key)))
+        XCTAssertEqual(step.primary, OnboardingButton(title: "Download and continue", action: .download(Self.small.key)))
         XCTAssertTrue(step.detail.contains("Whisper small"), step.detail)
     }
 

@@ -1,0 +1,39 @@
+import Foundation
+
+/// Bounds the on-device relevance pass and preserves whole items. This
+/// removes trivial or incoherent output; it is not a factuality guarantee.
+/// An uncertain classifier or oversized answer rejects this result. A
+/// passage failure preserves the saved summary; a failed merge may join
+/// the checked passage summaries without silently dropping their content.
+enum SummaryQualityFilter {
+    static let maximumItems = 12
+    static let maximumWords = 140
+
+    static func filtered(_ summary: MeetingSummary,
+                         classify: (String) async throws -> Bool) async throws -> MeetingSummary {
+        try Task.checkCancellation()
+        let summary = MeetingSummary.combined([summary])
+        let items = summary.keyPoints + summary.decisions + summary.actionItems
+        guard items.count <= maximumItems,
+              items.joined(separator: " ").split(whereSeparator: \.isWhitespace).count <= maximumWords else {
+            throw SummarizerError.failed("The summary was too long. Try again.")
+        }
+        var accepted = Set<String>()
+        for item in Set(items).sorted() {
+            try Task.checkCancellation()
+            if try await classify(item) { accepted.insert(item) }
+        }
+        try Task.checkCancellation()
+        return MeetingSummary(keyPoints: summary.keyPoints.filter { accepted.contains($0) },
+                              decisions: summary.decisions.filter { accepted.contains($0) },
+                              actionItems: summary.actionItems.filter { accepted.contains($0) })
+    }
+
+    static func relevance(from answer: String) throws -> Bool {
+        switch answer.trimmingCharacters(in: CharacterSet(charactersIn: "*_.! \n\r\t")).uppercased() {
+        case "YES": return true
+        case "NO": return false
+        default: throw SummarizerError.failed("The summary could not be checked. Try again.")
+        }
+    }
+}

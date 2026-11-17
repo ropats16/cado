@@ -12,6 +12,7 @@ import SwiftUI
 struct LibraryView: View {
     @ObservedObject var viewModel: LibraryViewModel
     @FocusState private var searchFocused: Bool
+    @FocusState private var listFocused: Bool
     @State private var search = ""
 
     var body: some View {
@@ -21,7 +22,7 @@ struct LibraryView: View {
             } else {
                 HSplitView {
                     sidebar
-                        .frame(minWidth: 210, idealWidth: 230, maxWidth: 240)
+                        .frame(minWidth: 210, idealWidth: 230, maxWidth: 230)
                         .background(Brand.Palette.surfaceSecondary)
                     LibraryDetailView(viewModel: viewModel)
                         .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
@@ -46,12 +47,6 @@ struct LibraryView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "tray.full").foregroundStyle(Brand.Palette.accentText)
-                Text("Library").font(Brand.Typography.headline)
-                Spacer()
-            }
-            .padding(.horizontal, 18).padding(.top, 18).padding(.bottom, 4)
             searchField
             switch viewModel.listState {
             case .loading, .empty:
@@ -103,29 +98,52 @@ struct LibraryView: View {
     }
 
     private var list: some View {
-        List(selection: Binding(get: { viewModel.selection },
-                                set: { id in Task { await viewModel.select(id) } })) {
-            if let meeting = viewModel.inProgress {
-                Section {
-                    LibraryInProgressRowView(row: meeting)
-                        .listRowSeparator(.hidden)
-                }
-            }
-            ForEach(viewModel.sections) { section in
-                Section {
-                    ForEach(section.rows) { row in
-                        LibraryRowView(row: row, viewModel: viewModel)
-                            .tag(row.id)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    if let meeting = viewModel.inProgress {
+                        LibraryInProgressRowView(row: meeting)
                     }
-                } header: {
-                    Text(section.title)
-                        .font(Brand.Typography.font(.subheadline, weight: .semibold))
-                        .foregroundStyle(Brand.Palette.inkSecondary)
+                    ForEach(viewModel.sections) { section in
+                        Text(section.title.uppercased())
+                            .font(.system(size: 10.5, weight: .semibold)).tracking(0.63)
+                            .foregroundStyle(Brand.Palette.inkTertiary)
+                            .padding(.horizontal, 8).padding(.top, 12).padding(.bottom, 4)
+                            .accessibilityAddTraits(.isHeader)
+                        ForEach(section.rows) { row in
+                            Group {
+                                if viewModel.renamingID == row.id {
+                                    LibraryRowView(row: row, viewModel: viewModel)
+                                } else {
+                                    Button {
+                                        listFocused = true
+                                        Task { await viewModel.select(row.id) }
+                                    } label: {
+                                        LibraryRowView(row: row, viewModel: viewModel)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityAddTraits(viewModel.selection == row.id ? .isSelected : [])
+                                }
+                            }.id(row.id)
+                        }
+                    }
                 }
+                .padding(.horizontal, 10).padding(.bottom, 14)
+            }
+            .focusable()
+            .focused($listFocused)
+            .onChange(of: viewModel.selection) { _, id in
+                if let id { proxy.scrollTo(id) }
+            }
+            .onMoveCommand { direction in
+                let rows = viewModel.sections.flatMap(\.rows)
+                guard !rows.isEmpty, viewModel.renamingID == nil,
+                      direction == .up || direction == .down else { return }
+                let current = rows.firstIndex { $0.id == viewModel.selection } ?? (direction == .down ? -1 : rows.count)
+                let next = min(max(current + (direction == .down ? 1 : -1), 0), rows.count - 1)
+                Task { await viewModel.select(rows[next].id); proxy.scrollTo(rows[next].id) }
             }
         }
-        .listStyle(.sidebar)
-        .scrollContentBackground(.hidden)
         .onDeleteCommand {
             if let id = viewModel.selection { viewModel.requestDelete(id) }
         }

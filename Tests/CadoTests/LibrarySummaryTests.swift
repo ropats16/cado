@@ -176,6 +176,23 @@ final class LibrarySummaryTests: XCTestCase {
         XCTAssertFalse(model.meetingSummaries)
     }
 
+    func testModelPreparationKeepsTheSummaryPreferenceEditable() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let store = ConfigStore(url: dir.appendingPathComponent("config.json"))
+        let fake = FakeSummarizerCatalog(.unavailable(.modelNotReady))
+        let model = settings(store, catalog: fake)
+        XCTAssertFalse(model.summariesAvailable, "Generation must still wait for the model")
+        XCTAssertTrue(model.canChangeMeetingSummaries, "Preparing the model must not lock the preference")
+        XCTAssertTrue(model.meetingSummaries)
+        model.setMeetingSummaries(false)
+        model.setMeetingSummaries(true)
+        XCTAssertTrue(ConfigStore(url: dir.appendingPathComponent("config.json")).config.meetingSummaries)
+        fake.availability = .available
+        model.refreshSummaryAvailability()
+        XCTAssertTrue(model.summariesAvailable)
+        XCTAssertTrue(model.meetingSummaries, "The saved choice survives model readiness")
+    }
+
     func testTheCardSaysWhyWhenItCantRun() throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let model = settings(ConfigStore(url: dir.appendingPathComponent("config.json")),

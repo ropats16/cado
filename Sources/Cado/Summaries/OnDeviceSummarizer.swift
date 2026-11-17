@@ -40,10 +40,11 @@ enum OnDeviceSummarizer {
 @available(macOS 26, *)
 struct FoundationModelsSummarizer: MeetingSummarizer {
     /// The model's context is 4,096 tokens for instructions, prompt and
-    /// answer together. Instructions and the prompt's wording are ~200,
+    /// answer together. Instructions and the prompt's wording are ~600,
     /// the answer is capped at `answerTokens`; a passage gets 2,000 by
     /// `TokenEstimate` (about 1,250 real tokens of English), so ~1,200 are
-    /// left over for text the estimate under-counts.
+    /// left over for text the estimate under-counts. Relevance checks use
+    /// separate sessions, so their context does not accumulate.
     static let answerTokens = 700
     let limits = SummarizerLimits(passageTokens: 2_000, mergeTokens: 2_000)
 
@@ -58,21 +59,51 @@ struct FoundationModelsSummarizer: MeetingSummarizer {
     }
 
     func summarize(_ transcript: String, part: Int, of total: Int) async throws -> MeetingSummary {
-        try SummaryPrompts.passageSummary(from: await ask(SummaryPrompts.passagePrompt(transcript, part: part, of: total)))
+        // Language detection is conservative: romanized mixed speech may
+        // look like English, so this is not a guarantee of language support.
+        if SummaryLanguageSupport.isClearlyUnsupported(transcript, supports: {
+            SystemLanguageModel.default.supportsLocale(Locale(identifier: $0))
+        }) { throw SummarizerError.unsupportedLanguage }
+        // Asking for three lists can pressure the small model to invent
+        // takeaways even from greetings or recognition noise. Check for
+        // substance before asking it to fill those lists.
+        guard try await isSubstantive(transcript) else { return MeetingSummary() }
+        let summary = try SummaryPrompts.passageSummary(
+            from: await ask(SummaryPrompts.passagePrompt(transcript, part: part, of: total)))
+        return try await filtered(summary)
     }
 
     func merge(_ parts: [MeetingSummary]) async throws -> MeetingSummary {
-        try SummaryPrompts.mergedSummary(from: await ask(SummaryPrompts.mergePrompt(parts)))
+        let summary = try SummaryPrompts.mergedSummary(from: await ask(SummaryPrompts.mergePrompt(parts)))
+        return try await filtered(summary)
+    }
+
+    private func filtered(_ summary: MeetingSummary) async throws -> MeetingSummary {
+        try await SummaryQualityFilter.filtered(summary, classify: isSubstantive)
+    }
+
+    private func isSubstantive(_ text: String) async throws -> Bool {
+        let prompt = "Does this transcript contain clear substantive meeting information: a meaningful fact, "
+            + "update, issue, decision or task? Ignore greetings, small talk, audio checks, filler and "
+            + "unintelligible disconnected words. Answer exactly YES or NO.\n\n" + text
+        let answer = try await ask(prompt,
+            instructions: "Extract important meeting facts. Never invent. Ignore chit-chat and nonsense.",
+            maximumTokens: 32)
+        return try SummaryQualityFilter.relevance(from: answer)
     }
 
     /// The model's answer text. With the permissive guardrails a refusal
     /// usually comes back as text, not an error (`SummaryPrompts` reads it).
-    private func ask(_ prompt: String) async throws -> String {
+    private func ask(_ prompt: String, instructions: String = SummaryPrompts.instructions,
+                     maximumTokens: Int = Self.answerTokens) async throws -> String {
+        try Task.checkCancellation()
         let model = SystemLanguageModel(useCase: .general, guardrails: .permissiveContentTransformations)
-        let session = LanguageModelSession(model: model, instructions: SummaryPrompts.instructions)
-        let options = GenerationOptions(sampling: .greedy, maximumResponseTokens: Self.answerTokens)
+        let session = LanguageModelSession(model: model, instructions: instructions)
+        let options = GenerationOptions(sampling: .greedy, maximumResponseTokens: maximumTokens)
         do {
-            return try await session.respond(to: prompt, options: options).content
+            let response = try await session.respond(to: prompt, options: options).content
+            try Task.checkCancellation()
+            return response
         } catch let error as LanguageModelSession.GenerationError {
             throw Self.map(error)
         }

@@ -2,7 +2,21 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
+## 0.6.0 - 2026-11-18
+
+### Changed
+- Settings, the Library, and model setup now follow the approved mockup more closely: compact underline tabs, green note selection, refined summary and transcript layout, and outlined model cards. Existing search, note actions, provider controls, and setup choices remain available.
+- Mascot settings now have their own Mascot & Notes tab. Additional meeting options are under More meeting settings.
+- Meeting summaries use English and focus on concise takeaways, explicit decisions, and action items. For supported input languages, on-device summaries check for useful content before generation and filter trivial or incoherent items afterward.
+
+### Fixed
+- The summary switch shows your saved choice and stays editable while Apple Intelligence prepares its model. Returning to Settings refreshes availability; generation still waits until the model is ready.
+
+Existing summaries are unchanged until you choose Regenerate Summary in the Library. Summary quality still depends on the transcript: use Meeting Language › Auto-detect with a multilingual speech model for Hindi/English transcription. Apple Intelligence's summary model does not currently support Hindi; English output does not remove that input-language limitation. Custom summary formats and transcript chat are tracked separately in issue #58.
+
 ## 0.5.0 - 2026-11-17
+
+Prepared and installed locally, not published on GitHub. Its changes are included in 0.6.0.
 
 ### Changed
 - A brighter, cleaner Cado: stronger native typography, white surfaces, richer greens, and refined Settings, Library, and setup screens in light and dark mode.

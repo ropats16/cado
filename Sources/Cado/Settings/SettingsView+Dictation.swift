@@ -50,6 +50,17 @@ extension SettingsView {
                 }
             }
 
+            SettingsSection(title: "Sounds and History", systemImage: "speaker.wave.2.fill") {
+                toggleRow("Play start/stop sounds", isOn: viewModel.soundCues) { viewModel.setSoundCues($0) }
+                CardDivider()
+                toggleRow("Keep recent dictations", isOn: viewModel.dictationHistory) { viewModel.setDictationHistory($0) }
+                StatusLine(text: "Keeps your last \(RecentDictations.limit) dictations on this Mac, so you can copy one again from the menu. They aren't saved to the notes folder.")
+                    .padding(.bottom, 8)
+            }
+        }
+    }
+    var mascotNotesTab: some View {
+        VStack(alignment: .leading, spacing: 18) {
             SettingsSection(title: "Mascot", systemImage: "face.smiling") {
                 toggleRow("Always show the mascot", isOn: viewModel.mascotAlwaysVisible) {
                     viewModel.setMascotAlwaysVisible($0)
@@ -64,15 +75,17 @@ extension SettingsView {
                     .padding(.bottom, 8)
             }
 
-            SettingsSection(title: "Sounds and History", systemImage: "speaker.wave.2.fill") {
-                toggleRow("Play start/stop sounds", isOn: viewModel.soundCues) { viewModel.setSoundCues($0) }
-                CardDivider()
-                toggleRow("Keep recent dictations", isOn: viewModel.dictationHistory) { viewModel.setDictationHistory($0) }
-                StatusLine(text: "Keeps your last \(RecentDictations.limit) dictations on this Mac, so you can copy one again from the menu. They aren't saved to the notes folder.")
-                    .padding(.bottom, 8)
+            SettingsSection(title: "Notes", systemImage: "folder") {
+                SettingsRow("Notes folder") {
+                    Text(viewModel.notesFolderPath).lineLimit(1).truncationMode(.middle)
+                        .font(Brand.Typography.caption).foregroundStyle(Brand.Palette.inkSecondary)
+                    Button("Choose…") { viewModel.chooseNotesFolder() }
+                }
+                StatusLine(text: "Point at an Obsidian vault to see notes there.").padding(.bottom, 8)
             }
         }
     }
+
 }
 
 // MARK: - HotkeyRow

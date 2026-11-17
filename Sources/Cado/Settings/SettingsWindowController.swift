@@ -40,7 +40,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     static let frameName = "CadoSettingsWindow"
 
-    /// The window: toolbar tabs over `SettingsView`. Owns its toolbar's delegate.
+    /// The window owns the navigation adapter used by external settings links.
     final class SettingsWindow: NSWindow {
         var toolbarController: SettingsToolbar!
     }
@@ -64,10 +64,10 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         w.title = "Cado Settings"
         w.isReleasedWhenClosed = false
         w.contentView = hosting
-        // Tabs, as a macOS preferences window has them. Only the height resizes.
+        // Text tabs are rendered by SettingsView; this adapter retains deep-link navigation.
         w.toolbarController = SettingsToolbar(navigator: navigator)
-        w.toolbar = w.toolbarController.toolbar
-        w.toolbarStyle = .preference
+        w.titlebarAppearsTransparent = true
+        w.backgroundColor = Brand.Palette.NS.windowBar
         w.contentMinSize = NSSize(width: SettingsView.width, height: 360)
         w.contentMaxSize = NSSize(width: SettingsView.width, height: 10_000)
         return w
