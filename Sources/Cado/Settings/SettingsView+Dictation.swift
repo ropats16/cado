@@ -54,7 +54,7 @@ extension SettingsView {
                 toggleRow("Always show the mascot", isOn: viewModel.mascotAlwaysVisible) {
                     viewModel.setMascotAlwaysVisible($0)
                 }
-                StatusLine(text: "The mascot stays on screen. Click it to start or stop dictating; drag it anywhere.")
+                StatusLine(text: "The mascot stays on screen. Click it to start or stop dictating; right-click it to record a meeting or hide it; drag it anywhere.")
                     .padding(.bottom, 8)
                 CardDivider()
                 toggleRow("Show the mascot in screen shares", isOn: viewModel.mascotInScreenShares) {

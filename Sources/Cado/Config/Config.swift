@@ -26,6 +26,8 @@ struct Config: Codable {
     var hold: KeyBinding
     var toggle: KeyBinding
     var cancelKeyCode: Int          // Esc = 53
+    /// Starts or stops a meeting recording (#32). Default ⌃⌥M.
+    var meetingHotkey: KeyBinding
     var maxRecordingSeconds: Double // <= 0 = no limit (a 30-min ceiling still applies)
     var trailingSpace: Bool
     var microphoneUID: String?      // nil = system default input
@@ -77,6 +79,16 @@ struct Config: Codable {
     /// OpenRouter model id; empty = `OpenRouterModels.defaultID`.
     var openRouterModel: String
 
+    /// Ask "Record this meeting?" when a meeting app starts using the mic,
+    /// and whether to stop when it lets go (#32). On by default; it never
+    /// records by itself.
+    var meetingDetection: Bool
+    /// A meeting stops by itself after this many minutes, the note written
+    /// as usual (#32). Default 120; <= 0 = Off (`MeetingLimit`).
+    var maxMeetingMinutes: Double
+    /// The one-time recording-consent reminder was acknowledged (#32).
+    var meetingConsentShown: Bool
+
     static var defaults: Config {
         Config(
             model: .automatic,
@@ -105,7 +117,13 @@ struct Config: Codable {
             meetingSummaries: true,
             summaryProvider: SummaryProvider.onDevice.rawValue,
             openRouterConsent: false,
-            openRouterModel: ""
+            openRouterModel: "",
+
+
+            meetingHotkey: .controlOptionM,
+            meetingDetection: true,
+            maxMeetingMinutes: MeetingLimit.defaultMinutes,
+            meetingConsentShown: false
         )
     }
 
@@ -120,7 +138,11 @@ struct Config: Codable {
          notesFolder: String = "", notesFolderBookmark: String? = nil,
          dictationHistory: Bool = false, keepMeetingAudio: Bool = false,
          meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue,
-         openRouterConsent: Bool = false, openRouterModel: String = "") {
+         openRouterConsent: Bool = false, openRouterModel: String = "",
+
+
+         meetingHotkey: KeyBinding = .controlOptionM, meetingDetection: Bool = true,
+         maxMeetingMinutes: Double = MeetingLimit.defaultMinutes, meetingConsentShown: Bool = false) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -150,6 +172,12 @@ struct Config: Codable {
         self.summaryProvider = summaryProvider
         self.openRouterConsent = openRouterConsent
         self.openRouterModel = openRouterModel
+
+
+        self.meetingHotkey = meetingHotkey
+        self.meetingDetection = meetingDetection
+        self.maxMeetingMinutes = maxMeetingMinutes
+        self.meetingConsentShown = meetingConsentShown
     }
 
     init(from decoder: Decoder) throws {
@@ -189,6 +217,12 @@ struct Config: Codable {
         summaryProvider = try c.decodeIfPresent(String.self, forKey: .summaryProvider) ?? d.summaryProvider
         openRouterConsent = try c.decodeIfPresent(Bool.self, forKey: .openRouterConsent) ?? d.openRouterConsent
         openRouterModel = try c.decodeIfPresent(String.self, forKey: .openRouterModel) ?? d.openRouterModel
+
+
+        meetingHotkey = try c.decodeIfPresent(KeyBinding.self, forKey: .meetingHotkey) ?? d.meetingHotkey
+        meetingDetection = try c.decodeIfPresent(Bool.self, forKey: .meetingDetection) ?? d.meetingDetection
+        maxMeetingMinutes = try c.decodeIfPresent(Double.self, forKey: .maxMeetingMinutes) ?? d.maxMeetingMinutes
+        meetingConsentShown = try c.decodeIfPresent(Bool.self, forKey: .meetingConsentShown) ?? d.meetingConsentShown
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this

@@ -38,10 +38,13 @@ extension SettingsView {
             // its card in SettingsView+<Feature>.swift. Planned slots:
 
             // Slot: meeting detection on/off
+            meetingDetectionSection   // SettingsView+MeetingDetection.swift (#32)
 
             // Slot: meeting hotkey
+            meetingHotkeySection   // SettingsView+MeetingDetection.swift (#32)
 
             // Slot: max meeting length
+            maxMeetingLengthSection   // SettingsView+MeetingDetection.swift (#32)
 
             // Slot: summaries on/off
             summariesSection   // SettingsView+Summaries.swift (#34)

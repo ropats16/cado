@@ -16,6 +16,10 @@ if CommandLine.arguments.contains("--system-audio-test") {
 if CommandLine.arguments.contains("--meeting-test") {
     exit(MeetingSelfTest.run(arguments: CommandLine.arguments))
 }
+// Speaker bleed into the mic, with and without voice processing (#36).
+if CommandLine.arguments.contains("--echo-test") {
+    exit(EchoSelfTest.run(arguments: CommandLine.arguments))
+}
 // Benchmark: run an engine over the bench fixtures, print a table, write JSON.
 if CommandLine.arguments.contains("--bench") {
     exit(BenchCommand.run(arguments: CommandLine.arguments))

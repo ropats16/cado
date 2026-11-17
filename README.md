@@ -37,7 +37,7 @@ off (see [Privacy](#privacy)).
   it).
 - **Always-visible option** (Settings › Dictation › Always show the mascot, off by
   default): a small resting Cado stays on screen; click it to start
-  dictating, click again to stop. Right-click it for **Hide Mascot** and **Settings…**.
+  dictating, click again to stop. Right-click it for **Record Meeting**, **Hide Mascot** and **Settings…**.
 - **Works everywhere** by pasting (and restoring your clipboard afterward), so it
   works in browsers, native apps, terminals, and CLIs alike.
 - **Notifies you** on errors (mic unavailable, model missing, transcription
@@ -46,7 +46,9 @@ off (see [Privacy](#privacy)).
 - **Meeting notes** (macOS 14.2+): **Record Meeting** in the avocado menu
   records you (the mic, "Me") and the meeting app (Zoom, Teams, Meet in a
   browser…, "Others") until you click **Stop Recording**, then writes a Markdown
-  note with the conversation as Me/Others turns to your notes folder. See
+  note with the conversation as Me/Others turns to your notes folder. It
+  asks "Record this meeting?" when a meeting app starts using the mic (never
+  recording by itself); ⌃⌥M or the mascot start and stop it too. See
   [Meeting notes](#meeting-notes).
 - **Meeting summaries** (macOS 26 with Apple Intelligence): each meeting note
   gets a summary (key points, decisions, action items) written on your Mac.
@@ -246,7 +248,9 @@ Cado was called VoiceType. If you had VoiceType installed, quit it first
   can't run forever. A notification tells you when that happens.
 - The avocado shows **listening → transcribing → done**. Drag it where you
   like (it remembers the spot per display). With **Always show the mascot** on,
-  click the small resting one to start, click again to stop.
+  click the small resting one to start, click again to stop. Right-click (or
+  Control-click) it for **Record Meeting** / **Stop Recording** (a
+  [meeting recording](#meeting-notes)), **Hide Mascot** and **Settings…**.
 - Your existing clipboard is restored after each dictation, so dictating never
   overwrites something you copied. (A password-manager copy isn't put back, so
   its auto-clear still holds — the dictation stays on the clipboard instead.)
@@ -283,6 +287,35 @@ and says why).
   Webex, Discord, FaceTime, or a browser for Meet): it's picked for you and
   named in the menu. Several (e.g. Zoom and Chrome): pick one from the
   submenu. None: the submenu says so and lists the other apps playing audio.
+- **Or press ⌃⌥M** (the meeting hotkey, with M being the key in the M position on a US keyboard; Settings shows the letter for your layout; change it in **Settings → Meetings →
+  Hotkey**) to start, and again to stop. It records the meeting app
+  that's on a call (using the microphone), else the one meeting app running;
+  with several to choose from, it opens the avocado menu. **Record Meeting** /
+  **Stop Recording** in the mascot's right-click menu does the same (greyed
+  out when no meeting can start, e.g. no meeting app open), and clicking the
+  mascot while a meeting records stops it.
+- **"Record this meeting?"** (macOS 14.4 or later): when a meeting app starts
+  using the microphone for more than a few seconds, Cado asks, with **Record**
+  and **Not Now**. It asks in a notification, in the avocado menu (the menu
+  bar shows "Record?"), and on screen with the mascot and a record badge: click
+  it to record. So it still asks with Cado's notifications turned off. For the
+  buttons to show on the notification itself, set Cado's notification style to
+  Alerts in System Settings › Notifications. **Cado never starts recording by
+  itself.** Not Now (or no answer within two minutes) means it won't ask again
+  for that call; it asks again the next time the app starts using the
+  microphone. It doesn't ask while you're dictating or while a meeting is
+  recording or being written down. Browsers count as meeting apps (for Meet and
+  other web calls), so any website that uses your microphone in Chrome,
+  Safari, Edge, Brave, Arc or Firefox can bring up the question too; Not Now
+  settles it. Turn it off in **Settings → Meetings → Ask to record meetings**.
+- **"Stop recording?"**: when the recorded app stops using the microphone for
+  15 seconds (the call ended, or the app turned the mic off while muted), Cado
+  asks whether to stop, in the same places (the menu bar shows "Stop?"). It
+  never stops by itself; **Keep Recording** keeps going.
+- **The first time** you record a meeting (from anywhere), Cado reminds you
+  once that getting everyone's consent to be recorded is up to you, as the law
+  where you and they are may require. Click **Record** to go on; it doesn't
+  show again.
 - **While recording:** the menu-bar avocado gets a record dot and the elapsed
   time, the menu shows **Stop Recording — 12:34** and which app is recorded,
   and the mascot stays on screen. Dictation is off until you stop (a hotkey
@@ -339,15 +372,29 @@ and says why).
   where it is ("Couldn't finish a meeting"). It is never deleted. While a
   recovery runs, the menu shows **Recovering Meeting…** with its progress, and
   **Record Meeting** is unavailable until it's done.
-- **Limits:** a meeting stops by itself after 2 hours (the note is still
-  written). If the disk fills up mid-meeting, Cado says "Meeting audio isn't
+- **Limits:** a meeting stops by itself after the **Max meeting length**
+  (Settings → Meetings: 30 minutes to 4 hours, default 2 hours, or Off), with
+  a notification; the note is still written and says so. Off still stops a
+  meeting after 24 hours, so one left running can't fill the disk. If the disk fills up mid-meeting, Cado says "Meeting audio isn't
   being saved to disk" and recording goes on. From then on the audio is held in
   memory until the note is written at the end. If Cado quits unexpectedly
   before the note is saved, the part held in memory can't be recovered; only
-  the part already on disk can. Without headphones the mic also hears the other
-  side, so their words can appear under "Me" too. Notes saved before this
-  label changed say "Them"; they still open and show "Others" (the files
-  aren't changed).
+  the part already on disk can. Notes saved before this label changed say
+  "Them"; they still open and show "Others" (the files aren't changed).
+- **Laptop speakers:** without headphones the mic also hears the other side.
+  When a meeting shows that (their sentences turning up under "Me" as they
+  say them), Cado leaves those repeats out of "Me", so their words aren't in
+  the note twice. Your own words stay: replies that reuse some of their
+  words, "yeah" or a sentence of yours over them, and lines they repeat
+  after you. What it can't tell apart on speakers: saying the same words as
+  them at the same moment (both saying "Thank you very much.") or repeating
+  their words straight after them, in step; those are left out of "Me". And
+  some of theirs still gets through: garbled bits, and all of it in a call
+  too short to show the bleed. With headphones there's no bleed, so Cado
+  normally leaves nothing out. It can only if the cases above happen twice
+  or more in one call, or your own voice comes straight back in their audio
+  (their echo cancelling failing): then it stays in the note, under
+  "Others".
 - **Summaries:** see [Summaries](#summaries) below.
 - **Safari:** Safari plays web audio through WebKit's shared media process,
   which every WebKit-based app uses (Mail, and apps with web views) and which
@@ -513,8 +560,9 @@ keypress isn't inserted into your text.
 (default `53` = Esc).
 
 After editing, relaunch Cado (quit from the menu, reopen from Applications).
-If a binding is empty, unmatchable, or `hold` and `toggle` collide, Cado
-logs the problem at startup and the menu shows a **Config issue** warning.
+If a binding is empty, unmatchable, or two hotkeys (`hold`, `toggle`, `meetingHotkey`) collide, Cado
+logs the problem at startup and the menu shows a **Config issue** warning that
+opens the Settings tab with that hotkey (Dictation, or Meetings for `meetingHotkey`).
 
 | Setting               | What it does                                        |
 |-----------------------|-----------------------------------------------------|
@@ -526,6 +574,7 @@ logs the problem at startup and the menu shows a **Config issue** warning.
 | `modelIdleMinutes`    | Idle minutes before unloading, when not kept warm (default 5). |
 | `hold`                | The hold-to-talk hotkey (see above).                |
 | `toggle`              | The press-to-start / press-to-stop hotkey.          |
+| `meetingHotkey`       | Starts or stops a meeting recording (default ⌃⌥M, the key in the M position on a US keyboard: `{"keyCode": 46, "modifiers": ["control", "option"]}`). |
 | `cancelKeyCode`       | Key that cancels a recording (default 53 = Esc).    |
 | `maxRecordingSeconds` | Auto-stop after this many seconds (default 600; `0` = no limit, capped at 30 min). |
 | `trailingSpace`       | Add a space after each dictation (default off).     |
@@ -540,6 +589,9 @@ logs the problem at startup and the menu shows a **Config issue** warning.
 | `keepMeetingAudio`    | Keep a meeting's audio after its note is saved (default `false`: deleted). |
 | `meetingSummaries`    | Summarize each meeting note after it's saved (default `true`; needs macOS 26 with Apple Intelligence). |
 | `summaryProvider`     | Who writes summaries: `on-device` (default, Apple Intelligence on this Mac) or `openrouter` (only used once `openRouterConsent` is `true`; Settings asks you to confirm otherwise). |
+| `meetingDetection`    | Ask "Record this meeting?" / "Stop recording?" when a meeting app starts or stops using the mic (default `true`; macOS 14.4+). Never records by itself. |
+| `maxMeetingMinutes`   | A meeting stops by itself after this many minutes (default `120`; `0` = Off; more than `1440` counts as 1440, so a meeting always stops after 24 hours). |
+| `meetingConsentShown` | The one-time recording-consent reminder was acknowledged (default `false`). |
 
 ---
 
@@ -616,8 +668,11 @@ Dictated text isn't kept after it's pasted, unless you turn on
 [Recent dictations](#recent-dictations): then the last 10 stay in a file on your
 Mac until you turn it off.
 
-Meeting recording only happens when you click **Record Meeting**, and only
-records the meeting app you picked plus your mic. While it records, the audio
+Meeting recording only happens when you start it (**Record Meeting**, the
+meeting hotkey, the mascot, or **Record** when Cado asks), and only records the
+meeting app you picked plus your mic. To ask "Record this meeting?", Cado
+checks every few seconds which apps are using the microphone, from macOS's
+list of audio apps; it doesn't listen to anything, and nothing is kept. While it records, the audio
 and its transcript so far are written to a private folder on your Mac that only
 your user account can read, so a crash or a quit can't lose the meeting (unless
 the disk was full; see [Limits](#meeting-notes)). That folder is deleted once
@@ -745,6 +800,16 @@ make build
 
 See [`plans/benchmark.md`](plans/benchmark.md) for options, what each number
 means, the JSON schema, fixture licenses, and how to add an engine.
+
+**Speaker bleed (meetings on laptop speakers).** `python3
+scripts/make_bleed_fixtures.py` builds two short meetings from the bench
+clips and a conversation spoken by macOS `say`, with Others mixed into Me
+as laptop speakers would. Then
+`scripts/bleed_bench.sh` runs them through `Cado --meeting-test` and prints
+each side's WER (bleed shows as Me insertions). `Cado --echo-test --wav
+<file>` measures how much of the speakers the mic hears, with and without
+Apple's voice processing. Results and the reasoning are in
+[`plans/speaker-bleed-36.md`](plans/speaker-bleed-36.md).
 
 ---
 

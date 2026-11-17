@@ -112,7 +112,9 @@ struct RecoveryPlan: Equatable {
                 }
             case let .transcribed(speaker, range, offset, segments):
                 guard result(speaker, range) else { continue }
-                pieces += segments.map { .init(speaker: speaker, start: offset + $0.start, text: $0.text) }
+                pieces += segments.map {
+                    .init(speaker: speaker, start: offset + $0.start, text: $0.text, end: $0.end.map { offset + $0 })
+                }
             case let .failed(speaker, range, reason):
                 guard result(speaker, range) else { continue }
                 failures.append(reason)

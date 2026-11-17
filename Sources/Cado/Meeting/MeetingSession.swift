@@ -62,8 +62,9 @@ import Foundation
 /// Rules worth knowing:
 /// - Start is ignored unless idle; during a recovery the user is told why.
 ///   Stop only while recording.
-/// - Recording stops by itself at `maxSeconds`, with a notice; the note is
-///   still written and says so.
+/// - Recording stops by itself at `maxSeconds` (read at start; nil = Off,
+///   which still stops at `MeetingLimit.backstopSeconds`), with a notice;
+///   the note is still written and says so.
 /// - Memory: neither the session nor the captures (`retainsSamples: false`)
 ///   keep the meeting's audio: it is on disk in the spool, read back one
 ///   chunk (at most `maxChunkSeconds`) or one recovery slice at a time. What
@@ -112,8 +113,8 @@ import Foundation
 ///
 /// Main-thread only.
 final class MeetingSession {
-    /// The hard cap on one meeting.
-    static let defaultMaxSeconds: TimeInterval = 2 * 3600
+    /// The cap on one meeting unless set (Settings › Meetings).
+    static let defaultMaxSeconds: TimeInterval = MeetingLimit.defaultMinutes * 60
 
     static let dictationNotice = DictationBusyNotice(
         title: "Meeting recording",
@@ -177,6 +178,8 @@ final class MeetingSession {
         /// A recovered meeting's length: the stop's, else the audio on disk.
         var recoveredDuration: TimeInterval = 0
         var capReached = false
+        /// The length it stops at (live meetings; 0 for a recovered one).
+        var cap: TimeInterval = 0
         var quit: (() -> Void)?
         /// Emitted, not yet submitted, in emission order.
         var queue: [Job] = []
@@ -247,7 +250,7 @@ final class MeetingSession {
     private let background: (@escaping () -> Void, @escaping () -> Void) -> Void
     private let locale: Locale
     private let timeZone: TimeZone
-    let maxSeconds: TimeInterval
+    private let maxSeconds: () -> TimeInterval?
 
     private var state: State = .idle
     private var timer: ClockTimer?
@@ -278,7 +281,7 @@ final class MeetingSession {
          date: @escaping () -> Date = Date.init,
          systemAudioPermission: @escaping () -> SystemAudioPermission,
          keepAudio: @escaping () -> Bool = { false },
-         maxSeconds: TimeInterval = MeetingSession.defaultMaxSeconds,
+         maxSeconds: @escaping () -> TimeInterval? = { MeetingSession.defaultMaxSeconds },
          locale: Locale = .current, timeZone: TimeZone = .current,
          later: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) },
          background: @escaping (@escaping () -> Void, @escaping () -> Void) -> Void = { work, done in
@@ -334,12 +337,14 @@ final class MeetingSession {
         let startDate = date()
         let spool = makeSpool(SpooledMeeting(id: UUID(), appName: app.name, appBundleID: app.bundleID,
                                              startDate: startDate))
-        let streams = recorder.streams(for: app, maxSeconds: maxSeconds)
+        let cap = MeetingLimit.cap(seconds: maxSeconds())
+        let streams = recorder.streams(for: app, maxSeconds: cap)
         let meeting = Meeting(id: id, appName: app.name, startedAt: clock.now, startDate: startDate, spool: spool,
                               me: streams.me, them: streams.them)
+        meeting.cap = cap
         state = .recording(meeting)
         Log.info("Meeting recording started: \(app.name) (\(app.bundleID)) and the microphone.")
-        timer = clock.schedule(after: maxSeconds) { [weak self] in self?.capReached(id) }
+        timer = clock.schedule(after: cap) { [weak self] in self?.capReached(id) }
         report()
         for speaker in MeetingSpeaker.allCases {
             guard let stream = meeting.side(speaker).stream else { continue }
@@ -504,11 +509,12 @@ final class MeetingSession {
 
     private func capReached(_ id: Int) {
         guard let meeting = meeting(id), case .recording = state else { return }
-        Log.info("Meeting reached the \(MeetingNote.hours(maxSeconds)) limit; stopping.")
+        Log.info("Meeting reached the \(MeetingNote.hours(meeting.cap)) limit; stopping.")
         meeting.capReached = true
         finish(meeting)
+        let setting = meeting.cap == MeetingLimit.backstopSeconds ? "" : " You can change this in Settings › Meetings."
         feedback.notify(title: "Meeting recording stopped",
-                        body: "Meetings are recorded for up to \(MeetingNote.hours(maxSeconds).replacingOccurrences(of: "-", with: " "))s. The note is being written.")
+                        body: "Meetings are recorded for up to \(MeetingLimit.phrase(meeting.cap)).\(setting) The note is being written.")
     }
 
     private func finish(_ meeting: Meeting) {
@@ -633,10 +639,12 @@ final class MeetingSession {
         case .success(let transcript):
             let segments = NonSpeechFilter.filter(transcript.segments)
             for segment in segments {
-                meeting.pieces.append(.init(speaker: job.speaker, start: job.offset + segment.start, text: segment.text))
+                meeting.pieces.append(.init(speaker: job.speaker, start: job.offset + segment.start, text: segment.text,
+                                            end: job.offset + segment.end))
             }
-            meeting.spool.record(.transcribed(job.speaker, range: job.range, offset: job.offset,
-                                              segments: segments.map { SpoolSegment(start: $0.start, text: $0.text) }))
+            meeting.spool.record(.transcribed(job.speaker, range: job.range, offset: job.offset, segments: segments.map {
+                SpoolSegment(start: $0.start, text: $0.text, end: $0.end)
+            }))
         case .failure(let error):
             Log.error("Meeting: a passage failed to transcribe: \(error.localizedDescription)")
             meeting.failures.append(error.localizedDescription)
@@ -919,7 +927,14 @@ final class MeetingSession {
         for speaker in MeetingSpeaker.allCases {
             if let at = meeting.side(speaker).lostAt { caveats.append(.stopped(speaker, at: at)) }
         }
-        if meeting.capReached { caveats.append(.capReached(maxSeconds)) }
+        if meeting.capReached {
+            // A recovered meeting stopped at its cap: its length, to the
+            // minute (caps are whole minutes); else today's setting.
+            let length = (meeting.duration / 60).rounded() * 60
+            let cap = meeting.cap > 0 ? meeting.cap
+                : length > 0 ? length : maxSeconds().flatMap { $0 > 0 ? $0 : nil } ?? MeetingLimit.backstopSeconds
+            caveats.append(.capReached(cap))
+        }
         if let reason = meeting.failures.first {
             caveats.append(.transcriptionFailed(failed: meeting.failures.count, of: meeting.total, reason: reason))
         }
