@@ -86,7 +86,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.summaries.noteSaved(url) }
         },
         systemAudio: { [permissions] in permissions.systemAudio },
-        keepAudio: { [configStore] in configStore.config.keepMeetingAudio })
+        keepAudio: { [configStore] in configStore.config.keepMeetingAudio },
+        calendarNaming: MeetingCalendarNaming(
+            isEnabled: { [configStore] in configStore.config.nameMeetingsFromCalendar }, calendar: calendar))
+    /// The one calendar (#38): read only when the user opted in; asked only from Settings or onboarding.
+    private let calendar: CalendarPort = EventKitCalendar()
     private let termination = TerminationGate()
     /// Set once the first `.ready` asked the meetings to recover leftovers.
     private var askedMeetingRecovery = false
@@ -342,6 +346,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 notifications: Notifier.permission,
                 setUsagePing: { [weak self] on in
                     MainActor.assumeIsolated { self?.sharedSettingsViewModel().setUsagePing(on) }
+                },
+                calendar: calendar,
+                setCalendarNaming: { [weak self] on in
+                    MainActor.assumeIsolated { self?.sharedSettingsViewModel().setNameMeetingsFromCalendar(on) }
                 })
             let controller = OnboardingWindowController(viewModel: model)
             controller.onClose = { [weak self] in self?.onboardingClosed() }
@@ -625,7 +633,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 refreshMenu()
             },
             updater: updater ?? DisabledUpdater(),
-            summaryCatalog: summaryCatalog
+            summaryCatalog: summaryCatalog,
+            calendar: calendar
         )
         settingsViewModel = vm
         return vm

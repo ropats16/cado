@@ -68,6 +68,8 @@ final class SettingsViewModel: ObservableObject {
     let updater: AppUpdater
     /// Which summary providers can run here (#34); the app's one catalog.
     let summaryCatalog: SummarizerCatalog
+    /// The calendar behind "Name meetings from my calendar" (#38; SettingsViewModel+Calendar.swift).
+    let calendar: CalendarPort
 
     // MARK: - Published display state
 
@@ -160,7 +162,9 @@ final class SettingsViewModel: ObservableObject {
          revealFolder: @escaping (URL) -> Void = SettingsViewModel.revealInFinder,
          onDictationHistoryChange: @escaping () -> Void = {},
          updater: AppUpdater = DisabledUpdater(),
-         summaryCatalog: SummarizerCatalog = LiveSummarizerCatalog()) {
+         summaryCatalog: SummarizerCatalog = LiveSummarizerCatalog(),
+         calendar: CalendarPort = UnavailableCalendar()) {
+        self.calendar = calendar
         self.updater = updater
         self.summaryCatalog = summaryCatalog
         self.configStore = configStore

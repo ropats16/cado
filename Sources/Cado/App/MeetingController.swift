@@ -20,21 +20,25 @@ final class MeetingController: MeetingActivity {
     private lazy var session = MeetingSession(
         recorder: recorder, engine: engine, notes: notes, archive: FolderMeetingArchive(),
         spool: FolderMeetingSpool(), feedback: NotifierMeetingFeedback(), activity: self, clock: clock,
-        systemAudioPermission: systemAudio, keepAudio: keepAudio)
+        systemAudioPermission: systemAudio, keepAudio: keepAudio, calendarNaming: calendarNaming)
     private let recorder: MeetingRecorder
     private let engine: MeetingEngine
     private let notes: MeetingNoteStore
     private let systemAudio: () -> SystemAudioPermission
     private let keepAudio: () -> Bool
+    private let calendarNaming: MeetingCalendarNaming
 
     /// `activity`: the app-wide feed (the overlay). `notes`: the notes
     /// library meeting notes are saved to. `systemAudio`: the permission as
     /// observed (`Permissions.systemAudio`), read when the menu renders and
     /// when a meeting ends. `keepAudio`: Settings › Meetings › Keep meeting
-    /// audio, read when a meeting ends.
+    /// audio, read when a meeting ends. `calendarNaming`: names a meeting
+    /// after its calendar event when the user opted in (#38), read at its start.
     init(engine: TranscriptionEngine, activity: MeetingActivity, microphoneUID: @escaping () -> String?,
          notes: MeetingNoteStore, systemAudio: @escaping () -> SystemAudioPermission,
-         keepAudio: @escaping () -> Bool, clock: Clock = SystemClock()) {
+         keepAudio: @escaping () -> Bool, calendarNaming: MeetingCalendarNaming = .off,
+         clock: Clock = SystemClock()) {
+        self.calendarNaming = calendarNaming
         self.activity = activity
         self.clock = clock
         recorder = LiveMeetingRecorder(microphoneUID: microphoneUID)
