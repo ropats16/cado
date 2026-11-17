@@ -1033,11 +1033,15 @@ final class MeetingSession {
 
     /// The new meeting is written down: the held recovery goes on where it
     /// was, as a new attempt (journaled, so the crash-loop guard counts it).
+    /// If its passage from before the hold isn't back yet (the new meeting
+    /// was short), the pause is journaled first: the hold must not count as
+    /// an attempt that got nowhere. That passage is then this attempt's.
     private func resume(_ recovery: Meeting) {
         recovery.onHold = false
         state = recovery.allEnded ? .transcribing(recovery) : .finishing(recovery)
         report()
         Log.info("Meeting recovery: going on with the meeting with \(recovery.appName).")
+        if recovery.inFlight != nil { journalPause(recovery.spool) }
         guard beginAttempt(recovery.spool) else { return waitForRoom(recovery) }
         guard recovery.allEnded else { return readBack(recovery.id) }
         submitNext(recovery)

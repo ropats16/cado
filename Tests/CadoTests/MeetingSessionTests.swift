@@ -242,6 +242,7 @@ final class MeetingSessionTests: XCTestCase {
     }
 
     private func makeSession(maxSeconds: TimeInterval = 600,
+                             later: @escaping (@escaping () -> Void) -> Void = { $0() },
                              background: @escaping (@escaping () -> Void, @escaping () -> Void) -> Void = { $0(); $1() })
         -> MeetingSession {
         MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
@@ -250,7 +251,7 @@ final class MeetingSessionTests: XCTestCase {
                        systemAudioPermission: { [unowned self] in permission },
                        keepAudio: { [unowned self] in keepAudio },
                        maxSeconds: maxSeconds, locale: Locale(identifier: "en_GB"),
-                       timeZone: TimeZone(identifier: "UTC")!, later: { $0() }, background: background)
+                       timeZone: TimeZone(identifier: "UTC")!, later: later, background: background)
     }
 
     /// 16 kHz audio of `seconds` with 200 Hz bursts (start, end, amplitude).
@@ -1096,6 +1097,68 @@ final class MeetingSessionTests: XCTestCase {
         engine.finishAll()
         XCTAssertEqual(notes.saved.count, 2)
         XCTAssertEqual(Array(atSave[1].suffix(2)), [.recoveryPaused, .recoveryStarted], "A new attempt, counted")
+        XCTAssertTrue(h.isDiscarded)
+        XCTAssertEqual(session.status, .idle)
+    }
+
+    /// Record Meeting during the recovery's first passage, stopped at once:
+    /// the recovery goes on while that passage is still in the engine. The
+    /// pause is journaled before the new attempt, so the hold doesn't count
+    /// as an attempt that got nowhere (one more such and Cado gives up).
+    func testResumingBeforeTheHeldPassageIsBackStillJournalsThePause() {
+        let h = leftover(me: audio(10, [(0, 2, 0.2), (7, 8, 0.4)]), them: [], bothStarted)
+        session.recoverLeftovers()
+        XCTAssertEqual(engine.outstanding, 1, "Its first passage")
+        XCTAssertFalse(h.events.contains { if case .settled = $0 { return true } else { return false } },
+                       "No progress yet")
+        startBoth()
+        session.stop()
+        recorder.me.finish()
+        recorder.them.finish()                   // nothing said: no note; the recovery goes on
+        XCTAssertEqual(engine.outstanding, 1, "Its passage is still in the engine")
+        let starts = h.events.indices.filter { h.events[$0] == .recoveryStarted }
+        XCTAssertEqual(starts.count, 2, "Resumed as a new attempt")
+        XCTAssertEqual(starts.last.map { h.events[$0 - 1] }, .recoveryPaused, "The hold, before it")
+        XCTAssertEqual(RecoveryPlan(events: h.events, sampleCounts: h.audio().counts).stalledAttempts, 1,
+                       "Were Cado to die now, only the attempt under way would count")
+
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertTrue(notes.saved[0].body.hasSuffix("**Me:** Hello from me. Bye now.\n"), "Every passage once")
+        XCTAssertTrue(h.isDiscarded)
+        XCTAssertEqual(session.status, .idle)
+    }
+
+    /// Held while the read-back waits for its next turn (an asynchronous
+    /// `later`) with a passage in the engine: the waiting turn does nothing
+    /// while held, the passage is journaled, then the pause; resumed, the
+    /// read-back goes on from where it was, every passage exactly once, even
+    /// with the old turn still queued.
+    func testAHoldDuringAnAsyncReadBackGoesOnWhereItWas() {
+        var turns: [() -> Void] = []
+        session = makeSession(later: { turns.append($0) })
+        let h = leftover(me: audio(70, [(1, 2, 0.2), (50, 51, 0.4)]), them: audio(70, [(3, 5, 0.3)]), bothStarted)
+        session.recoverLeftovers()
+        XCTAssertEqual(turns.count, 1, "More to read on a later turn")
+        XCTAssertEqual(engine.outstanding, 1)
+        startBoth()
+        XCTAssertFalse(h.events.contains(.recoveryPaused), "Its passage is in the engine")
+        engine.finishNext()
+        XCTAssertEqual(h.events.last, .recoveryPaused)
+        let journal = h.events
+        clock.advance(by: 10)
+        session.stop()
+        recorder.me.finish(audio(10, []))
+        recorder.them.finish(audio(10, []))      // nothing said: the recovery goes on
+        XCTAssertEqual(Array(h.events[journal.count...].prefix(1)), [.recoveryStarted])
+        while !turns.isEmpty {                    // the old turn and the new chain's
+            turns.removeFirst()()
+            engine.finishAll()
+        }
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertTrue(notes.saved[0].body.hasSuffix(
+            "**Me:** Hello from me.\n\n**Others:** Hi from them.\n\n**Me:** Bye now.\n"), notes.saved[0].body)
+        XCTAssertEqual(engine.jobs.sorted(), [2, 3, 4], "Each passage once")
         XCTAssertTrue(h.isDiscarded)
         XCTAssertEqual(session.status, .idle)
     }
