@@ -114,7 +114,7 @@ struct NoteFrontMatter {
             if let d = f.date(from: raw) { return d }
         }
         f.formatOptions = [.withFullDate]
-        f.timeZone = .current
+        f.timeZone = .autoupdatingCurrent   // follows a zone change; summaries cached per zone
         return f.date(from: raw)
     }
 

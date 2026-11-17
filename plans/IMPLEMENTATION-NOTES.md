@@ -8,8 +8,13 @@ re-derived. Reflects the working state of Phase 1.
 - SwiftPM-only (`swift-tools-version: 5.9`, Swift 5 language mode — avoids Swift 6
   strict-concurrency churn). macOS 14+, Apple-Silicon.
 - whisper.cpp vendored as submodule at **`Sources/CWhisper/whisper.cpp`**, pinned to
-  commit `0ae02cdb2c7317b50991367c165736ce42ed96ac`. The submodule lives *inside* the
+  tag **v1.9.5**, commit `d1be6fde11ac6e0407606b4e42fe72d34add8037` (was v1.9.1-75 `0ae02cd`; bumped in #46 for CVE-2026-110810). The submodule lives *inside* the
   CWhisper target dir because SwiftPM only compiles sources under a target's path.
+- whisper.cpp is bumped BY HAND to release tags (checklist in the whisper.cpp
+  sections below / docs/RELEASING.md "Pinned dependencies"); no Dependabot
+  gitsubmodule entry (it would track untagged master). The repo has no CI, so
+  every Dependabot PR (Actions, Swift packages) must be built and tested locally
+  before merging.
 - Models + config live in `~/Library/Application Support/VoiceType/`.
 
 ## whisper.cpp + Metal via SwiftPM (the hard part — DONE & verified)
@@ -20,22 +25,27 @@ Key facts (current whisper.cpp has **no Package.swift**, so we vendor sources):
 - **Two `.target` setup** in `Package.swift`: a C/C++/ObjC `CWhisper` target compiling
   the exact ggml source list (core + `ggml-cpu` incl. `arch/arm/*` + `llamafile/sgemm`
   + `ggml-metal` + `ggml-blas`), and the Swift `VoiceType` executable.
-- **Metal shader is EMBEDDED, not precompiled.** Xcode 26 removed the default Metal
+- **Metal shaders are EMBEDDED, not precompiled.** Xcode 26 removed the default Metal
   toolchain (`xcrun metal` → "missing Metal Toolchain"). So we use
-  `GGML_METAL_EMBED_LIBRARY`: `scripts/embed_metal_shader.sh` merges `ggml-common.h` +
-  `ggml-metal-impl.h` into the shader and emits `ggml-metal-embed.s` (an `.incbin` of the
-  merged source). At runtime ggml JIT-compiles it via `newLibraryWithSource` (the OS
+  `GGML_METAL_EMBED_LIBRARY`: `scripts/embed_metal_shader.sh` merges, per kernel
+  source (v1.9.5 split the shader into `ggml-metal/kernels/*.metal`, one MTLLibrary each;
+  the list is read from upstream's `ggml-metal/CMakeLists.txt`), the headers it
+  includes + `ggml-common.h` + `ggml-metal-impl.h`, writes them to `Sources/CWhisper/metal-embed/`
+  and emits `ggml-metal-embed.s` (`.incbin` of each under `ggml_metallib_<kind>_{start,end}`).
+  At runtime ggml JIT-compiles them via `newLibraryWithSource` (the OS
   runtime compiler works **without** the toolchain — verified). Nothing to bundle in the
-  `.app`. These two generated files (`ggml-metal-embed.{metal,s}`) are gitignored and must
-  be regenerated before `swift build` (run the script in setup / `make build`).
-- **`.metal` files must be excluded** from the target or SwiftPM auto-compiles them as
+  `.app`. The generated files are gitignored and must be regenerated before `swift build`
+  (run the script in setup / `make build`).
+- **`.metal` files must be excluded** (`ggml-metal/kernels`, `metal-embed/`) from the target or SwiftPM auto-compiles them as
   Metal resources (needs the missing toolchain). Also exclude `examples/` (asset catalogs
   trigger `defaultLocalization`) and unused ggml backends. See `Package.swift` `exclude:`.
 - **Defines:** `GGML_USE_CPU`, `GGML_USE_METAL`, `GGML_METAL_EMBED_LIBRARY`, `GGML_USE_BLAS`,
   `GGML_USE_ACCELERATE` (+ Accelerate LAPACK macros). Do **NOT** define
   `GGML_METAL_USE_BF16`/tensor — device gates them off (pre-M5), keeps host/shader in sync.
-  Version macros normally injected by cmake are provided as defines: `GGML_VERSION`,
-  `GGML_COMMIT`, `WHISPER_VERSION`.
+  Version macros normally injected by cmake: `WHISPER_VERSION` is a define in
+  `Package.swift`; `GGML_VERSION`/`GGML_COMMIT` live in the stand-in header
+  `Sources/CWhisper/ggml-config/ggml-version.h` (cmake generates `ggml-version.h`
+  from a template). Update both with every bump.
 - **ARC off for ObjC:** ggml's `ggml-metal-*.m` use manual retain/release →
   `cSettings.unsafeFlags(["-fno-objc-arc", "-Qunused-arguments", "-Wno-shorten-64-to-32"])`.
 - **Importer include paths:** SwiftPM does NOT propagate the C target's `headerSearchPath`
@@ -48,6 +58,19 @@ Key facts (current whisper.cpp has **no Package.swift**, so we vendor sources):
   (`language="en"`, `no_timestamps=true`, all `print_*=false`) → `whisper_full` →
   `whisper_full_n_segments`/`_get_segment_text`. Context is **not** thread-safe — only the
   single serial queue in `TranscriptionEngine` calls it.
+
+### Bumping whisper.cpp (checklist, from the v1.9.5 bump)
+1. `git -C Sources/CWhisper/whisper.cpp fetch --tags && git checkout <tag>`.
+2. Diff the CMake source lists (`ggml/src/CMakeLists.txt`, `ggml-cpu/CMakeLists.txt`,
+   `ggml-metal/CMakeLists.txt`, `ggml-blas`) against `Package.swift`: v1.9.5 added
+   `ggml-cpu/tiled/*.cpp`, `ggml-metal-fusion.cpp`, `ggml-metal-tuning.cpp`, and moved the
+   shader to `kernels/`. New backend dirs get an `exclude`.
+3. Update `WHISPER_VERSION` (Package.swift), `ggml-config/ggml-version.h`, the pin above.
+4. `make embed && swift build` (link errors name missing sources). v1.9.5's
+   `whisper.cpp` references ANEForge (`src/aneforge`, env-var-driven `dlopen`); it is
+   deliberately not built, `Sources/CWhisper/stubs/whisper-aneforge-stub.cpp` stubs it.
+5. `Cado --selftest` with tiny.en, small.en-q5_1 and medium.en on `samples/jfk.wav`, then
+   `swift test`. Not covered by the bump: the x86_64 (Rosetta) CPU build.
 
 ## Model download
 - Host is **`huggingface.co/ggerganov/whisper.cpp`** (GitHub moved to ggml-org; the HF

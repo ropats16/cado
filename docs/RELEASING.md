@@ -85,7 +85,8 @@ A successful run ends with:
 
 To publish (creates tag v0.2.0 at HEAD; ...):
   gh release create v0.2.0 '.../dist/Cado-0.2.0.dmg' '.../dist/appcast.xml' --repo ropats16/cado \
-    --target <HEAD sha> --title 'Cado 0.2.0' --generate-notes
+    --target <HEAD sha> --title 'Cado 0.2.0' --generate-notes --draft
+  gh release edit v0.2.0 --repo ropats16/cado --draft=false
 ```
 
 ### Appcast (Sparkle feed)
@@ -99,7 +100,7 @@ replaced). The item's `sparkle:version` is the stamped `CFBundleVersion`,
 `sparkle:shortVersionString` the version, the enclosure
 `https://github.com/ropats16/cado/releases/download/v<version>/Cado-<version>.dmg`
 with its length and EdDSA signature (`sign_update --account cado` on the final,
-stapled DMG). The signature is then checked against the `SUPublicEDKey` inside
+stapled DMG); the finished feed is signed too (next section). The signature is then checked against the `SUPublicEDKey` inside
 the built app (`scripts/verify_update_signature.swift`, no keychain).
 Offline, or to build on a different feed: `CADO_APPCAST_BASE=<file>` (an empty
 file starts a new feed).
@@ -115,10 +116,73 @@ failed upload) just replaces its item. Fix: commit (the commit count moves on),
 or set `CADO_BUILD` to a greater integer. Its tests run offline:
 `python3 -m unittest discover -s scripts/tests`.
 
+### Signed feed (#46)
+
+The last step of `stage_appcast` signs the whole feed: `sign_update --account cado
+dist/appcast.xml` embeds a trailing `<!-- sparkle-signatures: edSignature ... -->`
+comment (a keychain step, like the DMG signature; same **Always Allow** prompt).
+It is then checked against the `SUPublicEDKey` inside the built app
+(`verify_update_signature.swift --feed`, no keychain). Nothing may edit the file
+afterwards. A base feed that is already signed is fine: `make_appcast.py` drops
+the old comments and the new feed is signed afresh. Tests (throwaway key, no
+keychain): `python3 -m unittest discover -s scripts/tests`.
+
+**Rollout order matters.** `SURequireSignedFeed` is deliberately NOT in
+`Resources/Info.plist` yet: an app that requires a signed feed rejects an
+unsigned one, so it must only ship after a signed feed is live.
+
+1. Release N: run `make release` with this code, publish. The feed at
+   `releases/latest/download/appcast.xml` is now signed (apps in the field ignore
+   the signature; nothing changes for them).
+2. Check the published feed: download it and run
+   `swift scripts/verify_update_signature.swift --feed "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' Resources/Info.plist)" appcast.xml`.
+3. Release N+1: add `<key>SURequireSignedFeed</key><true/>` to `Info.plist`. From
+   then on, copies of N+1 refuse an unsigned or edited feed. (Copies of N still
+   accept anything; they only upgrade through the signed feed anyway.)
+
+**`SUVerifyUpdateBeforeExtraction`:** recommendation is to turn it on in the same
+release as `SURequireSignedFeed` (N+1), not before. It makes Sparkle check the
+EdDSA signature before it mounts/extracts the DMG, so a tampered download never
+reaches the DMG parser. The cost: with it on, an update must carry a valid EdDSA
+signature; the fallback where Sparkle accepts a matching Apple code signature
+instead (the recovery path if the EdDSA key were lost) is gone. Cado already
+signs every update with EdDSA, and the key backup (step 6 above) covers the
+loss case, so the trade is worth it. Verify the N to N+1 update once after
+turning it on (manual check above).
+
+### Repo settings (owner steps; not applied by any script)
+
+GitHub settings the code can't set. Run as the repo admin (`gh auth status`):
+
+- **Immutable releases** (published assets and the tag can no longer be changed
+  or swapped; protects the feed and DMG from a stolen token). UI: repo Settings >
+  General > Releases > "Enable release immutability". CLI:
+  `gh api -X PUT repos/ropats16/cado/immutable-releases`
+  (check: `gh api repos/ropats16/cado/immutable-releases`). After it is on, a
+  published release can't be re-uploaded: a bad release gets a new version, not
+  an edit. Create releases as drafts and attach every asset BEFORE publishing
+  (`gh release create ... --draft`, then `gh release edit v<ver> --draft=false`).
+- **Branch protection on `main`:** UI: Settings > Rules > Rulesets > New branch
+  ruleset, target `main`, enable "Restrict deletions", "Block force pushes",
+  "Require a pull request before merging" (0 required approvals if you are the
+  only maintainer). Pushing the release tag/commit directly then needs a bypass
+  for you (Bypass list > Repository admin).
+- **Dependabot alerts + security updates:** UI: Settings > Advanced Security (or
+  Code security) > enable "Dependabot alerts" and "Dependabot security updates".
+  CLI: `gh api -X PUT repos/ropats16/cado/vulnerability-alerts` and
+  `gh api -X PUT repos/ropats16/cado/automated-security-fixes`.
+  Version updates come from `.github/dependabot.yml` (weekly, grouped: Actions,
+  Swift packages). There is no CI: build and test every Dependabot PR locally
+  (`swift build`, `swift test`, `make embed`) before merging; see "Pinned
+  dependencies". whisper.cpp is NOT on Dependabot (it would bump the submodule to
+  untagged master): bump it by hand to a release tag, following the whisper.cpp
+  notes in `plans/IMPLEMENTATION-NOTES.md`.
+
 ### Publish (by hand, never automatic)
 
-The script only prints the `gh release create` command. Run it yourself after
-checking the DMG: it creates tag `v<version>`, the release, and uploads
+The script only prints the `gh release create ... --draft` command (then
+`gh release edit v<ver> --draft=false` to publish, once the assets are checked).
+Run it yourself after checking the DMG: it creates tag `v<version>`, the release, and uploads
 `Cado-<version>.dmg` + `appcast.xml`. Once it's the latest (non-draft,
 non-prerelease) release, `releases/latest/download/appcast.xml` serves the new
 feed and every installed copy sees the update within a day. A draft or
@@ -184,6 +248,46 @@ Dev builds are signed with the local `Cado Self-Signed` cert. Developer ID chang
 the code's designated requirement, so macOS treats the release as a different
 app: Microphone and Accessibility grants reset once for anyone moving from a dev
 install, and persist across later releases signed with the same Developer ID.
+
+## Dev signing keychain (from-source builds, #46)
+
+`scripts/create_signing_cert.sh` makes the `Cado Self-Signed` identity in
+`~/Library/Keychains/cado-signing.keychain-db`. Its password is random per Mac
+and stored in your login keychain (generic password, service
+`cado-signing-keychain`), and the key can be used by `/usr/bin/codesign` only
+(it was a fixed password and any app before). `make package` / `make install`
+read the password with `security find-generic-password`, unlock the keychain,
+sign, and lock it again on exit; it also auto-locks after 5 minutes idle.
+
+If the login keychain is locked or denies access, setup stops without creating
+anything, and `make package` warns and signs ad-hoc (Accessibility grants won't
+survive that rebuild). Only "item not found" counts as "no stored password".
+
+**Remaining risk (from-source dev builds only; not DMG/Homebrew users):** any
+process running as you can still read the stored password through
+`/usr/bin/security` (it is the item's trusted app) and, while the keychain is
+unlocked, call `/usr/bin/codesign` with the identity. This narrows the old
+"fixed public password + any app" hole; it doesn't close it against malware
+already running as you. Passwords are also passed to `security` on its command
+line (`-p`/`-w`; it has no stdin form), so they are briefly visible in `ps` to
+the same user.
+
+**If you already have the old keychain** (fixed password `cado-local`): nothing to
+do by hand. The next `make package` / `make install` finds no stored password,
+opens the keychain with the old one and changes it to a random one in place. Same
+certificate, so Microphone and Accessibility grants persist. The first run may ask
+for your login password once, for the new login-keychain item (choose Always Allow
+for `security`). To also drop the old key's "any application" access list, start
+clean instead (the certificate changes, so grants reset once):
+
+```sh
+security delete-keychain ~/Library/Keychains/cado-signing.keychain-db
+security delete-generic-password -s cado-signing-keychain   # if present
+tccutil reset Accessibility com.ropats16.Cado
+make install   # recreates the identity, then grant again
+```
+
+Tests (fake `security`, no keychain): `python3 -m unittest discover -s scripts/tests`.
 
 ## Homebrew tap
 

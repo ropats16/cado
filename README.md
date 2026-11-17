@@ -571,11 +571,11 @@ file.
 Downloads from `huggingface.co` are mostly redirected to Hugging Face's CDN
 (`*.hf.co`, e.g. `us.aws.cdn.hf.co`; the host varies by region). The speech
 libraries Cado uses (WhisperKit, FluidAudio) are set up never to download
-anything on their own; they only load model folders already on disk. One
-exception: WhisperKit fetches a tokenizer from `huggingface.co` if a model
-folder's own `tokenizer.json` can't be read. Cado checks a downloaded model's
-files against their pins before loading it, so only a model folder you made
-yourself could hit that.
+anything on their own; they only load model folders already on disk. WhisperKit
+would fetch a tokenizer from `huggingface.co` if a model folder's own
+`tokenizer.json` couldn't be read, so Cado reads every tokenizer file WhisperKit
+could pick in the folder (including any under `models/openai/`) first and
+refuses the model if one can't be read: that request is never made.
 
 **Building from source and developer tools** (not the app) also use the network:
 

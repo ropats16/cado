@@ -15,6 +15,7 @@
 *.mlmodelc/
 
 # Generated Metal-shader embed artifacts (produced by scripts/embed_metal_shader.sh)
+/Sources/CWhisper/metal-embed/
 /Sources/CWhisper/ggml-metal-embed.metal
 /Sources/CWhisper/ggml-metal-embed.s
 /Sources/CWhisper/default.metallib

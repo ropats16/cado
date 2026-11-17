@@ -38,11 +38,10 @@ enum LibraryListState: Equatable {
 /// the notification and the menu. The clock and calendar are injected.
 @MainActor
 final class LibraryViewModel: ObservableObject {
-    @Published private(set) var notes: [NoteSummary] = [] {
-        didSet { sections = LibrarySections.group(notes, now: now(), calendar: calendar) }
-    }
+    @Published private(set) var notes: [NoteSummary] = []
     /// `notes` by date (Today, Yesterday, This week, then by month), newest
-    /// first, as display rows.
+    /// first, as display rows. Built off the main thread (with the list, in
+    /// `reload()`), never from `notes`' setter (#46).
     @Published private(set) var sections: [LibrarySection] = []
     @Published private(set) var query = ""
     @Published private(set) var selection: String?
@@ -75,8 +74,14 @@ final class LibraryViewModel: ObservableObject {
     private let calendar: Calendar
     private let notifications: NotificationCenter
     private let sleep: @Sendable (Duration) async -> Void
+    /// Builds the rows; runs on a background thread. A seam for tests.
+    private let group: @Sendable ([NoteSummary], Date, Calendar) -> [LibrarySection]
     private var generation = 0
     private var pendingReload: Task<Void, Never>?
+    private var pendingRegroup: Task<Void, Never>?
+    /// Reloads awaiting their rows, and a day/zone change that arrived meanwhile.
+    private var reloadsInFlight = 0
+    private var regroupWanted = false
     private var copiedReset: Task<Void, Never>?
     private var meetingStatus: MeetingStatus = .idle
     /// Idle with the row still up: the next reload that lands removes it.
@@ -94,7 +99,11 @@ final class LibraryViewModel: ObservableObject {
          pasteboard: PasteboardWriting = SystemClipboard(),
          now: @escaping () -> Date = Date.init, calendar: Calendar = .autoupdatingCurrent,
          notifications: NotificationCenter = .default,
-         sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+         sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         group: @escaping @Sendable ([NoteSummary], Date, Calendar) -> [LibrarySection] = {
+             LibrarySections.group($0, now: $1, calendar: $2)
+         }) {
+        self.group = group
         self.library = library
         self.opener = opener
         self.pasteboard = pasteboard
@@ -120,7 +129,21 @@ final class LibraryViewModel: ObservableObject {
     /// Today/Yesterday/This week moved (midnight, a time-zone change): the
     /// same notes, grouped again.
     private func regroup() {
-        sections = LibrarySections.group(notes, now: now(), calendar: calendar)
+        // A reload is reading the notes: grouping the old ones now could
+        // overwrite (or be overwritten by) its sections. Redo it once it lands.
+        if reloadsInFlight > 0 { regroupWanted = true; return }
+        runRegroup()
+    }
+
+    private func runRegroup() {
+        pendingRegroup?.cancel()
+        let notes = notes, at = now(), calendar = calendar, group = group, gen = generation
+        pendingRegroup = Task {
+            let rows = await Task.detached { group(notes, at, calendar) }.value
+            // A reload that landed meanwhile built its own sections.
+            guard !Task.isCancelled, gen == generation else { return }
+            sections = rows
+        }
     }
 
     /// The in-progress meeting row, shown at the top of the list; hidden
@@ -150,6 +173,7 @@ final class LibraryViewModel: ObservableObject {
     /// timer are done (tests).
     func settled() async {
         await pendingReload?.value
+        await pendingRegroup?.value
         await copiedReset?.value
     }
 
@@ -161,6 +185,7 @@ final class LibraryViewModel: ObservableObject {
 
     private struct Loaded: @unchecked Sendable {
         var list: [NoteSummary]
+        var sections: [LibrarySection]
         var note: Result<Note, Error>?
     }
 
@@ -170,16 +195,28 @@ final class LibraryViewModel: ObservableObject {
     func reload() async -> Bool {
         generation += 1
         let gen = generation
+        reloadsInFlight += 1
+        defer { reloadsInFlight -= 1 }
         let query = query, selected = selection, library = library
+        let at = now(), calendar = calendar, group = group
         let loaded = await Task.detached { () -> Loaded in
             let list = library.search(query)
+            let sections = group(list, at, calendar)   // rows built here, not on main
             let note = selected.map { id in Result { try library.note(id: id) } }
-            return Loaded(list: list, note: note)
+            return Loaded(list: list, sections: sections, note: note)
         }.value
         guard gen == generation else { return false }
 
+        // Its sections replace any regroup of the old notes; if the day or
+        // zone changed meanwhile, group these notes again.
+        pendingRegroup?.cancel()
+        let regroupAfter = regroupWanted
+        regroupWanted = false
+        defer { if regroupAfter { runRegroup() } }
+
         hasLoaded = true
         notes = loaded.list
+        sections = loaded.sections
         if rowEndsOnReload, meetingStatus == .idle {
             rowEndsOnReload = false
             meetingUnderWay = nil   // the saved note (if any) is listed now

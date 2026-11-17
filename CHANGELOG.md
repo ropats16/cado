@@ -10,6 +10,9 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - The hotkey button that said "Record" now says "Change…", so it can't be mistaken for Record Meeting.
 - The menu no longer lists permissions that are already granted. Open Config File and Open Models Folder are under Advanced.
 - "About Cado" replaces "Acknowledgements…": it shows the version, and the credits are in the same window.
+- The Library and the menu's Open Last Meeting Note stay quick with a large notes folder: notes that haven't changed aren't read again, and the list is prepared in the background.
+- Updated the speech engine (whisper.cpp 1.9.5), which includes a fix for a crash on a damaged model file.
+- A hand-made WhisperKit model folder with a damaged tokenizer file (in any place WhisperKit looks) is refused instead of making Cado download a replacement.
 
 ### Added
 - Right-click the mascot for Hide Mascot and Settings…; VoiceOver reads it as a button and can press it.

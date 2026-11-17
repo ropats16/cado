@@ -507,6 +507,54 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(listedWhenRowWent, [true])
     }
 
+    // MARK: rows off the main thread (#46)
+
+    func testRowsAreBuiltOffTheMainThreadAndMatchTheList() async throws {
+        final class Seen: @unchecked Sendable {
+            private let lock = NSLock()
+            private var threads: [Bool] = []
+            func add(_ onMain: Bool) { lock.lock(); threads.append(onMain); lock.unlock() }
+            var all: [Bool] { lock.lock(); defer { lock.unlock() }; return threads }
+        }
+        let seen = Seen()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let clock = t0 + 3600
+        vm = LibraryViewModel(library: library, opener: opener, pasteboard: pasteboard,
+                              now: { clock }, calendar: calendar,
+                              group: { notes, now, calendar in
+                                  seen.add(Thread.isMainThread)
+                                  return LibrarySections.group(notes, now: now, calendar: calendar)
+                              })
+        try add("Alpha")
+        try add("Beta", at: 60)
+        await vm.reload()
+        XCTAssertEqual(vm.sections.flatMap(\.rows).map(\.id), vm.notes.map(\.id))
+        XCTAssertEqual(seen.all, [false], "built once, not on main")
+    }
+
+    func testSectionsRegroupedAtMidnightAreAlsoBuiltOffMain() async throws {
+        final class Seen: @unchecked Sendable {
+            private let lock = NSLock()
+            private var threads: [Bool] = []
+            func add(_ onMain: Bool) { lock.lock(); threads.append(onMain); lock.unlock() }
+            var all: [Bool] { lock.lock(); defer { lock.unlock() }; return threads }
+        }
+        let seen = Seen()
+        let center = NotificationCenter()
+        vm = LibraryViewModel(library: library, opener: opener, pasteboard: pasteboard,
+                              now: { self.t0 + 3600 }, notifications: center,
+                              group: { notes, now, calendar in
+                                  seen.add(Thread.isMainThread)
+                                  return LibrarySections.group(notes, now: now, calendar: calendar)
+                              })
+        try add("Alpha")
+        await vm.reload()
+        center.post(name: .NSCalendarDayChanged, object: nil)
+        await vm.settled()
+        XCTAssertEqual(seen.all, [false, false])
+    }
+
     // MARK: sections over time (#42)
 
     func testSectionsRegroupAtMidnightAndOnATimeZoneChange() async throws {
@@ -525,6 +573,68 @@ final class LibraryViewModelTests: XCTestCase {
         center.post(name: .NSSystemTimeZoneDidChange, object: nil)
         await vm.settled()
         XCTAssertNotEqual(vm.sections.map(\.title), ["Yesterday"])
+    }
+
+    private final class Gate: @unchecked Sendable {
+        private let lock = NSLock()
+        private let sem = DispatchSemaphore(value: 0)
+        private var calls = 0
+        private var blockCall: Int
+        init(blockCall: Int) { self.blockCall = blockCall }
+        /// Counts a group call; blocks the one chosen until `open()`.
+        func enter() { lock.lock(); calls += 1; let mine = calls; lock.unlock(); if mine == blockCall { sem.wait() } }
+        var count: Int { lock.lock(); defer { lock.unlock() }; return calls }
+        func open() { sem.signal() }
+    }
+
+    private func spin(until cond: () -> Bool) async {
+        for _ in 0..<2000 where !cond() { try? await Task.sleep(nanoseconds: 2_000_000) }
+    }
+
+    /// A day change lands while a reload is reading: sections must show the
+    /// reload's notes under the new day, whichever finishes first.
+    func testADayChangeDuringAReloadKeepsTheNewNotesAndTheNewDay() async throws {
+        let center = NotificationCenter()
+        var clock = t0 + 3600
+        let gate = Gate(blockCall: 1)
+        vm = LibraryViewModel(library: library, opener: opener, pasteboard: pasteboard,
+                              now: { clock }, notifications: center,
+                              group: { notes, now, calendar in
+                                  gate.enter()
+                                  return LibrarySections.group(notes, now: now, calendar: calendar)
+                              })
+        try add("Alpha")
+        let reload = Task { await vm.reload() }
+        await spin { gate.count >= 1 }
+        clock += 86_400
+        center.post(name: .NSCalendarDayChanged, object: nil)
+        gate.open()
+        await reload.value
+        await vm.settled()
+        XCTAssertEqual(vm.sections.flatMap(\.rows).map(\.title), ["Alpha"], "new notes shown")
+        XCTAssertEqual(vm.sections.map(\.title), ["Yesterday"], "new day shown")
+    }
+
+    /// A regroup of the old notes still running when a newer reload lands
+    /// must not overwrite it.
+    func testASlowRegroupDoesNotOverwriteANewerReload() async throws {
+        let center = NotificationCenter()
+        let gate = Gate(blockCall: 2)   // call 1 = first reload, 2 = the regroup
+        vm = LibraryViewModel(library: library, opener: opener, pasteboard: pasteboard,
+                              now: { self.t0 + 3600 }, notifications: center,
+                              group: { notes, now, calendar in
+                                  gate.enter()
+                                  return LibrarySections.group(notes, now: now, calendar: calendar)
+                              })
+        await vm.reload()   // empty
+        center.post(name: .NSCalendarDayChanged, object: nil)
+        await spin { gate.count >= 2 }
+        try add("Alpha")
+        await vm.reload()
+        XCTAssertEqual(vm.sections.flatMap(\.rows).map(\.title), ["Alpha"])
+        gate.open()
+        await vm.settled()
+        XCTAssertEqual(vm.sections.flatMap(\.rows).map(\.title), ["Alpha"])
     }
 
     /// Nothing saved (no speech, a failure): no ghost row.
