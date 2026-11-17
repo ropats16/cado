@@ -223,7 +223,7 @@ let package = Package(
         // isn't trait-gated and still compiles.
         .package(
             url: "https://github.com/FluidInference/FluidAudio.git",
-            .upToNextMinor(from: "0.17.7"),
+            .upToNextMinor(from: "0.18.3"),
             traits: []
         ),
         // WhisperKit (Core ML / Neural Engine engine, #12). The repo was renamed
