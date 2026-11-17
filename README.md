@@ -48,6 +48,9 @@ off (see [Privacy](#privacy)).
   browser…, "Others") until you click **Stop Recording**, then writes a Markdown
   note with the conversation as Me/Others turns to your notes folder. See
   [Meeting notes](#meeting-notes).
+- **Meeting summaries** (macOS 26 with Apple Intelligence): each meeting note
+  gets a summary (key points, decisions, action items) written on your Mac.
+  See [Summaries](#summaries).
 - **100% private.** It only uses the internet to download models: the
   one-time setup download, and Settings › Speech Model's **Download** button, which
   fetches pinned files from `huggingface.co` only when you click it — plus a
@@ -340,12 +343,45 @@ and says why).
   side, so their words can appear under "Me" too. Notes saved before this
   label changed say "Them"; they still open and show "Others" (the files
   aren't changed).
+- **Summaries:** see [Summaries](#summaries) below.
 - **Safari:** Safari plays web audio through WebKit's shared media process,
   which every WebKit-based app uses (Mail, and apps with web views) and which
   macOS gives no public way to tell apart. So with Safari as the meeting app,
   "Others" can also pick up sound those apps play during the meeting. Every
   other app is recorded on its own (Chrome never includes Chrome Canary, Edge
   never Edge Beta); for a clean "Others", use a meeting app or another browser.
+
+### Summaries
+
+Needs macOS 26 or later with Apple Intelligence turned on (System Settings ›
+Apple Intelligence & Siri). Elsewhere, Settings › Meeting Summaries says why
+and nothing changes.
+
+- **After a meeting:** once its note is saved, Cado asks Apple Intelligence's
+  on-device model for a summary and adds it to the note: a **Summary** section
+  with **Key points**, **Decisions** and **Action items**, between the note's
+  opening lines and the transcript (which then gets a **Transcript** heading).
+  It runs on your Mac; nothing is sent anywhere. The note is saved first and
+  is complete without a summary: summarizing never delays or risks it, and if
+  Cado quits or the summary fails, the note just has no summary.
+- **Long meetings:** the on-device model reads only a few pages at a time, so
+  Cado summarizes a long transcript in parts (cut between turns) and then
+  combines them. A part the model declines (it can refuse some topics) is left
+  out, and the summary says part of the meeting couldn't be summarized.
+- **Summarize again:** in the Library, a meeting note's summary card has
+  **Regenerate Summary** (or **Summarize** for a note without one, such as one
+  saved before summaries or with them off). The new summary replaces the old
+  one in place; the rest of the note, including anything you added, is kept.
+- **Turn off:** Settings › Meeting Summaries › **Summarize meetings** (on by
+  default). Existing summaries stay; you can still summarize a note from the
+  Library.
+- **In other Markdown apps:** the section sits between two hidden comments
+  (`<!-- cado:summary -->` … `<!-- /cado:summary -->`) that Obsidian and other
+  Markdown apps don't show; they let Cado find and replace it. Edit inside them
+  and a regenerate replaces your edits; outside them, edits are kept.
+- **Summaries can be wrong.** They come from a small model reading a speech
+  transcript; the note says so under each summary, and the transcript below
+  is what was said.
 
 ---
 
@@ -468,6 +504,8 @@ logs the problem at startup and the menu shows a **Config issue** warning.
 | `notesFolder`         | Folder for meeting notes (`""` = default `~/Documents/Cado`). |
 | `dictationHistory`    | Keep the last 10 dictations for **Recent Dictations** in the menu (default `false`). |
 | `keepMeetingAudio`    | Keep a meeting's audio after its note is saved (default `false`: deleted). |
+| `meetingSummaries`    | Summarize each meeting note after it's saved (default `true`; needs macOS 26 with Apple Intelligence). |
+| `summaryProvider`     | Who writes summaries: `on-device` (default, Apple Intelligence on this Mac). |
 
 ---
 
@@ -551,6 +589,9 @@ the note is safely saved. The audio is kept after that
 only if you turn on **Keep meeting audio**, or if part of the meeting couldn't
 be transcribed. It never leaves your Mac.
 
+Meeting [summaries](#summaries) are written by Apple Intelligence's on-device
+model: the transcript never leaves your Mac.
+
 ---
 
 ## Network activity
@@ -566,6 +607,9 @@ file.
 | Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Speech Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
 | `github.com` | Release builds of the app: about once a day while Cado runs, and when you choose **Check for Updates…** in the menu (or **Check Now** in Settings › Updates) | Fetches the update feed, `github.com/ropats16/cado/releases/latest/download/appcast.xml` ([Sparkle](https://sparkle-project.org)). If there's a newer version, Cado asks before installing it (unless you tick "Automatically download and install updates" in that prompt), then downloads its DMG from the same GitHub release (GitHub redirects both the feed and the DMG to `release-assets.githubusercontent.com`); the download must match the release's Ed25519 signature and Cado's code signature, or it's discarded. No system profile or identifier is sent (just a normal HTTPS request, with Cado's version in the User-Agent). Builds made with `make install`/`make package` never check. | On by default; turn off **Automatically check for updates** in Settings › Updates |
 | `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Send anonymous usage count** (onboarding, or Settings › Usage Count) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. Only sent by a build with a TelemetryDeck app ID; Cado 0.1.0 has none, so this switch sends nothing yet. | Yes, **off by default** |
+
+Meeting summaries (Apple Intelligence's on-device model) contact nothing:
+macOS downloads and updates that model itself, not Cado.
 
 Downloads from `huggingface.co` are mostly redirected to Hugging Face's CDN
 (`*.hf.co`, e.g. `us.aws.cdn.hf.co`; the host varies by region). The speech
