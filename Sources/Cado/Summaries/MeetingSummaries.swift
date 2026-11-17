@@ -157,9 +157,9 @@ final class MeetingSummaries: ObservableObject {
     /// A meeting note was just saved: summarize it if the switch is on and
     /// the provider can run (else nothing, quietly).
     func noteSaved(_ note: URL) {
-        guard automatic() else { return Log.info("Summary: summaries are off; not summarizing \(note.lastPathComponent).") }
+        guard automatic() else { return Log.info("Summary: summaries are off; not summarizing the new meeting note.") }
         guard availability.isAvailable else {
-            return Log.info("Summary: not summarizing \(note.lastPathComponent): \(availability)")
+            return Log.info("Summary: not summarizing the new meeting note: \(availability)")
         }
         enqueue(note, automatic: true)
     }
@@ -199,7 +199,7 @@ final class MeetingSummaries: ObservableObject {
         guard let summarizer = made else {
             let why = Self.describe(SummarizerError.unavailable(Self.unavailableReason(of: provider, availability)))
             states[note] = .failed(why)
-            return Log.info("Summary: \(note.lastPathComponent) not summarized: \(why)")
+            return Log.info("Summary: a note not summarized: \(why)")
         }
         let files = files
         let started = Date()
@@ -208,23 +208,31 @@ final class MeetingSummaries: ObservableObject {
             if automaticNotes.remove(note) != nil,
                turns.reduce(0, { $0 + $1.text.split(whereSeparator: \.isWhitespace).count }) < minimumAutomaticWords {
                 states[note] = nil
-                return Log.info("Summary: \(note.lastPathComponent) is too short to summarize on its own.")
+                return Log.info("Summary: a note is too short to summarize on its own.")
             }
             let outcome = try await runPipeline(summarizer, turns: turns, provider: provider)
             // The model that did the work, not the one chosen by now.
             let section = SummarySection.markdown(outcome, provider: provider, model: summarizer.attributionModel ?? model())
             try await Task.detached { try files.writeSection(section, into: note, summarizing: turns) }.value
             states[note] = nil
-            Log.info("Summary: wrote \(note.lastPathComponent)'s summary (\(outcome.passages) passage(s), "
+            Log.info("Summary: wrote a note's summary (\(outcome.passages) passage(s), "
                 + "\(outcome.skippedPassages) left out) in \(String(format: "%.1f", Date().timeIntervalSince(started))) s.")
             onWritten?(note)
         } catch is CancellationError {
             states[note] = .failed(Self.stoppedSentence)
-            Log.info("Summary: \(note.lastPathComponent) stopped: the summary settings changed.")
+            Log.info("Summary: a note's summary stopped: the summary settings changed.")
         } catch {
             states[note] = .failed(Self.describe(error))
-            Log.error("Summary: \(note.lastPathComponent) not summarized: \(error)")
+            Log.error("Summary: a note not summarized: \(Self.logged(error))")
         }
+    }
+
+    /// For the public system log: a note's file name can be its calendar
+    /// event's title (#38), and a file error's text names the file, so file
+    /// errors are logged by domain and code only.
+    private static func logged(_ error: Error) -> String {
+        let e = error as NSError
+        return e.domain == NSCocoaErrorDomain || e.domain == NSPOSIXErrorDomain ? "\(e.domain) \(e.code)" : "\(error)"
     }
 
     /// Making a summarizer can read the Keychain: done off the main actor.

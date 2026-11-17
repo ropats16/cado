@@ -190,7 +190,8 @@ final class NotesLibrary {
                 // would save the meeting a second time.
                 for target in [url, dir] {
                     do { try sync(target) } catch {
-                        Log.error("Couldn't flush \(target.lastPathComponent) to disk: \(error.localizedDescription)")
+                        Log.error("Couldn't flush the new note\(target == dir ? "'s folder" : "") to disk "
+                                  + "(\((error as NSError).domain) \((error as NSError).code))")   // no name: it can be the event title (#38)
                     }
                 }
                 return Self.parse(url: url, data: data, modified: draft.date)
