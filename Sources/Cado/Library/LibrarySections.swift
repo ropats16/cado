@@ -171,7 +171,7 @@ struct LibraryInProgressRow: Equatable, Identifiable {
     let phase: Phase
     /// "Meeting with Zoom"
     let title: String
-    /// "Recording…", "Finishing…", "Transcribing… 2 of 5"
+    /// "Recording…", "Finishing…", "Transcribing… 2 of 5", "Recovering… 1 of 3"
     let detail: String
     /// 0...1 while passages are being transcribed; nil otherwise.
     let progress: Double?
@@ -191,6 +191,11 @@ struct LibraryInProgressRow: Equatable, Identifiable {
             self.app = app
             phase = .transcribing
             detail = total > 0 ? "Transcribing… \(done) of \(total)" : "Finishing…"
+            progress = total > 0 ? Double(done) / Double(total) : nil
+        case .recovering(let app, let done, let total):
+            self.app = app
+            phase = .transcribing
+            detail = total > 0 ? "Recovering… \(done) of \(total)" : "Recovering…"
             progress = total > 0 ? Double(done) / Double(total) : nil
         }
         title = "Meeting with \(app)"

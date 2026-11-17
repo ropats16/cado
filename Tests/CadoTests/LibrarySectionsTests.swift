@@ -193,5 +193,11 @@ final class LibrarySectionsTests: XCTestCase {
         XCTAssertEqual(transcribing?.detail, "Transcribing… 1 of 4")
         XCTAssertEqual(transcribing?.progress, 0.25)
         XCTAssertEqual(transcribing?.accessibilityLabel, "Meeting with Zoom. Transcribing… 1 of 4")
+
+        let recovering = LibraryInProgressRow(status: .recovering(app: "Zoom", done: 1, total: 2))
+        XCTAssertEqual(recovering?.phase, .transcribing)
+        XCTAssertEqual(recovering?.detail, "Recovering… 1 of 2")
+        XCTAssertEqual(recovering?.progress, 0.5)
+        XCTAssertEqual(LibraryInProgressRow(status: .recovering(app: "Zoom", done: 0, total: 0))?.detail, "Recovering…")
     }
 }

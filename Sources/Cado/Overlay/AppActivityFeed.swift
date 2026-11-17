@@ -73,7 +73,7 @@ extension AppActivityFeed: MeetingActivity {
         switch status {
         case .idle: meeting = .idle
         case .recording: meeting = .meetingLive
-        case .transcribing: meeting = .transcribing
+        case .transcribing, .recovering: meeting = .transcribing
         }
         update()
     }

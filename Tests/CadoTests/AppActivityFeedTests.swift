@@ -78,6 +78,11 @@ final class AppActivityFeedTests: XCTestCase {
         XCTAssertEqual(received, [.activity(.meetingLive), .activity(.transcribing), .activity(.idle)])
     }
 
+    func testARecoveringMeetingShowsAsTranscribing() {
+        feed.meetingStatusChanged(.recovering(app: "Zoom", done: 0, total: 3))
+        XCTAssertEqual(feed.activity, .transcribing)
+    }
+
     /// A dictation still transcribing when a meeting starts shows first; the
     /// meeting shows once it's done.
     func testADictationShowsOverAMeetingThenTheMeetingReturns() {

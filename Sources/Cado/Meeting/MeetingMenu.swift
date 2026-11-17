@@ -50,6 +50,9 @@ enum MeetingStatus: Equatable {
     case recording(app: String, startedAt: TimeInterval, lost: Set<MeetingSpeaker>)
     /// Captures finishing, then transcription: `done` of `total` passages.
     case transcribing(app: String, done: Int, total: Int)
+    /// Finishing a meeting an earlier run didn't (#31): reading it back
+    /// (`total` 0), then `done` of `total` passages.
+    case recovering(app: String, done: Int, total: Int)
 }
 
 /// The meeting part of the status menu: one main item (a click, a submenu of
@@ -112,6 +115,9 @@ struct MeetingMenuContent: Equatable {
         case .transcribing(let app, let done, let total):
             title = total > 0 ? "Transcribing Meeting… \(done) of \(total)" : "Finishing Meeting…"
             detail = "Meeting with \(app)"
+        case .recovering(let app, let done, let total):
+            title = total > 0 ? "Recovering Meeting… \(done) of \(total)" : "Recovering Meeting…"
+            detail = "A meeting with \(app) that wasn't finished. Record Meeting is back once it's done."
         case .idle:
             title = "Record Meeting"
             if choice != .unsupported, let systemAudio, systemAudio != .unsupportedOS {

@@ -253,4 +253,15 @@ final class MeetingNoteTests: XCTestCase {
         XCTAssertFalse(content.isRecording)
         XCTAssertEqual(menu(.transcribing(app: "Zoom", done: 0, total: 0), .nothing).title, "Finishing Meeting…")
     }
+
+    /// #31 L4: a meeting from an earlier run being finished says so, and why
+    /// Record Meeting isn't there.
+    func testRecoveringHasItsOwnWording() {
+        let content = menu(.recovering(app: "Zoom", done: 2, total: 5), .one(app("Zoom", meeting: true)))
+        XCTAssertEqual(content.title, "Recovering Meeting… 2 of 5")
+        XCTAssertEqual(content.detail, "A meeting with Zoom that wasn't finished. Record Meeting is back once it's done.")
+        XCTAssertFalse(content.isEnabled)
+        XCTAssertEqual(menu(.recovering(app: "Zoom", done: 0, total: 0), .nothing).title, "Recovering Meeting…")
+        UserFacingCopy.assertPlain(content.detail)
+    }
 }
