@@ -207,7 +207,11 @@ valid key (`UpdaterAvailability`).
 
 ## Entitlements
 
-Only `com.apple.security.device.audio-input` (microphone under Hardened Runtime).
+`com.apple.security.device.audio-input` (microphone under Hardened Runtime) and
+`com.apple.security.personal-information.calendars` (Calendar access for "Name
+meetings from my calendar", #38: under Hardened Runtime EventKit gets no
+access and macOS shows no prompt without it; the matching
+`NSCalendarsFullAccessUsageDescription` is in `Info.plist`).
 Not sandboxed; paste and Accessibility are TCC permissions, not entitlements.
 Sparkle.framework is the only non-system library; it's re-signed with the same
 Developer ID, so library validation passes without

@@ -37,17 +37,23 @@ extension SettingsView {
             // the comment lines between slots, so merges stay clean) and puts
             // its card in SettingsView+<Feature>.swift. Planned slots:
 
-            // Slot: meeting detection on/off
-
-            // Slot: meeting hotkey
-
-            // Slot: max meeting length
-
             // Slot: meeting language
             meetingLanguageSection   // SettingsView+MeetingLanguage.swift (#47)
 
+            // Slot: meeting detection on/off
+            meetingDetectionSection   // SettingsView+MeetingDetection.swift (#32)
+
+            // Slot: meeting hotkey
+            meetingHotkeySection   // SettingsView+MeetingDetection.swift (#32)
+
+            // Slot: max meeting length
+            maxMeetingLengthSection   // SettingsView+MeetingDetection.swift (#32)
+
             // Slot: summaries on/off
             summariesSection   // SettingsView+Summaries.swift (#34)
+
+            // Slot: calendar meeting titles
+            calendarSection   // SettingsView+Calendar.swift (#38)
         }
     }
 }

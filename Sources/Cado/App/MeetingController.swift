@@ -5,52 +5,82 @@ import Foundation
 /// notes library and the on-disk spool (`FolderMeetingSpool`); works out which app "Record Meeting" would record when the menu
 /// opens; and re-renders the meeting rows each second while recording, for
 /// the elapsed time. Rules live in `MeetingSession` and `MeetingMenuContent`.
+/// Every start, from anywhere, passes the one-time consent reminder first
+/// (#32); `MeetingAssistant` drives it from detection, the hotkey and the
+/// mascot.
 ///
 /// Main-thread only.
-final class MeetingController: MeetingActivity {
+final class MeetingController: MeetingActivity, MeetingRecording {
     /// Receives the meeting rows to show.
     var render: ((MeetingMenuContent) -> Void)?
     /// Each status change (the Library's in-progress row, #42).
     var onStatusChange: ((MeetingStatus) -> Void)?
+    /// An answer to what's asked, from the menu (#32).
+    var onAnswer: ((MeetingDetector.Prompt, Bool) -> Void)?
+    /// What `MeetingDetector` asks, shown in the meeting rows (#32).
+    var prompt: MeetingDetector.Prompt? {
+        didSet { if prompt != oldValue { renderNow() } }
+    }
 
     private let activity: MeetingActivity
     private let clock: Clock
     private var choice: MeetingAppChoice = .nothing
     private var ticker: Timer?
-    private lazy var session = MeetingSession(
-        recorder: recorder, engine: engine, notes: notes, archive: FolderMeetingArchive(),
-        spool: FolderMeetingSpool(), feedback: NotifierMeetingFeedback(), activity: self, clock: clock,
-        systemAudioPermission: systemAudio, keepAudio: keepAudio, meetingLanguage: meetingLanguage)
-    private let recorder: MeetingRecorder
-    private let engine: MeetingEngine
-    /// `engine`: picks each meeting's model (#47).
-    let router: MeetingModelRouter
-    private let notes: MeetingNoteStore
+    private lazy var session: MeetingSession = makeSession(self)
+    private let makeSession: (MeetingController) -> MeetingSession
     private let systemAudio: () -> SystemAudioPermission
-    private let keepAudio: () -> Bool
-    private let meetingLanguage: () -> String?
+    private let apps: () -> [RecordableApp]
+    private let consent: MeetingConsent
+    /// The app the last start asked for: the one recorded while recording.
+    private var startedApp: MeetingApp?
+    /// The session's engine: picks each meeting's model (#47). nil when a
+    /// test hands in its own session.
+    let router: MeetingModelRouter?
 
     /// `activity`: the app-wide feed (the overlay). `notes`: the notes
     /// library meeting notes are saved to. `systemAudio`: the permission as
     /// observed (`Permissions.systemAudio`), read when the menu renders and
     /// when a meeting ends. `keepAudio`: Settings › Meetings › Keep meeting
-    /// audio, read when a meeting ends. `meetingLanguage`: the language a
+    /// audio, read when a meeting ends. `maxSeconds`: Settings › Meetings ›
+    /// Max meeting length (nil = Off), read as a meeting starts. `consent`:
+    /// the one-time reminder every start passes. `calendarNaming`: names a
+    /// meeting after its calendar event when the user opted in (#38), looked
+    /// up off main once it records. `meetingLanguage`: the language a
     /// meeting started now is decoded in, and `meetingModel` the model for a
     /// meeting's language (#47, `MeetingModelRouter`).
-    init(engine: TranscriptionEngine, activity: MeetingActivity, microphoneUID: @escaping () -> String?,
-         notes: MeetingNoteStore, systemAudio: @escaping () -> SystemAudioPermission,
-         keepAudio: @escaping () -> Bool, meetingLanguage: @escaping () -> String? = { nil },
-         meetingModel: @escaping (String?) -> MeetingModel.Choice = { _ in .dictation },
-         options: EngineOptions = EngineOptions(), clock: Clock = SystemClock()) {
+    convenience init(engine: TranscriptionEngine, activity: MeetingActivity, microphoneUID: @escaping () -> String?,
+                     notes: MeetingNoteStore, systemAudio: @escaping () -> SystemAudioPermission,
+                     keepAudio: @escaping () -> Bool, meetingLanguage: @escaping () -> String? = { nil },
+                     meetingModel: @escaping (String?) -> MeetingModel.Choice = { _ in .dictation },
+                     options: EngineOptions = EngineOptions(),
+                     maxSeconds: @escaping () -> TimeInterval?, consent: MeetingConsent,
+                     calendarNaming: MeetingCalendarNaming = .off, clock: Clock = SystemClock()) {
+        let recorder = LiveMeetingRecorder(microphoneUID: microphoneUID)
+        let router = MeetingModelRouter(dictation: engine, options: options, choose: meetingModel)
+        self.init(activity: activity, systemAudio: systemAudio, consent: consent, clock: clock,
+                  router: router) { controller in
+            MeetingSession(recorder: recorder, engine: router, notes: notes, archive: FolderMeetingArchive(),
+                           spool: FolderMeetingSpool(), feedback: NotifierMeetingFeedback(), activity: controller,
+                           clock: clock, systemAudioPermission: systemAudio, keepAudio: keepAudio,
+                           meetingLanguage: meetingLanguage, maxSeconds: maxSeconds, calendarNaming: calendarNaming)
+        }
+    }
+
+    /// `makeSession` builds the session on first use, reporting to the
+    /// controller it's handed; `apps`: what could be recorded now
+    /// (`RecordableApps.current`); `router`: the session's engine, if it is
+    /// one (#47). Tests pass fakes.
+    init(activity: MeetingActivity, systemAudio: @escaping () -> SystemAudioPermission, consent: MeetingConsent,
+         clock: Clock = SystemClock(), apps: @escaping () -> [RecordableApp] = { RecordableApps.current() },
+         router: MeetingModelRouter? = nil,
+         makeSession: @escaping (MeetingController) -> MeetingSession) {
         self.activity = activity
         self.clock = clock
-        recorder = LiveMeetingRecorder(microphoneUID: microphoneUID)
-        router = MeetingModelRouter(dictation: engine, options: options, choose: meetingModel)
-        self.engine = router
-        self.notes = notes
         self.systemAudio = systemAudio
-        self.keepAudio = keepAudio
-        self.meetingLanguage = meetingLanguage
+        self.apps = apps
+        self.consent = consent
+        self.router = router
+        self.makeSession = makeSession
     }
 
     /// For `DictationSession`'s `busy`.
@@ -63,17 +93,38 @@ final class MeetingController: MeetingActivity {
     /// The menu is opening: which apps could be recorded right now.
     func refreshApps() {
         if session.status == .idle {
-            choice = MeetingAppChoice.decide(supported: SystemAudioReadiness.canRecord(systemAudio()),
-                                             apps: RecordableApps.current())
+            choice = currentChoice()
         }
         renderNow()
     }
 
     func perform(_ action: MeetingMenuContent.Action) {
         switch action {
-        case .start(let app): session.start(app)
+        case .start(let app):
+            // Not idle: the session ignores it, or says why (a recovery).
+            guard session.status == .idle else { return session.start(app) }
+            consent.confirm { [weak self] in
+                guard let self else { return }
+                // The reminder's modal loop may have let another start
+                // through meanwhile: that one is recording (or explained).
+                guard session.status == .idle else { return session.start(app) }
+                startedApp = app
+                session.start(app)
+            }
         case .stop: session.stop()
+        case .answer(let prompt, let yes): onAnswer?(prompt, yes)
         }
+    }
+
+    /// The app being recorded; nil when not recording.
+    var recordingBundleID: String? {
+        if case .recording = session.status { return startedApp?.bundleID }
+        return nil
+    }
+
+    /// What Record Meeting would offer right now (read afresh).
+    func currentChoice() -> MeetingAppChoice {
+        MeetingAppChoice.decide(supported: SystemAudioReadiness.canRecord(systemAudio()), apps: apps())
     }
 
     /// Cado can transcribe: recover meetings an earlier run didn't finish
@@ -108,7 +159,8 @@ final class MeetingController: MeetingActivity {
 
     private func renderNow() {
         let issue = SystemAudioReadiness.issue(for: systemAudio(), lastMeetingThemSilent: session.lastThemWasSilent)
-        render?(MeetingMenuContent(status: session.status, choice: choice, now: clock.now, systemAudio: issue))
+        render?(MeetingMenuContent(status: session.status, choice: choice, now: clock.now, systemAudio: issue,
+                                   prompt: prompt))
     }
 }
 

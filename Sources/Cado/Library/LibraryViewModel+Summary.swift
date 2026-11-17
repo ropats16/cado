@@ -14,15 +14,33 @@ struct SummaryPanel: Equatable {
     /// Why a summary can't be written yet but may be later (the model is
     /// still getting ready): shown with Summarize.
     var notice: String?
+    /// Cloud provider in use (#35): the button names it and `sends` says
+    /// what leaves the Mac, before the user clicks. nil: on this Mac.
+    var provider: SummaryProvider = .onDevice
+    var model: String?
 
-    var buttonTitle: String { blocks == nil ? "Summarize" : "Regenerate Summary" }
+    var buttonTitle: String {
+        let base = blocks == nil ? "Summarize" : "Regenerate"
+        switch provider {
+        case .onDevice: return blocks == nil ? "Summarize" : "Regenerate Summary"
+        case .openRouter: return "\(base) with \(provider.displayName)"
+        }
+    }
+
+    /// Under the button, when the transcript would leave the Mac.
+    var sends: String? {
+        guard provider == .openRouter, canSummarize else { return nil }
+        let name = model.flatMap { $0.isEmpty ? nil : $0 } ?? OpenRouterModels.defaultID
+        return "Sends this note's transcript to \(provider.displayName) (\(name))."
+    }
 
     /// nil (nothing shown) for a note that isn't a meeting, or a meeting
     /// with no summary that can't be summarized here (no transcript, or
     /// summaries can never run on this Mac; "still getting ready" shows the
     /// card with Summarize and why).
     static func make(_ reading: NoteReading, state: MeetingSummaries.State?,
-                     availability: SummarizerAvailability) -> SummaryPanel? {
+                     availability: SummarizerAvailability, provider: SummaryProvider = .onDevice,
+                     model: String? = nil) -> SummaryPanel? {
         guard reading.header.isMeeting else { return nil }
         var available = availability.isAvailable
         var notice: String?
@@ -35,7 +53,7 @@ struct SummaryPanel: Equatable {
         if case .failed(let why)? = state { problem = why }
         let panel = SummaryPanel(blocks: reading.summary, isWorking: working, problem: problem,
                                  canSummarize: available && reading.hasTranscript && !working,
-                                 notice: reading.hasTranscript ? notice : nil)
+                                 notice: reading.hasTranscript ? notice : nil, provider: provider, model: model)
         guard panel.blocks != nil || working || problem != nil || panel.canSummarize else { return nil }
         return panel
     }
@@ -50,7 +68,8 @@ extension LibraryViewModel {
         guard let summaries, let url = detail?.summary.url else {
             return SummaryPanel.make(reading, state: nil, availability: .unavailable(.needsNewerMacOS))
         }
-        return SummaryPanel.make(reading, state: summaries.state(of: url), availability: summaries.availability)
+        return SummaryPanel.make(reading, state: summaries.state(of: url), availability: summaries.availability,
+                                 provider: summaries.activeProvider, model: summaries.activeModel)
     }
 
     /// Summarize / Regenerate Summary: replaces the selected note's

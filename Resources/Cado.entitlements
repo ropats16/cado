@@ -12,5 +12,10 @@
            compiles models out of process, so no allow-jit / allow-unsigned-executable-memory. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!-- Calendar access (EventKit) for "Name meetings from my calendar" (#38). Without it
+         a Hardened Runtime build gets no access and macOS never shows the Calendar prompt.
+         Used only if the user switches that setting on. -->
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
 </dict>
 </plist>

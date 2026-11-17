@@ -210,7 +210,7 @@ final class MeetingSessionTests: XCTestCase {
         session = makeSession()
     }
 
-    private func makeSession(maxSeconds: TimeInterval = 600,
+    private func makeSession(maxSeconds: TimeInterval = 600, calendarNaming: MeetingCalendarNaming = .off,
                              background: @escaping (@escaping () -> Void, @escaping () -> Void) -> Void = { $0(); $1() })
         -> MeetingSession {
         MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
@@ -218,8 +218,9 @@ final class MeetingSessionTests: XCTestCase {
                        date: { Date(timeIntervalSince1970: 1_794_839_520) },
                        systemAudioPermission: { [unowned self] in permission },
                        keepAudio: { [unowned self] in keepAudio },
-                       maxSeconds: maxSeconds, locale: Locale(identifier: "en_GB"),
-                       timeZone: TimeZone(identifier: "UTC")!, later: { $0() }, background: background)
+                       maxSeconds: { maxSeconds }, locale: Locale(identifier: "en_GB"),
+                       timeZone: TimeZone(identifier: "UTC")!, calendarNaming: calendarNaming,
+                       later: { $0() }, background: background)
     }
 
     /// 16 kHz audio of `seconds` with 200 Hz bursts (start, end, amplitude).
@@ -363,6 +364,41 @@ final class MeetingSessionTests: XCTestCase {
         engine.finishAll()
         XCTAssertEqual(notes.saved.first?.duration, 600)
         XCTAssertTrue(notes.saved.first?.body.contains("> Recording stopped at the 10-minute limit.") == true)
+    }
+
+    /// Settings › Meetings › Max meeting length (#32), read as each meeting starts.
+    func testTheMaxLengthIsReadAtStartAndNamesTheSetting() {
+        var limit: TimeInterval? = 3600
+        session = MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
+                                 feedback: feedback, activity: feedback, clock: clock,
+                                 systemAudioPermission: { .unconfirmed }, maxSeconds: { limit },
+                                 later: { $0() }, background: { $0(); $1() })
+        startBoth()
+        limit = 60   // a change mid-meeting applies to the next one
+        XCTAssertEqual(recorder.requests.last?.1, 3600, "the streams hold the whole meeting")
+        clock.advance(by: 3599)
+        XCTAssertTrue(feedback.titles.isEmpty)
+        clock.advance(by: 1)
+        XCTAssertEqual(feedback.titles, ["Meeting recording stopped"])
+        XCTAssertEqual(feedback.notices[0].body, "Meetings are recorded for up to 1 hour. "
+                       + "You can change this in Settings › Meetings. The note is being written.")
+        recorder.me.finish(audio(10, [(1, 2, 0.2)]))
+        recorder.them.finish(audio(10, []))
+        engine.finishAll()
+        XCTAssertTrue(notes.saved.first?.body.contains("> Recording stopped at the 1-hour limit.") == true)
+    }
+
+    func testOffStillStopsADayLongMeeting() {
+        session = MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
+                                 feedback: feedback, activity: feedback, clock: clock,
+                                 systemAudioPermission: { .unconfirmed }, maxSeconds: { nil },
+                                 later: { $0() }, background: { $0(); $1() })
+        startBoth()
+        XCTAssertEqual(recorder.requests.last?.1, MeetingLimit.backstopSeconds)
+        clock.advance(by: 12 * 3600)
+        XCTAssertTrue(feedback.titles.isEmpty, "no limit: still recording after 12 hours")
+        clock.advance(by: 12 * 3600)
+        XCTAssertEqual(feedback.notices.map(\.body), ["Meetings are recorded for up to 24 hours. The note is being written."])
     }
 
     func testASilentThemIsHintedWithTheReadinessText() {
@@ -787,6 +823,154 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertEqual(feedback.notices[1].body, "The audio of “Meeting with Zoom — 16 Nov 2026 at 14:32” couldn't be "
                        + "copied to Cado's Meeting Audio folder, so it couldn't be kept.")
         UserFacingCopy.assertPlain(feedback.notices[1].body)
+    }
+
+    // MARK: - Calendar titles (#38)
+
+    private var calendar = CalendarNamingTests.FakeCalendar()
+    /// The lookup's deadlines, fired by hand.
+    private var deadlines: [() -> Void] = []
+
+    private func calendarSession(access: CalendarAccess = .granted, enabled: Bool = true,
+                                 events: [CalendarEventInfo], holdsReads: Bool = false) -> MeetingSession {
+        calendar = CalendarNamingTests.FakeCalendar(access: access)
+        calendar.events = events
+        calendar.holdsReads = holdsReads
+        deadlines = []
+        return makeSession(calendarNaming: MeetingCalendarNaming(
+            isEnabled: { enabled }, calendar: calendar, after: { [unowned self] _, work in deadlines.append(work) }))
+    }
+
+    private func fireDeadlines() {
+        let due = deadlines
+        deadlines = []
+        due.forEach { $0() }
+    }
+
+    private var weeklySync: MatchedEvent { MatchedEvent(title: "Weekly sync", attendees: ["Ada"]) }
+
+    private var syncEvent: CalendarEventInfo {
+        let start = Date(timeIntervalSince1970: 1_794_839_520 - 60)
+        return CalendarEventInfo(title: "Weekly sync", start: start, end: start.addingTimeInterval(1800),
+                                 attendees: [.init(name: "Ada"), .init(name: "ada@example.com")])
+    }
+
+    func testAMeetingStartedDuringAnEventIsNamedAfterIt() {
+        session = calendarSession(events: [syncEvent])
+        record()
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertEqual(notes.saved[0].title, "Weekly sync")
+        XCTAssertEqual(notes.saved[0].event, "Weekly sync")
+        XCTAssertEqual(notes.saved[0].attendees, ["Ada"], "No email addresses")
+        XCTAssertEqual(feedback.notices.last?.body.hasPrefix("Weekly sync"), true)
+    }
+
+    func testTurnedOffDeniedOrUnmatchedKeepsTodaysTitle() {
+        for scenario in [(CalendarAccess.granted, false, [syncEvent]), (.denied, true, [syncEvent]),
+                         (.notDetermined, true, [syncEvent]), (.granted, true, [])] {
+            setUp()
+            session = calendarSession(access: scenario.0, enabled: scenario.1, events: scenario.2)
+            record()
+            XCTAssertEqual(notes.saved.first?.title, "Meeting with Zoom — 16 Nov 2026 at 14:32", "\(scenario)")
+            XCTAssertNil(notes.saved.first?.event)
+        }
+    }
+
+    /// The lookup runs after the recording is under way, and its answer
+    /// is journaled, not written into meeting.json at the start.
+    func testRecordingStartsBeforeTheCalendarIsReadAndTheAnswerIsJournaled() throws {
+        session = calendarSession(events: [syncEvent], holdsReads: true)
+        session.start(zoom)
+        XCTAssertEqual(recorder.me.begins.count, 1, "Recording didn't wait for the calendar")
+        XCTAssertEqual(recorder.them.begins.count, 1)
+        XCTAssertEqual(calendar.reads, 1)
+        XCTAssertEqual(session.status, .recording(app: "Zoom", startedAt: 1_000, lost: []))
+        let handle = try XCTUnwrap(spool.last)
+        XCTAssertNil(handle.meeting.event)
+        XCTAssertFalse(handle.events.contains { if case .calendarEvent = $0 { return true } else { return false } })
+        calendar.answerReads()
+        XCTAssertEqual(handle.events.filter { if case .calendarEvent = $0 { return true } else { return false } },
+                       [.calendarEvent(weeklySync)])
+    }
+
+    func testATitleArrivingWhileRecordingOrTranscribingNamesTheNote() {
+        session = calendarSession(events: [syncEvent], holdsReads: true)
+        startBoth()
+        clock.advance(by: 10)
+        session.stop()
+        recorder.me.finish(audio(10, [(1, 2, 0.2), (7, 8, 0.4)]))
+        recorder.them.finish(audio(10, [(3, 5, 0.3)]))
+        calendar.answerReads()   // late, but before the note
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.first?.title, "Weekly sync")
+        XCTAssertEqual(notes.saved.first?.attendees, ["Ada"])
+    }
+
+    func testNoAnswerByTheDeadlineOrAfterTheNoteKeepsTodaysTitle() {
+        session = calendarSession(events: [syncEvent], holdsReads: true)
+        startBoth()
+        fireDeadlines()
+        calendar.answerReads()   // after the deadline: dropped
+        clock.advance(by: 10)
+        session.stop()
+        recorder.me.finish(audio(10, [(1, 2, 0.2), (7, 8, 0.4)]))
+        recorder.them.finish(audio(10, [(3, 5, 0.3)]))
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.first?.title, "Meeting with Zoom — 16 Nov 2026 at 14:32")
+
+        setUp()
+        session = calendarSession(events: [syncEvent], holdsReads: true)
+        record()
+        XCTAssertEqual(notes.saved.count, 1)
+        calendar.answerReads()   // the note is written: too late
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertEqual(notes.saved.first?.title, "Meeting with Zoom — 16 Nov 2026 at 14:32")
+        XCTAssertNil(notes.saved.first?.event)
+    }
+
+    /// A late answer must not land on the next meeting.
+    func testALateAnswerIsForItsOwnMeetingOnly() throws {
+        session = calendarSession(events: [syncEvent], holdsReads: true)
+        record()
+        calendar.holdsReads = false
+        calendar.events = []
+        startBoth()   // nothing found for this one
+        calendar.events = [syncEvent]
+        calendar.answerReads()   // the first meeting's answer, late
+        XCTAssertFalse(try XCTUnwrap(spool.last).events.contains {
+            if case .calendarEvent = $0 { return true } else { return false }
+        })
+    }
+
+    /// The journaled event wins over meeting.json (only an early build wrote it there).
+    func testARecoveredMeetingIsNamedAfterItsJournaledEvent() {
+        _ = leftover(bothStarted + [.calendarEvent(weeklySync)])
+        session.recoverLeftovers()
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.first?.title, "Weekly sync")
+        XCTAssertEqual(notes.saved.first?.attendees, ["Ada"])
+    }
+
+    func testARecoveredMeetingWithoutAJournaledEventKeepsTodaysTitle() {
+        _ = leftover(bothStarted)
+        session.recoverLeftovers()
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.first?.title, "Meeting with Zoom — 16 Nov 2026 at 14:32")
+    }
+
+    func testARecoveredMeetingKeepsItsEventTitle() {
+        let meeting = SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "us.zoom.xos", startDate: crashDate,
+                                     event: MatchedEvent(title: "Weekly sync", attendees: ["Ada"]))
+        let h = InMemorySpoolHandle(meeting)
+        h.append(audio(10, [(1, 2, 0.2), (7, 8, 0.4)]), for: .me)
+        h.append(audio(10, [(3, 5, 0.3)]), for: .them)
+        spool.left.append(LeftoverMeeting(handle: DurableSpoolHandle(h), events: bothStarted))
+        session.recoverLeftovers()
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertEqual(notes.saved[0].title, "Weekly sync")
+        XCTAssertEqual(notes.saved[0].attendees, ["Ada"])
+        XCTAssertEqual(notes.saved[0].date, crashDate)
     }
 
     // MARK: - Recovery (#31)
@@ -1285,7 +1469,7 @@ extension MeetingSessionTests {
         session = MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
                                  feedback: feedback, activity: feedback, clock: clock,
                                  date: { Date(timeIntervalSince1970: 1_794_839_520) },
-                                 systemAudioPermission: { .unconfirmed }, keepAudio: { true }, maxSeconds: 600,
+                                 systemAudioPermission: { .unconfirmed }, keepAudio: { true }, maxSeconds: { 600 },
                                  locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!,
                                  later: { $0() }, background: { queued.append(($0, $1)) })
         record()

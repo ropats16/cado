@@ -76,7 +76,7 @@ final class ConfigValidationTests: XCTestCase {
                        "Hold to talk uses the cancel key, so pressing it may cancel instead.")
 
         config = .defaults
-        config.toggle = KeyBinding(keyCode: -1, modifiers: ["controll", "shift"])
+        config.toggle = KeyBinding(keyCode: -1, modifiers: ["controll", "command"])
         XCTAssertEqual(warnings(config).first?.summary,
                        "Toggle to talk includes a key Cado doesn't recognize (“controll”), so it's ignored.")
     }
@@ -237,5 +237,38 @@ final class ConfigValidationTests: XCTestCase {
         var config = Config.defaults
         config.language = "same"
         XCTAssertEqual(warnings(config).map(\.topic), [.dictationLanguage])
+    }
+    // MARK: - Overlaps and meeting length (#32)
+
+    func testMeetingOverlappingHoldIsWarning() {
+        var config = Config.defaults
+        config.meetingHotkey = KeyBinding(keyCode: 46, modifiers: ["control", "shift"])
+        XCTAssertTrue(errors(config).isEmpty)
+        XCTAssertEqual(warnings(config).count, 1)
+        XCTAssertEqual(warnings(config).first?.tabs, [.meetings, .dictation])
+    }
+
+    func testMeetingSupersetOfToggleOnSameKeyIsWarning() {
+        var config = Config.defaults
+        config.toggle = KeyBinding(keyCode: 46, modifiers: ["control"])
+        XCTAssertEqual(warnings(config).count, 1, "⌃⌥M also holds ⌃M")
+    }
+
+    func testHoldOverlappingToggleIsWarning() {
+        var config = Config.defaults
+        config.toggle = KeyBinding(keyCode: 49, modifiers: ["control", "shift"])
+        XCTAssertEqual(warnings(config).count, 1, "hold ⌃⇧ is held on the way to ⌃⇧Space")
+    }
+
+    func testMeetingLengthOutOfRangeWarns() {
+        var config = Config.defaults
+        config.maxMeetingMinutes = 2000
+        XCTAssertEqual(warnings(config).count, 1)
+        config.maxMeetingMinutes = 0.5
+        XCTAssertEqual(warnings(config).count, 1)
+        config.maxMeetingMinutes = 0
+        XCTAssertTrue(warnings(config).isEmpty, "Off")
+        config.maxMeetingMinutes = 1440
+        XCTAssertTrue(warnings(config).isEmpty)
     }
 }

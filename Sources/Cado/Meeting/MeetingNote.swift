@@ -23,12 +23,14 @@ enum MeetingSpeaker: String, Equatable, CaseIterable {
 
 /// The meeting's transcript as turns. Pure.
 enum MeetingTranscript {
-    /// Some transcribed text and when it started, in seconds from the
-    /// meeting's start.
+    /// Some transcribed text and when it started (and ended, when known),
+    /// in seconds from the meeting's start.
     struct Piece: Equatable {
         let speaker: MeetingSpeaker
         let start: TimeInterval
         let text: String
+        /// Nil for a piece from an older spool journal, which didn't keep it.
+        var end: TimeInterval? = nil
     }
 
     struct Turn: Equatable {
@@ -38,9 +40,10 @@ enum MeetingTranscript {
 
     /// Both sides interleaved by start time (Me first on a tie), consecutive
     /// pieces of one speaker merged into one turn; empty pieces dropped,
-    /// whitespace collapsed.
+    /// whitespace collapsed. Me pieces that only repeat Others (the mic
+    /// hearing the speakers) are left out first (`SpeakerBleedFilter`).
     static func turns(_ pieces: [Piece]) -> [Turn] {
-        let ordered = pieces.enumerated().sorted { a, b in
+        let ordered = SpeakerBleedFilter.filtered(pieces).enumerated().sorted { a, b in
             if a.element.start != b.element.start { return a.element.start < b.element.start }
             if a.element.speaker != b.element.speaker { return a.element.speaker == .me }
             return a.offset < b.offset
@@ -95,6 +98,8 @@ struct MeetingNote: Equatable {
     var duration: TimeInterval
     var turns: [MeetingTranscript.Turn]
     var caveats: [Caveat] = []
+    /// The calendar event the meeting was named after (#38), if any.
+    var event: MatchedEvent? = nil
 
     /// "Meeting with Zoom — 16 Nov 2026 at 14:32" (the locale's medium date
     /// and short time).
@@ -108,9 +113,17 @@ struct MeetingNote: Equatable {
         return "Meeting with \(appName) — \(formatter.string(from: start))"
     }
 
+    /// The event's title when the meeting matched one (#38), else the
+    /// app-and-time title.
+    static func title(appName: String, start: Date, event: MatchedEvent?, locale: Locale = .current,
+                      timeZone: TimeZone = .current) -> String {
+        event?.title ?? title(appName: appName, start: start, locale: locale, timeZone: timeZone)
+    }
+
     func draft(locale: Locale = .current, timeZone: TimeZone = .current) -> NoteDraft {
-        NoteDraft(title: Self.title(appName: appName, start: start, locale: locale, timeZone: timeZone),
-                  date: start, kind: NoteKind.meeting, duration: duration, body: body)
+        NoteDraft(title: Self.title(appName: appName, start: start, event: event, locale: locale, timeZone: timeZone),
+                  date: start, kind: NoteKind.meeting, duration: duration, body: body,
+                  event: event?.title, attendees: event?.attendees ?? [])
     }
 
     var body: String {

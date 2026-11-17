@@ -82,6 +82,10 @@ struct SummaryCard: View {
                 Text("This meeting has no summary yet.").font(Brand.Typography.body)
                     .foregroundStyle(Brand.Palette.inkSecondary)
             }
+            if let sends = panel.sends, !panel.isWorking {
+                Text(sends).font(Brand.Typography.caption).foregroundStyle(Brand.Palette.inkSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let notice = panel.notice, panel.problem == nil, !panel.isWorking {
                 StatusLine(text: notice, tone: .note)
             }

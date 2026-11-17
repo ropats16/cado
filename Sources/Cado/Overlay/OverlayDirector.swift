@@ -1,5 +1,14 @@
 import Foundation
 
+/// The mascot's right-click menu item for meetings (#32), worded as the
+/// status menu's meeting items are.
+struct MascotMeetingItem: Equatable {
+    static let record = "Record Meeting"
+    static let stop = "Stop Recording"
+    let title: String
+    let isEnabled: Bool
+}
+
 /// What the mascot overlay shows (#19).
 enum OverlayVisual: Equatable {
     case hidden
@@ -14,12 +23,14 @@ enum OverlayVisual: Equatable {
     case done
     /// A meeting is recording: a persistent small recording mascot.
     case meeting
+    /// Idle, asking "Record this meeting?" (#32): a click records.
+    case asking
 
     /// The visual an activity calls for, celebration aside. `alwaysVisible`
-    /// only changes idle: hidden or resting.
-    init(_ activity: AppActivity, alwaysVisible: Bool = false) {
+    /// and `asking` only change idle: asking, else hidden or resting.
+    init(_ activity: AppActivity, alwaysVisible: Bool = false, asking: Bool = false) {
         switch activity {
-        case .idle: self = alwaysVisible ? .resting : .hidden
+        case .idle: self = asking ? .asking : alwaysVisible ? .resting : .hidden
         case .dictating: self = .listening
         case .transcribing: self = .thinking
         case .meetingLive: self = .meeting
@@ -80,7 +91,16 @@ protocol OverlayPanel: AnyObject {
 ///   (stop). Elsewhere it's dropped here, not left to the session: during
 ///   `done` the session is already idle and would start a dictation off a
 ///   celebration; a fading-out mascot is gone as far as the user is
-///   concerned; a meeting isn't a dictation.
+///   concerned. On the meeting mascot it stops the meeting, and on the
+///   asking one it records (#32).
+/// - `meetingItem` is the right-click menu's first item (#32): Record
+///   Meeting on the asking mascot, Stop Recording on the meeting one, Record
+///   Meeting on the resting one (disabled while `canStartMeeting` says no);
+///   none while dictating, transcribing or celebrating. Choosing it
+///   (`meetingItemChosen`) records what's asked, or starts or stops a
+///   meeting as the meeting hotkey does.
+/// - `asking` (#32) shows the asking mascot while idle, even with
+///   `alwaysVisible` off; it changes nothing while active or celebrating.
 ///
 /// Main-thread only.
 final class OverlayDirector {
@@ -113,9 +133,32 @@ final class OverlayDirector {
         didSet { if alwaysVisible != oldValue { update() } }
     }
 
+    /// "Record this meeting?" is open (#32). Settable live.
+    var asking = false {
+        didSet {
+            guard asking != oldValue else { return }
+            if !asking { askingEndedAt = clock.now }
+            update()
+        }
+    }
+
+    /// When the question was last withdrawn; a click just after it was aimed
+    /// at the question, not at dictation.
+    private var askingEndedAt: TimeInterval?
+    /// How long after the question goes away a dictation click is ignored.
+    static let askingGrace: TimeInterval = 1
+
     /// Called by `clicked` when a click means start/stop dictation; the owner
     /// sends the session a toggle.
     var onToggleDictation: (() -> Void)?
+    /// A click on the asking mascot: record the meeting asked about.
+    var onRecordMeeting: (() -> Void)?
+    /// A click on the meeting mascot, or its menu item on an idle one:
+    /// start or stop a meeting, as the meeting hotkey does.
+    var onToggleMeeting: (() -> Void)?
+    /// A meeting can start now (not still finishing the last, a meeting app
+    /// open); read as the right-click menu opens.
+    var canStartMeeting: () -> Bool = { true }
 
     init(panel: OverlayPanel, clock: Clock = SystemClock()) {
         self.panel = panel
@@ -146,8 +189,29 @@ final class OverlayDirector {
 
     /// A click (mouse-up without a drag) on the mascot's body.
     func clicked() {
-        guard visual == .resting || visual == .listening else { return }
-        onToggleDictation?()
+        switch visual {
+        case .resting where askingEndedAt.map({ clock.now - $0 < Self.askingGrace }) == true: break
+        case .resting, .listening: onToggleDictation?()
+        case .asking: onRecordMeeting?()
+        case .meeting: onToggleMeeting?()
+        case .hidden, .thinking, .done: break
+        }
+    }
+
+    /// The right-click menu's meeting item now; nil = none.
+    var meetingItem: MascotMeetingItem? {
+        switch visual {
+        case .asking: return MascotMeetingItem(title: MascotMeetingItem.record, isEnabled: true)
+        case .meeting: return MascotMeetingItem(title: MascotMeetingItem.stop, isEnabled: true)
+        case .resting: return MascotMeetingItem(title: MascotMeetingItem.record, isEnabled: canStartMeeting())
+        case .hidden, .listening, .thinking, .done: return nil
+        }
+    }
+
+    /// The meeting item was chosen (the menu, or VoiceOver's action).
+    func meetingItemChosen() {
+        guard meetingItem?.isEnabled == true else { return }
+        visual == .asking ? onRecordMeeting?() : onToggleMeeting?()
     }
 
     func systemStateChanged() {
@@ -177,7 +241,8 @@ final class OverlayDirector {
     }
 
     private func update() {
-        let target: OverlayVisual = celebration != nil ? .done : OverlayVisual(activity, alwaysVisible: alwaysVisible)
+        let target: OverlayVisual = celebration != nil ? .done
+            : OverlayVisual(activity, alwaysVisible: alwaysVisible, asking: asking)
         guard target != visual else { return }
         visual = target
         target == .hidden ? hide() : show(target)

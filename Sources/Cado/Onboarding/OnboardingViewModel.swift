@@ -23,6 +23,9 @@ final class OnboardingViewModel: ObservableObject {
     /// Read, asked and opened through this (#44); nil until first read.
     private let notifications: NotificationPermissionPort
     private var notificationPermission: NotificationPermission?
+    /// The calendar step (#38): read live, asked only when the user presses its button.
+    private let calendar: CalendarPort
+    private let setCalendarNaming: (Bool) -> Void
     private var inputs: ReadinessInputs
     private var facts: OnboardingModelFacts
     private var subscription: AnyCancellable?
@@ -32,7 +35,10 @@ final class OnboardingViewModel: ObservableObject {
     init(config: @escaping () -> Config, inputs: ReadinessInputs, downloads: ModelDownloadControl,
          options: @escaping () -> [OnboardingModelOption], isFirstShow: Bool,
          perform: @escaping (ReadinessAction) -> Void, onFinish: @escaping () -> Void,
-         notifications: NotificationPermissionPort, setUsagePing: @escaping (Bool) -> Void = { _ in }) {
+         notifications: NotificationPermissionPort, setUsagePing: @escaping (Bool) -> Void = { _ in },
+         calendar: CalendarPort = UnavailableCalendar(), setCalendarNaming: @escaping (Bool) -> Void = { _ in }) {
+        self.calendar = calendar
+        self.setCalendarNaming = setCalendarNaming
         self.config = config
         self.usagePing = config().usagePing
         self.onUsagePing = setUsagePing
@@ -45,7 +51,7 @@ final class OnboardingViewModel: ObservableObject {
         let offered = options()
         facts = OnboardingModelFacts(options: offered, selected: nil, downloads: downloads.modelDownloads,
                                      partial: Self.partial(offered, downloads))
-        let content = Self.content(inputs, facts, nil, config())
+        let content = Self.content(inputs, facts, nil, config(), calendar)
         self.content = content
         current = content.landing(isFirstShow: isFirstShow)
         subscription = downloads.modelDownloadsPublisher.sink { [weak self] state in
@@ -117,6 +123,7 @@ final class OnboardingViewModel: ObservableObject {
     /// The window is shown again: land where setup stands.
     func reopened() {
         recheckNotifications()
+        rebuild()   // Calendar access may have changed in System Settings
         current = content.landing(isFirstShow: false)
     }
 
@@ -126,6 +133,9 @@ final class OnboardingViewModel: ObservableObject {
             MainActor.assumeIsolated { self?.notificationsChanged(permission) }   // completions run on main
         }
     }
+
+    /// Re-reads calendar access (back from System Settings).
+    func recheckCalendar() { rebuild() }
 
     // MARK: - Intents
 
@@ -147,6 +157,15 @@ final class OnboardingViewModel: ObservableObject {
             }
         case .openNotificationSettings:
             notifications.openSettings()
+        case .enableCalendar:
+            calendar.requestAccess { [weak self] access in
+                MainActor.assumeIsolated {
+                    if access == .granted { self?.setCalendarNaming(true) }
+                    self?.rebuild()
+                }
+            }
+        case .openCalendarSettings:
+            calendar.openSettings()
         case .goTo(let id):
             current = id
         case .finish:
@@ -205,13 +224,15 @@ final class OnboardingViewModel: ObservableObject {
 
     private func rebuild() {
         let old = content
-        content = Self.content(inputs, facts, notificationPermission, config())
+        content = Self.content(inputs, facts, notificationPermission, config(), calendar)
         if let next = OnboardingContent.autoAdvance(current: current, old: old, new: content) { current = next }
     }
 
     private static func content(_ inputs: ReadinessInputs, _ facts: OnboardingModelFacts,
-                                _ notifications: NotificationPermission?, _ config: Config) -> OnboardingContent {
-        OnboardingContent(inputs: inputs, model: facts, notifications: notifications, hold: config.hold,
+                                _ notifications: NotificationPermission?, _ config: Config,
+                                _ calendar: CalendarPort) -> OnboardingContent {
+        OnboardingContent(inputs: inputs, model: facts, notifications: notifications,
+                          calendar: calendar.access, calendarOn: config.nameMeetingsFromCalendar, hold: config.hold,
                           toggle: config.toggle, cancelKeyCode: config.cancelKeyCode)
     }
 

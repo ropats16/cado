@@ -70,6 +70,9 @@ struct RecoveryPlan: Equatable {
     /// can't tell otherwise from events and sample counts alone.
     var transcriptionComplete = false
     var concluded: Concluded?
+    /// The calendar event the meeting was named after (#38), if one was
+    /// journaled (`.calendarEvent`; the last wins).
+    var event: MatchedEvent?
 
     /// Recovery already gave up on this meeting (`.recoveryGaveUp`). The
     /// decision sticks: a later launch finishes the give-up (saves the note
@@ -114,7 +117,9 @@ struct RecoveryPlan: Equatable {
                 }
             case let .transcribed(speaker, range, offset, segments):
                 guard result(speaker, range) else { continue }
-                pieces += segments.map { .init(speaker: speaker, start: offset + $0.start, text: $0.text) }
+                pieces += segments.map {
+                    .init(speaker: speaker, start: offset + $0.start, text: $0.text, end: $0.end.map { offset + $0 })
+                }
             case let .failed(speaker, range, reason):
                 guard result(speaker, range) else { continue }
                 failures.append(reason)
@@ -149,6 +154,8 @@ struct RecoveryPlan: Equatable {
             case .toldUser: break   // `MeetingSession` reads it itself
             case .ranOnFallbackModel:
                 ranOnFallbackModel = true
+            case let .calendarEvent(found):
+                self.event = found
             }
         }
         closeAttempt()
