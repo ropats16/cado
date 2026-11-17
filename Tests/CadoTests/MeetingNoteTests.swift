@@ -87,6 +87,17 @@ final class MeetingNoteTests: XCTestCase {
         XCTAssertEqual(MarkdownBlock.parse(note.body).filter { if case .quote = $0 { return true } else { return false } }.count, 1)
     }
 
+    /// #31: a note recovered after a crash says so, first, in plain words.
+    func testARecoveredNoteSaysCadoQuitUnexpectedly() {
+        let note = MeetingNote(appName: "Zoom", start: start, duration: 60, turns: [Turn(speaker: .me, text: "Hi.")],
+                               caveats: [.recoveredAfterCrash, .capReached(7200)])
+        let lines = note.body.components(separatedBy: "\n")
+        XCTAssertEqual(lines[2], "> Cado quit unexpectedly during this meeting. "
+                       + "This note was recovered from what had been recorded.")
+        XCTAssertEqual(lines[3], "> Recording stopped at the 2-hour limit.")
+        UserFacingCopy.assertPlain(lines[2])
+    }
+
     func testANoteWithNothingTranscribedSaysSo() {
         let note = MeetingNote(appName: "Zoom", start: start, duration: 60, turns: [],
                                caveats: [.quitBeforeTranscribing])
