@@ -71,4 +71,45 @@ final class NoteMeetingIDTests: XCTestCase {
     func testAMissingFolderFindsNothing() {
         XCTAssertNil(library().note(withID: id, changedSince: t0))
     }
+
+    /// A note whose bytes aren't on this Mac (an iCloud placeholder) is never
+    /// opened, so the lookup can't wait on a download.
+    func testANoteWhoseContentIsntLocalIsSkippedUnopened() throws {
+        var asked: [String] = []
+        let lib = NotesLibrary(folder: { [unowned self] in dir }, watcher: FakeFolderWatcher(),
+                               timeZone: TimeZone(identifier: "UTC")!,
+                               isLocal: { asked.append($0.lastPathComponent); return false })
+        let note = try lib.create(meetingDraft(id: id))
+        XCTAssertNil(lib.note(withID: id, changedSince: .distantPast))
+        XCTAssertEqual(asked, [note.id])
+    }
+
+    func testAnOrdinaryFileIsLocal() throws {
+        let note = try library().create(meetingDraft(id: id))
+        XCTAssertTrue(NotesLibrary.contentIsLocal(note.summary.url))
+        XCTAssertFalse(NotesLibrary.contentIsLocal(dir.appendingPathComponent("gone.md")))
+    }
+
+    /// Called off the main thread while the library lists and saves.
+    func testTheLookupIsSafeAlongsideListingAndSaving() throws {
+        let lib = library()
+        let note = try lib.create(meetingDraft(id: id))
+        let found = NSLockedCounter()
+        DispatchQueue.concurrentPerform(iterations: 40) { i in
+            switch i % 3 {
+            case 0: if lib.note(withID: id, changedSince: .distantPast)?.lastPathComponent == note.id { found.add() }
+            case 1: _ = lib.list()
+            default: _ = try? lib.create(meetingDraft(id: nil))
+            }
+        }
+        XCTAssertEqual(found.value, 14)
+        XCTAssertEqual(lib.note(withID: id, changedSince: .distantPast)?.lastPathComponent, note.id)
+    }
+}
+
+private final class NSLockedCounter {
+    private let lock = NSLock()
+    private var n = 0
+    func add() { lock.lock(); n += 1; lock.unlock() }
+    var value: Int { lock.lock(); defer { lock.unlock() }; return n }
 }
