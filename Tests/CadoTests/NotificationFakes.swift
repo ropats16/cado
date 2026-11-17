@@ -10,6 +10,9 @@ final class FakeNotificationPermission: NotificationPermissionPort {
     private(set) var reads = 0
     private(set) var requests = 0
     private(set) var settingsOpened = 0
+    /// Answers only on `flush()`, as the real centre answers later.
+    var deferred = false
+    private var pending: [() -> Void] = []
 
     init(_ status: NotificationPermission = .authorized, answer: NotificationPermission? = .authorized) {
         self.status = status
@@ -18,14 +21,27 @@ final class FakeNotificationPermission: NotificationPermissionPort {
 
     func current(_ completion: @escaping (NotificationPermission) -> Void) {
         reads += 1
-        completion(status)
+        answer { [unowned self] in completion(status) }
+    }
+
+    /// Delivers the answers held back while `deferred`.
+    func flush() {
+        let answers = pending
+        pending = []
+        answers.forEach { $0() }
+    }
+
+    private func answer(_ reply: @escaping () -> Void) {
+        if deferred { pending.append(reply) } else { reply() }
     }
 
     func request(_ completion: @escaping (NotificationPermission) -> Void) {
         requests += 1
         guard let answer else { return }
-        if status == .notDetermined { status = answer }
-        completion(status)
+        self.answer { [unowned self] in
+            if status == .notDetermined { status = answer }
+            completion(status)
+        }
     }
 
     func openSettings() { settingsOpened += 1 }

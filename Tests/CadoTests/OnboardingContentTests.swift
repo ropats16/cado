@@ -263,18 +263,26 @@ final class OnboardingContentTests: XCTestCase {
         }
     }
 
-    func testUnknownNotificationsAreNotAStepToLandOn() {
+    func testUnknownNotificationsAreFinishedSteps() {
         XCTAssertTrue(content(notifications: nil).step(.notifications).state.isFinished, "Not read yet")
         XCTAssertTrue(content(notifications: .unavailable).step(.notifications).state.isFinished)
-        XCTAssertEqual(content(notifications: nil).landing(isFirstShow: false), .ready)
     }
 
-    /// Never asked: the flow visits it after the model, and a reopen lands
-    /// on it; once answered either way, it's passed.
+    /// A reopen is for fixing setup: it lands on the first unfinished
+    /// required step, else Ready, never on the optional one, whatever the
+    /// (asynchronous) permission read says.
+    func testAReopenNeverLandsOnNotifications() {
+        for permission in [NotificationPermission.notDetermined, .denied, .authorized, nil] {
+            XCTAssertEqual(content(notifications: permission).landing(isFirstShow: false), .ready)
+            XCTAssertEqual(content(engine: .missing, notifications: permission).landing(isFirstShow: false), .model)
+        }
+    }
+
+    /// Never asked: the first-run flow visits it after the model; once
+    /// answered either way, it's passed.
     func testTheFlowVisitsNotificationsUntilAnswered() {
         let unasked = content(notifications: .notDetermined)
         XCTAssertEqual(unasked.next(after: .model), .notifications)
-        XCTAssertEqual(unasked.landing(isFirstShow: false), .notifications)
         XCTAssertEqual(content(notifications: .denied).next(after: .model), .ready)
         XCTAssertEqual(OnboardingContent.autoAdvance(current: .notifications, old: unasked, new: allSet), .ready)
         XCTAssertEqual(OnboardingContent.autoAdvance(current: .notifications, old: unasked,

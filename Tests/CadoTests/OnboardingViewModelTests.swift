@@ -322,7 +322,24 @@ final class OnboardingViewModelTests: XCTestCase {
         notifications.status = .notDetermined
         vm.reopened()
         XCTAssertEqual(notifications.reads, 3)
-        XCTAssertEqual(vm.current, .notifications, "Never asked: a reopen lands on it")
+        XCTAssertEqual(vm.content.step(.notifications).state, .todo)
+        XCTAssertEqual(vm.current, .ready, "Optional: a reopen lands where required setup stands")
+    }
+
+    /// The real centre answers later: the landing doesn't wait on it, and
+    /// the late answer neither moves the page nor flashes Notifications.
+    func testAReopenDoesntDependOnTheLateNotificationsAnswer() {
+        notifications = FakeNotificationPermission(.authorized)
+        let vm = makeVM(inputs(engine: .ready))
+        go(vm, to: .model)
+        notifications.deferred = true
+        notifications.status = .notDetermined
+
+        vm.reopened()
+        XCTAssertEqual(vm.current, .ready)
+        notifications.flush()
+        XCTAssertEqual(vm.content.step(.notifications).state, .todo)
+        XCTAssertEqual(vm.current, .ready)
     }
 
     // MARK: - Helpers

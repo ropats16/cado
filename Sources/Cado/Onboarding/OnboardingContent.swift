@@ -9,6 +9,9 @@ enum OnboardingStepID: Int, CaseIterable, Comparable {
     case welcome, microphone, accessibility, model, notifications, ready
 
     static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+
+    /// Not part of being set up; a reopen doesn't land on it.
+    var isOptional: Bool { self == .notifications }
 }
 
 enum OnboardingStepState: Equatable {
@@ -105,9 +108,13 @@ struct OnboardingContent: Equatable {
     }
 
     /// Where the window opens: Welcome the first time; on a reopen, the
-    /// first unfinished step, else Ready.
+    /// first unfinished required step, else Ready. Never the optional
+    /// Notifications step: a reopen is for fixing setup, and its permission
+    /// is read asynchronously, so landing on it could flash and move on.
     func landing(isFirstShow: Bool) -> OnboardingStepID {
-        isFirstShow ? .welcome : next(after: .welcome)
+        guard !isFirstShow else { return .welcome }
+        return steps.first { $0.id != .welcome && !$0.id.isOptional && ($0.id == .ready || !$0.state.isFinished) }?.id
+            ?? .ready
     }
 
     /// The first unfinished step after `id`, else Ready.
