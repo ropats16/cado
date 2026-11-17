@@ -1,12 +1,18 @@
 import Foundation
 
-/// A cautious token count for text going to a model. Model tokenizers give
-/// English about 4 characters a token; counting a token per 3 UTF-8 bytes
-/// over-counts English by about a third and counts non-Latin scripts (more
-/// bytes per character, more tokens per word) higher still, so a passage
-/// sized by this fits. Pure.
+/// A rough, deliberately high token count for text going to a model: a
+/// token per 2.5 UTF-8 bytes. Tokenizers give English about 4 characters
+/// (bytes) a token, so this over-counts English by ~60%. It is near
+/// break-even for Chinese, Japanese and Korean (3 bytes a character, often
+/// about a token each) and under-counts runs of digits or emoji (often a
+/// token per digit or symbol), so it's not a guarantee: the callers leave
+/// room in the context for that, and a passage the model still finds too
+/// long is split and retried (`SummaryPipeline`). Pure.
 enum TokenEstimate {
-    static func tokens(_ text: String) -> Int { (text.utf8.count + 2) / 3 }
+    static func tokens(_ text: String) -> Int { (text.utf8.count * 2 + 4) / 5 }
+
+    /// The most UTF-8 bytes that still count as `tokens`.
+    static func bytes(forTokens tokens: Int) -> Int { tokens * 5 / 2 }
 }
 
 /// Splits a meeting's transcript into passages that each fit one model call
@@ -104,7 +110,7 @@ enum TranscriptChunker {
     private static func words(_ text: String, _ room: Int) -> [String] {
         var out: [String] = []
         var current = ""
-        let maxBytes = max(1, room * 3 - 2)
+        let maxBytes = max(1, TokenEstimate.bytes(forTokens: room))
         for word in text.split(separator: " ").map(String.init) {
             var word = word
             while TokenEstimate.tokens(word) > room {

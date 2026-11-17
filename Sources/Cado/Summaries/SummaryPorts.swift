@@ -38,6 +38,9 @@ enum SummarizerUnavailable: Equatable, Sendable {
     /// The provider needs setting up first (e.g. an API key, #35); the
     /// sentence says what.
     case notSetUp(String)
+    /// Unavailable for a reason the system didn't name (one newer than
+    /// this build knows).
+    case unknown
 
     var explanation: String {
         switch self {
@@ -45,8 +48,11 @@ enum SummarizerUnavailable: Equatable, Sendable {
         case .deviceNotEligible: return "This Mac can't run Apple Intelligence, so it can't summarize meetings."
         case .appleIntelligenceOff:
             return "Turn on Apple Intelligence in System Settings › Apple Intelligence & Siri to summarize meetings."
-        case .modelNotReady: return "Apple Intelligence is still getting ready on this Mac. Summaries start once it's ready."
+        case .modelNotReady:
+            return "Apple Intelligence is still getting ready on this Mac. New meetings are summarized once it's "
+                + "ready; older notes can be summarized from the Library."
         case .notSetUp(let sentence): return sentence
+        case .unknown: return "Apple Intelligence isn't available on this Mac right now, so meetings can't be summarized."
         }
     }
 }
@@ -58,19 +64,30 @@ enum SummarizerAvailability: Equatable, Sendable {
     var isAvailable: Bool { self == .available }
 }
 
-/// What a single call can fail with. Adapters map their own errors to these.
+/// What a single call can fail with. Adapters map their own errors to these;
+/// `SummaryPipeline` decides per case whether a passage is left out, the
+/// call retried, or the whole run stopped (so the note keeps its old summary).
 enum SummarizerError: Error, Equatable, Sendable {
-    /// The provider can't run at all (stop: no other passage will work).
+    /// The provider can't run at all. Stops the run.
     case unavailable(SummarizerUnavailable)
+    /// Try again shortly (rate-limited, e.g. Foundation Models while the app
+    /// is in the background, or another request running). Retried with
+    /// backoff; stops the run if it doesn't clear.
+    case busy
     /// The input was over the provider's limit after all (the estimate was
-    /// low): the pipeline splits it and tries the halves.
+    /// low): the pipeline splits it and tries the halves; left out after
+    /// `SummaryPipeline.maxSplits`.
     case tooLong
-    /// The model declined this passage (a refusal or a safety filter). Other
-    /// passages may still work.
+    /// The model declined this passage (a refusal or a safety filter, or an
+    /// answer with none of the asked-for lists). Left out; other passages
+    /// may still work.
     case refused
-    /// It can't handle this language.
+    /// It can't handle this language. Left out.
     case unsupportedLanguage
-    /// Anything else, described for the log.
+    /// A merge answer missed one of the lists (cut off at the answer limit,
+    /// or the model dropped it): the pipeline joins the parts itself.
+    case incomplete
+    /// Anything else, described for the log. Stops the run.
     case failed(String)
 }
 

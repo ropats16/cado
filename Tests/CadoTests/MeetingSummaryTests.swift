@@ -1,4 +1,7 @@
 import XCTest
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 @testable import Cado
 
 /// #34: the pure parts of meeting summaries — the text shape models answer
@@ -50,6 +53,58 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertTrue(SummaryText.render(s).contains("Decisions:\n- None"))
     }
 
+    func testAHeadingMayHaveItsItemOnTheSameLine() {
+        let text = """
+            Key points: Budget is unchanged
+            - Launch moves to March
+            **Decisions:** None
+            Action items: Sam sends the deck
+            """
+        let reading = SummaryText.read(text)
+        XCTAssertEqual(reading.summary, MeetingSummary(
+            keyPoints: ["Budget is unchanged", "Launch moves to March"], decisions: [],
+            actionItems: ["Sam sends the deck"]))
+        XCTAssertEqual(reading.sections, [.keyPoints, .decisions, .actionItems])
+        XCTAssertEqual(SummaryText.parse("Me: hi\nSam: deck").isEmpty, true, "A speaker label isn't a heading")
+    }
+
+    func testAnAnswerWithNoHeadingsIsARefusalNotAnEmptySummary() {
+        // The permissive guardrails let a refusal come back as plain text.
+        let prose = "I'm sorry, but I can't help with that."
+        XCTAssertThrowsError(try SummaryPrompts.passageSummary(from: prose)) {
+            XCTAssertEqual($0 as? SummarizerError, .refused)
+        }
+        XCTAssertThrowsError(try SummaryPrompts.mergedSummary(from: prose)) {
+            XCTAssertEqual($0 as? SummarizerError, .refused)
+        }
+    }
+
+    func testAnAllNoneAnswerIsARealEmptySummary() throws {
+        let none = "Decisions:\n- None\n\nAction items:\n- None\n\nKey points:\n- None"
+        XCTAssertEqual(try SummaryPrompts.passageSummary(from: none), MeetingSummary())
+        XCTAssertEqual(try SummaryPrompts.mergedSummary(from: none), MeetingSummary())
+    }
+
+    func testACutOffMergeIsIncompleteButACutOffPassageKeepsWhatItHas() throws {
+        let cut = "Decisions:\n- Ship it\n\nAction items:\n- Sam sends the"
+        XCTAssertEqual(try SummaryPrompts.passageSummary(from: cut),
+                       MeetingSummary(decisions: ["Ship it"], actionItems: ["Sam sends the"]))
+        XCTAssertThrowsError(try SummaryPrompts.mergedSummary(from: cut)) {
+            XCTAssertEqual($0 as? SummarizerError, .incomplete)
+        }
+    }
+
+    func testThePromptsKeepTheHeadingsInEnglishAndShortListsFirst() {
+        XCTAssertTrue(SummaryPrompts.instructions.contains("keep the three headings in English"))
+        let shape = SummaryPrompts.answerShape
+        let at = ["Decisions:", "Action items:", "Key points:"].map { shape.range(of: $0)?.lowerBound }
+        XCTAssertFalse(at.contains(nil), shape)
+        XCTAssertEqual(at.compactMap { $0 }, at.compactMap { $0 }.sorted(), "Key points last: a cut-off answer loses those first")
+        let merge = SummaryPrompts.mergePrompt([MeetingSummary(keyPoints: ["a"])])
+        XCTAssertTrue(merge.contains("Key points:\n- a") && merge.hasSuffix(shape))
+        XCTAssertTrue(SummaryPrompts.passagePrompt("Me: hi", part: 2, of: 3).contains("part 2 of 3"))
+    }
+
     func testCombinedKeepsOrderAndDropsRepeats() {
         let a = MeetingSummary(keyPoints: ["Budget unchanged", "x"], decisions: ["Ship"], actionItems: ["Sam: deck"])
         let b = MeetingSummary(keyPoints: ["budget  unchanged.", "y"], decisions: [], actionItems: ["Ana: notes"])
@@ -61,11 +116,16 @@ final class MeetingSummaryTests: XCTestCase {
 
     func testTokenEstimateIsCautious() {
         XCTAssertEqual(TokenEstimate.tokens(""), 0)
-        XCTAssertEqual(TokenEstimate.tokens("abc"), 1)
-        // English: ~4 chars a token in practice; we count 3.
-        XCTAssertGreaterThan(TokenEstimate.tokens(String(repeating: "word ", count: 100)), 500 / 4)
-        // Non-Latin scripts count higher per character.
-        XCTAssertGreaterThan(TokenEstimate.tokens("会议纪要"), TokenEstimate.tokens("abcd"))
+        XCTAssertEqual(TokenEstimate.tokens("ab"), 1)
+        XCTAssertEqual(TokenEstimate.tokens("abc"), 2, "Rounded up")
+        // English: ~4 bytes a token in practice; we count 2.5.
+        XCTAssertEqual(TokenEstimate.tokens(String(repeating: "word ", count: 100)), 200)
+        // CJK: 3 bytes a character, so a little over a token each.
+        XCTAssertEqual(TokenEstimate.tokens("会议纪要"), 5)
+        for n in [1, 2, 3, 10, 401] {
+            XCTAssertLessThanOrEqual(TokenEstimate.tokens(String(repeating: "x", count: TokenEstimate.bytes(forTokens: n))), n)
+            XCTAssertGreaterThan(TokenEstimate.tokens(String(repeating: "x", count: TokenEstimate.bytes(forTokens: n) + 1)), n)
+        }
     }
 
     func testLinesLabelEachTurnAndDropBlankOnes() {
@@ -161,16 +221,98 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertTrue(outcome.summary.keyPoints.contains { $0.contains("Point 6 ") }, "Later passages still count")
     }
 
-    func testAnyOtherErrorIsAlsoJustThatPassage() async throws {
-        struct Boom: Error {}
+    func testAnUnreadableLanguageIsLeftOutToo() async throws {
         let fake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 30, mergeTokens: 2_000))
         fake.onSummarize = { passage in
-            if passage.contains("Point 1 ") { throw Boom() }
+            if passage.contains("Point 1 ") { throw SummarizerError.unsupportedLanguage }
             return FakeSummarizer.echo(passage)
         }
         let outcome = try await SummaryPipeline(summarizer: fake).run(turns(4))
         XCTAssertEqual(outcome.skippedPassages, 1)
         XCTAssertFalse(outcome.summary.isEmpty)
+    }
+
+    func testAFailedPassageStopsTheRun() async {
+        struct Boom: Error {}
+        for thrown: Error in [SummarizerError.failed("boom"), Boom()] {
+            let fake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 30, mergeTokens: 2_000))
+            fake.onSummarize = { passage in
+                if passage.contains("Point 3 ") { throw thrown }
+                return FakeSummarizer.echo(passage)
+            }
+            do {
+                _ = try await SummaryPipeline(summarizer: fake).run(turns(6))
+                XCTFail("expected a throw: a summary of part of the meeting would replace a whole one")
+            } catch {
+                guard case .failed? = error as? SummarizerError else { return XCTFail("\(error)") }
+                XCTAssertFalse(fake.passages.contains { $0.contains("Point 6 ") }, "Stopped there")
+            }
+        }
+    }
+
+    func testBusyIsRetriedWithBackoffUntilItClears() async throws {
+        let fake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 30, mergeTokens: 2_000))
+        var busyLeft = 2
+        fake.onSummarize = { passage in
+            if passage.contains("Point 3 "), busyLeft > 0 { busyLeft -= 1; throw SummarizerError.busy }
+            return FakeSummarizer.echo(passage)
+        }
+        let clock = SleepRecorder()
+        let outcome = try await SummaryPipeline(summarizer: fake, sleep: clock.sleep).run(turns(6))
+        XCTAssertEqual(outcome.skippedPassages, 0)
+        XCTAssertEqual(outcome.summary.keyPoints, turns(6).map(\.text), "Nothing left out")
+        XCTAssertEqual(clock.waits, Array(SummaryPipeline.defaultBusyRetryDelays.prefix(2)))
+    }
+
+    func testBusyThatNeverClearsStopsTheRunAfterAboutAMinute() async {
+        let fake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 30, mergeTokens: 2_000))
+        fake.onSummarize = { passage in
+            if passage.contains("Point 3 ") { throw SummarizerError.busy }
+            return FakeSummarizer.echo(passage)
+        }
+        let clock = SleepRecorder()
+        do {
+            _ = try await SummaryPipeline(summarizer: fake, sleep: clock.sleep).run(turns(6))
+            XCTFail("expected a throw")
+        } catch {
+            XCTAssertEqual(error as? SummarizerError, .busy)
+        }
+        let delays = SummaryPipeline.defaultBusyRetryDelays
+        XCTAssertEqual(clock.waits, delays)
+        XCTAssertTrue((.seconds(45)...Duration.seconds(90)).contains(delays.reduce(.zero, +)), "\(delays)")
+        XCTAssertTrue(zip(delays, delays.dropFirst()).allSatisfy { $0 < $1 }, "Backs off")
+    }
+
+    func testABusyMergeIsRetriedThenStopsTheRun() async {
+        let fake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 30, mergeTokens: 2_000))
+        fake.onMerge = { _ in throw SummarizerError.busy }
+        let clock = SleepRecorder()
+        do {
+            _ = try await SummaryPipeline(summarizer: fake, busyRetryDelays: [.seconds(1)], sleep: clock.sleep).run(turns(6))
+            XCTFail("expected a throw")
+        } catch {
+            XCTAssertEqual(error as? SummarizerError, .busy)
+        }
+        XCTAssertEqual(clock.waits, [.seconds(1)])
+    }
+
+    func testCancellationIsPassedOn() async {
+        let fake = FakeSummarizer()
+        fake.onSummarize = { _ in throw CancellationError() }
+        do {
+            _ = try await SummaryPipeline(summarizer: fake).run(turns(2))
+            XCTFail("expected a throw")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+        let merging = FakeSummarizer(limits: SummarizerLimits(passageTokens: 30, mergeTokens: 2_000))
+        merging.onMerge = { _ in throw CancellationError() }
+        do {
+            _ = try await SummaryPipeline(summarizer: merging).run(turns(6))
+            XCTFail("expected a throw")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "Not joined as if the merge had failed: \(error)")
+        }
     }
 
     func testEveryPassageRefusedThrows() async {
@@ -220,11 +362,45 @@ final class MeetingSummaryTests: XCTestCase {
     }
 
     func testAFailedMergeFallsBackToJoiningTheParts() async throws {
-        let fake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 30, mergeTokens: 2_000))
-        fake.onMerge = { _ in throw SummarizerError.refused }
-        let outcome = try await SummaryPipeline(summarizer: fake).run(turns(6))
-        XCTAssertEqual(outcome.summary.keyPoints, turns(6).map(\.text))
-        XCTAssertEqual(outcome.skippedPassages, 0)
+        for thrown in [SummarizerError.refused, .incomplete, .failed("x"), .tooLong] {
+            let fake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 30, mergeTokens: 2_000))
+            fake.onMerge = { _ in throw thrown }
+            let outcome = try await SummaryPipeline(summarizer: fake).run(turns(6))
+            XCTAssertEqual(outcome.summary.keyPoints, turns(6).map(\.text), "\(thrown)")
+            XCTAssertEqual(outcome.skippedPassages, 0)
+        }
+    }
+
+    #if canImport(FoundationModels)
+    func testFoundationModelsErrorsMapToWhatThePipelineDoes() throws {
+        guard #available(macOS 26, *) else { throw XCTSkip("needs macOS 26") }
+        typealias E = LanguageModelSession.GenerationError
+        let c = E.Context(debugDescription: "x")
+        XCTAssertEqual(FoundationModelsSummarizer.map(.rateLimited(c)), .busy, "Background apps are rate-limited")
+        XCTAssertEqual(FoundationModelsSummarizer.map(.concurrentRequests(c)), .busy)
+        XCTAssertEqual(FoundationModelsSummarizer.map(.exceededContextWindowSize(c)), .tooLong)
+        XCTAssertEqual(FoundationModelsSummarizer.map(.guardrailViolation(c)), .refused)
+        XCTAssertEqual(FoundationModelsSummarizer.map(.unsupportedLanguageOrLocale(c)), .unsupportedLanguage)
+        XCTAssertEqual(FoundationModelsSummarizer.map(.assetsUnavailable(c)), .unavailable(.modelNotReady))
+        guard case .failed = FoundationModelsSummarizer.map(.decodingFailure(c)) else { return XCTFail() }
+    }
+    #endif
+
+    // MARK: Fixtures and copy
+
+    func testTheLiveLongMeetingReallyComesInParts() {
+        let lines = TranscriptChunker.lines(OnDeviceSummaryLiveTests.longMeeting)
+        let passages = TranscriptChunker.passages(lines, maxTokens: OnDeviceSummaryLiveTests.longMeetingLimits.passageTokens)
+        XCTAssertGreaterThan(passages.count, 1, "The live test has to exercise merging")
+    }
+
+    func testUnavailableReasonsAreSaidPlainly() {
+        XCTAssertFalse(SummarizerUnavailable.unknown.explanation.contains("getting ready"), "Not a guess")
+        XCTAssertTrue(SummarizerUnavailable.modelNotReady.explanation.contains("Library"),
+                      "Notes saved meanwhile aren't summarized later by themselves")
+        for reason: SummarizerUnavailable in [.needsNewerMacOS, .deviceNotEligible, .appleIntelligenceOff, .modelNotReady, .unknown] {
+            UserFacingCopy.assertPlain(reason.explanation)
+        }
     }
 
     func testNothingToSummarize() async {

@@ -58,3 +58,14 @@ final class FakeSummarizerCatalog: SummarizerCatalog {
         availability.isAvailable ? summarizer : nil
     }
 }
+
+/// A `SummaryPipeline.sleep` that returns at once and records each wait.
+final class SleepRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _waits: [Duration] = []
+    var waits: [Duration] { lock.withLock { _waits } }
+
+    var sleep: @Sendable (Duration) async throws -> Void {
+        { [self] wait in lock.withLock { _waits.append(wait) } }
+    }
+}

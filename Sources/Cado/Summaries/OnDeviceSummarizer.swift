@@ -27,49 +27,12 @@ enum OnDeviceSummarizer {
         #endif
         return nil
     }
-
-    /// What the model is told (also used by the instructions). Plain English
-    /// whatever the meeting's language: the model answers in the transcript's.
-    static let instructions = """
-        You write short notes about meetings from their transcripts. Lines start with who spoke: \
-        "Me" is the person taking the notes, "Others" is everyone else on the call. Transcripts come \
-        from speech recognition and may have mistakes. Only write what the transcript supports; \
-        never invent names, dates or numbers. Write in the language of the transcript.
-        """
-
-    static let answerShape = """
-        Answer in exactly this form, with short one-line items and "- None" for an empty list:
-        Key points:
-        - …
-        Decisions:
-        - …
-        Action items:
-        - … (who does what, if said)
-        """
-
-    static func passagePrompt(_ transcript: String, part: Int, of total: Int) -> String {
-        let which = total > 1 ? "This is part \(part) of \(total) of the meeting's transcript." : "This is the meeting's transcript."
-        return "\(which)\n\n\(transcript)\n\nList the key points, the decisions made and the action items.\n\(answerShape)"
-    }
-
-    static func mergePrompt(_ parts: [MeetingSummary]) -> String {
-        let notes = parts.enumerated().map { "Part \($0.offset + 1):\n\(SummaryText.render($0.element))" }
-            .joined(separator: "\n\n")
-        return """
-            These are notes on consecutive parts of one meeting, in order.
-
-            \(notes)
-
-            Combine them into one set of notes for the whole meeting. Merge items that say the same \
-            thing; keep every decision and action item.
-            \(answerShape)
-            """
-    }
 }
 
 #if canImport(FoundationModels)
 /// The Foundation Models adapter: a fresh session per call (nothing carries
-/// over between passages), plain-text answers parsed by `SummaryText`.
+/// over between passages), `SummaryPrompts` for what to ask and how to
+/// read the plain-text answer.
 ///
 /// Text, not guided generation, because the permissive guardrails (meant
 /// for summarising what the user gives the model) only apply to text
@@ -77,9 +40,10 @@ enum OnDeviceSummarizer {
 @available(macOS 26, *)
 struct FoundationModelsSummarizer: MeetingSummarizer {
     /// The model's context is 4,096 tokens for instructions, prompt and
-    /// answer together. Instructions and the prompt's wording are ~250,
-    /// the answer is capped at `answerTokens`; a passage gets 2,000
-    /// (estimated cautiously, `TokenEstimate`), leaving room to spare.
+    /// answer together. Instructions and the prompt's wording are ~200,
+    /// the answer is capped at `answerTokens`; a passage gets 2,000 by
+    /// `TokenEstimate` (about 1,250 real tokens of English), so ~1,200 are
+    /// left over for text the estimate under-counts.
     static let answerTokens = 700
     let limits = SummarizerLimits(passageTokens: 2_000, mergeTokens: 2_000)
 
@@ -89,25 +53,26 @@ struct FoundationModelsSummarizer: MeetingSummarizer {
         case .unavailable(.deviceNotEligible): return .unavailable(.deviceNotEligible)
         case .unavailable(.appleIntelligenceNotEnabled): return .unavailable(.appleIntelligenceOff)
         case .unavailable(.modelNotReady): return .unavailable(.modelNotReady)
-        case .unavailable: return .unavailable(.modelNotReady)
+        case .unavailable: return .unavailable(.unknown)
         }
     }
 
     func summarize(_ transcript: String, part: Int, of total: Int) async throws -> MeetingSummary {
-        try await ask(OnDeviceSummarizer.passagePrompt(transcript, part: part, of: total))
+        try SummaryPrompts.passageSummary(from: await ask(SummaryPrompts.passagePrompt(transcript, part: part, of: total)))
     }
 
     func merge(_ parts: [MeetingSummary]) async throws -> MeetingSummary {
-        try await ask(OnDeviceSummarizer.mergePrompt(parts))
+        try SummaryPrompts.mergedSummary(from: await ask(SummaryPrompts.mergePrompt(parts)))
     }
 
-    private func ask(_ prompt: String) async throws -> MeetingSummary {
+    /// The model's answer text. With the permissive guardrails a refusal
+    /// usually comes back as text, not an error (`SummaryPrompts` reads it).
+    private func ask(_ prompt: String) async throws -> String {
         let model = SystemLanguageModel(useCase: .general, guardrails: .permissiveContentTransformations)
-        let session = LanguageModelSession(model: model, instructions: OnDeviceSummarizer.instructions)
+        let session = LanguageModelSession(model: model, instructions: SummaryPrompts.instructions)
         let options = GenerationOptions(sampling: .greedy, maximumResponseTokens: Self.answerTokens)
         do {
-            let response = try await session.respond(to: prompt, options: options)
-            return SummaryText.parse(response.content)
+            return try await session.respond(to: prompt, options: options).content
         } catch let error as LanguageModelSession.GenerationError {
             throw Self.map(error)
         }
@@ -119,6 +84,9 @@ struct FoundationModelsSummarizer: MeetingSummarizer {
         case .guardrailViolation, .refusal: return .refused
         case .unsupportedLanguageOrLocale: return .unsupportedLanguage
         case .assetsUnavailable: return .unavailable(.modelNotReady)
+        // Rate-limited (an app in the background, which a menu-bar app
+        // nearly always is) or another request running: wait and retry.
+        case .rateLimited, .concurrentRequests: return .busy
         default: return .failed(error.localizedDescription)
         }
     }

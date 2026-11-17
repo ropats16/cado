@@ -8,6 +8,12 @@ import XCTest
 ///     CADO_LIVE_SUMMARY=1 swift test --filter OnDeviceSummaryLiveTests
 ///
 /// Prints what the model wrote; asserts only the shape.
+///
+/// Owner check: also run it with Cado (or the terminal running the tests)
+/// not frontmost, and summarize a meeting in the app while another app is
+/// in front. Foundation Models rate-limits apps in the background, and Cado
+/// is a menu-bar app, so it nearly always is: the pipeline retries those
+/// (`SummarizerError.busy`) and must still write a whole summary.
 final class OnDeviceSummaryLiveTests: XCTestCase {
     override func setUpWithError() throws {
         guard ProcessInfo.processInfo.environment["CADO_LIVE_SUMMARY"] == "1" else {
@@ -41,19 +47,38 @@ final class OnDeviceSummaryLiveTests: XCTestCase {
         XCTAssertFalse(outcome.summary.actionItems.isEmpty)
     }
 
-    /// A long meeting (the short one, repeated with variations) goes
-    /// through chunking and merging for real.
+    /// A long meeting: the short one, repeated with variations.
+    static let longMeeting: [(speaker: MeetingSpeaker, text: String)] = (1...6).flatMap { round in
+        meeting.map { (speaker: $0.speaker, text: "(Item \(round)) " + $0.text) }
+    }
+
+    /// Smaller passages than the real model's (`longMeeting` fits one of
+    /// those), so this goes through chunking and merging for real.
+    /// `MeetingSummaryTests` checks it does come in parts.
+    static let longMeetingLimits = SummarizerLimits(passageTokens: 700, mergeTokens: 2_000)
+
     func testSummarizesALongMeetingInParts() async throws {
-        let summarizer = try XCTUnwrap(OnDeviceSummarizer.make())
-        let long = (1...6).flatMap { round in
-            Self.meeting.map { (speaker: $0.speaker, text: "(Item \(round)) " + $0.text) }
-        }
+        let summarizer = Limited(base: try XCTUnwrap(OnDeviceSummarizer.make()), limits: Self.longMeetingLimits)
         let started = Date()
-        let outcome = try await SummaryPipeline(summarizer: summarizer).run(long)
+        let outcome = try await SummaryPipeline(summarizer: summarizer).run(Self.longMeeting)
         print("--- long on-device summary (\(String(format: "%.1f", Date().timeIntervalSince(started))) s, "
             + "\(outcome.passages) passage(s), \(outcome.skippedPassages) left out)\n"
             + SummarySection.markdown(outcome, provider: .onDevice))
         XCTAssertGreaterThan(outcome.passages, 1)
         XCTAssertFalse(outcome.summary.isEmpty)
+    }
+
+    /// A summarizer with other limits.
+    private struct Limited: MeetingSummarizer {
+        let base: MeetingSummarizer
+        let limits: SummarizerLimits
+
+        func summarize(_ transcript: String, part: Int, of: Int) async throws -> MeetingSummary {
+            try await base.summarize(transcript, part: part, of: of)
+        }
+
+        func merge(_ parts: [MeetingSummary]) async throws -> MeetingSummary {
+            try await base.merge(parts)
+        }
     }
 }

@@ -21,19 +21,32 @@ enum SummaryPipelineError: Error, Equatable {
 ///
 /// 1. The transcript is cut into passages on turn boundaries
 ///    (`TranscriptChunker`, sized by the summarizer's `limits`).
-/// 2. Each passage is summarized in order. One the model refuses or fails
-///    on is left out and counted (`skippedPassages`); one it says is too
-///    long after all is halved and retried (twice at most). `unavailable`
-///    stops everything (no other passage would work either).
+/// 2. Each passage is summarized in order. One the model declines
+///    (`refused`) or can't read (`unsupportedLanguage`) is left out and
+///    counted (`skippedPassages`); one it says is too long after all is
+///    halved and retried (twice at most, then left out).
 /// 3. Partial summaries are merged in order, as many per call as fit
 ///    `limits.mergeTokens` (at least two, so it always converges), until
-///    one is left. A merge call that fails falls back to
-///    `MeetingSummary.combined` (lists joined, repeats dropped), so a
-///    failed merge never loses a passage.
+///    one is left. A merge call that fails (or answers `incomplete`) falls
+///    back to `MeetingSummary.combined` (lists joined, repeats dropped), so
+///    a failed merge never loses a passage.
+///
+/// Any call that's `busy` is retried after each of `busyRetryDelays`.
+/// The run stops, throwing, on `unavailable`, on `busy` that doesn't clear,
+/// on `failed` (and anything not a `SummarizerError`) and on cancellation:
+/// a summary of only some of the meeting would replace a good one, so the
+/// caller keeps what the note had and says to try again.
 ///
 /// One call at a time.
 struct SummaryPipeline {
     let summarizer: MeetingSummarizer
+    /// Waits before each retry of a `busy` call; when they run out the run
+    /// stops. About a minute in all by default.
+    var busyRetryDelays: [Duration] = SummaryPipeline.defaultBusyRetryDelays
+    /// How a wait happens (instant in tests). Throws on cancellation.
+    var sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+
+    static let defaultBusyRetryDelays: [Duration] = [.seconds(2), .seconds(5), .seconds(10), .seconds(15), .seconds(30)]
 
     /// Splits of a too-long passage before giving up on it.
     static let maxSplits = 2
@@ -66,21 +79,26 @@ struct SummaryPipeline {
         }
     }
 
-    /// One passage, halved and retried when too long; a piece that fails
-    /// is left out (counted), so the rest of the passage still counts.
-    /// Throws only `unavailable`.
+    /// One passage, halved and retried when too long; a piece the model
+    /// declines, can't read or still finds too long is left out (counted),
+    /// so the rest of the passage still counts. Any other error stops the
+    /// run.
     private func summarize(_ passage: String, part: Int, of total: Int, splits: Int) async throws -> Mapped {
         do {
             return Mapped(parts: [try await call { try await summarizer.summarize(passage, part: part, of: total) }])
         } catch let error as SummarizerError {
-            if case .unavailable = error { throw error }
             if error == .tooLong, splits < Self.maxSplits, let (a, b) = TranscriptChunker.halves(passage) {
                 var both = try await summarize(a, part: part, of: total, splits: splits + 1)
                 both.add(try await summarize(b, part: part, of: total, splits: splits + 1))
                 return both
             }
-            Log.error("Summary: a piece of passage \(part) of \(total) left out: \(error)")
-            return Mapped(skipped: 1, lastError: error)
+            switch error {
+            case .tooLong, .refused, .unsupportedLanguage, .incomplete:
+                Log.error("Summary: a piece of passage \(part) of \(total) left out: \(error)")
+                return Mapped(skipped: 1, lastError: error)
+            case .unavailable, .busy, .failed:
+                throw error
+            }
         }
     }
 
@@ -92,7 +110,9 @@ struct SummaryPipeline {
                 guard group.count > 1 else { next += group; continue }
                 do {
                     next.append(try await call { try await summarizer.merge(group) })
-                } catch {
+                } catch let error as SummarizerError where error.stopsMerging {
+                    throw error
+                } catch let error as SummarizerError {
                     Log.error("Summary: merging \(group.count) parts failed (\(error)); joining them as they are.")
                     next.append(.combined(group))
                 }
@@ -122,14 +142,38 @@ struct SummaryPipeline {
         return out
     }
 
-    /// Any error a summarizer throws, as a `SummarizerError`.
+    /// One call, retried while `busy` and `busyRetryDelays` last. Throws a
+    /// `SummarizerError` (anything else as `failed`) or `CancellationError`.
     private func call(_ body: () async throws -> MeetingSummary) async throws -> MeetingSummary {
-        do {
-            return try await body()
-        } catch let error as SummarizerError {
-            throw error
-        } catch {
-            throw SummarizerError.failed(error.localizedDescription)
+        var delays = busyRetryDelays[...]
+        while true {
+            do {
+                return try await body()
+            } catch SummarizerError.busy {
+                guard let delay = delays.popFirst() else {
+                    Log.error("Summary: the model stayed busy after \(busyRetryDelays.count) retries; stopping.")
+                    throw SummarizerError.busy
+                }
+                Log.info("Summary: the model is busy; trying again in \(delay).")
+                try await sleep(delay)
+            } catch let error as SummarizerError {
+                throw error
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw SummarizerError.failed(error.localizedDescription)
+            }
+        }
+    }
+}
+
+private extension SummarizerError {
+    /// A merge failing this way stops the run instead of joining the parts:
+    /// the next call would fail the same way.
+    var stopsMerging: Bool {
+        switch self {
+        case .unavailable, .busy: return true
+        case .tooLong, .refused, .unsupportedLanguage, .incomplete, .failed: return false
         }
     }
 }
