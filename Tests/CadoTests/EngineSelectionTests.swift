@@ -179,8 +179,10 @@ final class EngineSelectionTests: XCTestCase {
             var config = Config.defaults
             config.engine = id
             let issues = ConfigValidator.validate(config, engines: engines, environment: .mac(15))
-            XCTAssertEqual(issues, [ConfigIssue(severity: .warning,
-                                                message: "`engine` \"\(id)\": \(reason); using Whisper (whisper.cpp).")])
+            XCTAssertEqual(issues, [ConfigIssue(
+                severity: .warning, topic: .engine,
+                message: "`engine` \"\(id)\": \(reason); using Whisper (whisper.cpp).",
+                summary: "The engine set in the config file can't run on this Mac, so Cado uses Whisper (whisper.cpp).")])
         }
     }
 

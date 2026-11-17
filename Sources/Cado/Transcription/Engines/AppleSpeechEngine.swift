@@ -42,7 +42,7 @@ struct AppleSpeechEngine: EngineDescriptor {
     }
 
     func downloadHint(for spec: ModelSpec) -> ModelDownloadHint? {
-        .instructions("Apple's speech model for this language isn't downloaded. Open Settings › Model to download it.")
+        .instructions("Apple's speech model for this language isn't downloaded. Download it in Settings › Speech Model.")
     }
 
     /// No model to name: `--model` is ignored, `--language` picks the model.

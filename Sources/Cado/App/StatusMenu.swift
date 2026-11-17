@@ -101,7 +101,9 @@ struct StatusMenuContent: Equatable {
     var accessibility: Row
     var hold: String
     var toggle: String
-    var configIssues: String?
+    /// A config error, in plain words; clicking it opens Settings when
+    /// that's where it's fixed (the hotkeys).
+    var configIssues: Row?
     /// nil when history is off: the menu item is hidden.
     var recents: RecentDictations?
     /// "Check for Updates…" / "Update Available (x)…"; nil (hidden) when
@@ -141,11 +143,21 @@ struct StatusMenuContent: Equatable {
             ? Row(title: "Accessibility: Granted", action: nil)
             : Row(title: "Accessibility: Not granted", action: .openAccessibilitySettings)
 
-        self.hold = "Hold to talk: \(hold)"
-        self.toggle = "Toggle to talk: \(toggle)"
-        self.configIssues = configIssues.contains { $0.severity == .error }
-            ? "⚠️ Config: \(configIssues.count) config issue(s) — see log"
-            : nil
+        self.hold = "\(ConfigValidator.hold): \(hold)"
+        self.toggle = "\(ConfigValidator.toggle): \(toggle)"
+        self.configIssues = Self.configRow(configIssues.filter { $0.severity == .error })
+    }
+
+    /// Errors only (warnings are logged; Settings shows hotkey ones).
+    private static func configRow(_ errors: [ConfigIssue]) -> Row? {
+        guard let first = errors.first else { return nil }
+        guard errors.allSatisfy({ $0.topic == .hotkeys }) else {
+            return Row(title: "There's a problem in Cado's config file. Choose Open Config File… to fix it.", action: nil)
+        }
+        let title = errors.count == 1
+            ? "\(first.summary) Fix it in Settings › Hotkeys."
+            : "\(errors.count) hotkey problems. Fix them in Settings › Hotkeys."
+        return Row(title: title, action: .openSettings)
     }
 }
 
@@ -179,7 +191,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private let accessibility = NSMenuItem()
     private let hold = StatusMenu.label()
     private let toggle = StatusMenu.label()
-    private let configIssues = StatusMenu.label()
+    private let configIssues = NSMenuItem()
     private let recents = NSMenuItem(title: "Recent Dictations", action: nil, keyEquivalent: "")
     private let recentsMenu = NSMenu()
     private let recentsSeparator = NSMenuItem.separator()
@@ -195,7 +207,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         super.init()
         menu.autoenablesItems = false
         menu.delegate = self
-        for row in [reason, modelHint, microphone, accessibility] {
+        for row in [reason, modelHint, microphone, accessibility, configIssues] {
             row.target = self
             row.action = #selector(rowClicked(_:))
         }
@@ -234,8 +246,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         set(accessibility, content.accessibility)
         hold.title = content.hold
         toggle.title = content.toggle
-        configIssues.title = content.configIssues ?? ""
-        configIssues.isHidden = content.configIssues == nil
+        set(configIssues, content.configIssues)
         renderRecents(content.recents)
         checkForUpdates.isHidden = content.update == nil
         checkForUpdates.title = content.update?.title ?? "Check for Updates…"

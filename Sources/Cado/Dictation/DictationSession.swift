@@ -223,7 +223,7 @@ final class DictationSession {
         Log.info("Not dictating: \(issue.title).")
         if let last = lastNotice, last.issue == issue, clock.now - last.at < Self.noticeInterval { return }
         lastNotice = (issue, clock.now)
-        feedback.notify(title: status.headline, body: issue.detail)
+        feedback.notify(title: status.title, body: issue.detail)
     }
 
     private func refuse(_ notice: DictationBusyNotice) {

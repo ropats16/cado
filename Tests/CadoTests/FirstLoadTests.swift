@@ -96,8 +96,8 @@ final class FirstLoadTests: XCTestCase {
         XCTAssertEqual(status(.verifying, firstLoad: true), .starting(.modelVerifying), "hashing comes first")
         XCTAssertEqual(status(.ready, firstLoad: true), .ready)
 
-        XCTAssertEqual(ReadinessIssue.modelPreparing.detail, "Preparing model for this Mac (first load, ~20 s)…")
-        XCTAssertEqual(ReadinessIssue.modelPreparing.title, "Preparing model…")
+        XCTAssertEqual(ReadinessIssue.modelPreparing.detail, ModelHints.preparing)
+        XCTAssertEqual(ReadinessIssue.modelPreparing.title, "Preparing speech model…")
         XCTAssertTrue(AppStatus.starting(.modelPreparing).allowsDictation, "the job queues behind the load")
     }
 }
@@ -126,7 +126,7 @@ final class SettingsFirstLoadTests: XCTestCase {
     }
 
     func testAFirstLoadSaysItsPreparingTheModel() {
-        XCTAssertEqual(makeVM(firstLoad: true).modelStatusHint, "Preparing model for this Mac (first load, ~20 s)…")
-        XCTAssertEqual(makeVM(firstLoad: false).modelStatusHint, "Loading model…")
+        XCTAssertEqual(makeVM(firstLoad: true).modelStatusHint, ModelHints.preparing)
+        XCTAssertEqual(makeVM(firstLoad: false).modelStatusHint, "Loading the speech model…")
     }
 }

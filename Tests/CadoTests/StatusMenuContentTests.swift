@@ -32,7 +32,7 @@ final class StatusMenuContentTests: XCTestCase {
 
     func testMicDeniedShowsReasonAndFix() {
         let menu = content(.notReady(.microphoneDenied), microphone: .denied)
-        XCTAssertEqual(menu.header, "Cado — Needs Microphone")
+        XCTAssertEqual(menu.header, "Cado — Microphone not allowed")
         XCTAssertEqual(menu.glyph, .notReady)
         XCTAssertEqual(menu.reason, .init(title: ReadinessIssue.microphoneDenied.detail,
                                           action: .openMicrophoneSettings))
@@ -61,22 +61,22 @@ final class StatusMenuContentTests: XCTestCase {
         let missing = content(.notReady(.modelMissing(path: "/m.bin", download: .command("make model"))))
         let failed = content(.notReady(.modelFailed(reason: "checksum mismatch", download: .command("make model"))))
 
-        XCTAssertEqual(missing.header, "Cado — Model missing")
-        XCTAssertEqual(missing.reason?.title, "Model missing — run `make model`")
-        XCTAssertEqual(failed.header, "Cado — Model failed to load")
-        XCTAssertEqual(failed.reason?.title,
-                       "Model failed to load — see log, or try `make model` to re-download it")
-        XCTAssertEqual(missing.reason?.action, .openModelsFolder)
-        XCTAssertEqual(failed.reason?.action, .openModelsFolder)
+        XCTAssertEqual(missing.header, "Cado — Speech model missing")
+        XCTAssertEqual(missing.reason?.title, ModelHints.missing(download: .command("make model")))
+        XCTAssertEqual(failed.header, "Cado — Speech model failed to load")
+        XCTAssertEqual(failed.reason?.title, ModelHints.failed(download: .command("make model")))
+        XCTAssertEqual(missing.reason?.action, .openSettings)
+        XCTAssertEqual(failed.reason?.action, .openSettings)
     }
 
     func testModelProblemBehindAPermissionStillShowsItsHint() {
         let menu = content(.notReady(.accessibilityNeeded), accessibility: .denied, engine: .missing)
         XCTAssertEqual(menu.reason?.action, .openAccessibilitySettings)
-        XCTAssertEqual(menu.modelHint, .init(title: "Model missing — run `make model`", action: .openModelsFolder))
+        XCTAssertEqual(menu.modelHint, .init(title: ModelHints.missing(download: .command("make model")),
+                                             action: .openSettings))
 
         let failed = content(.notReady(.microphoneDenied), microphone: .denied, engine: .failed(reason: "x"))
-        XCTAssertEqual(failed.modelHint?.title, "Model failed to load — see log, or try `make model` to re-download it")
+        XCTAssertEqual(failed.modelHint?.title, ModelHints.failed(download: .command("make model")))
     }
 
     func testModelHintIsNotRepeatedWhenItIsTheReason() {
@@ -88,7 +88,7 @@ final class StatusMenuContentTests: XCTestCase {
 
     func testTransientStatusHasNoReasonLine() {
         let menu = content(.starting(.modelLoading))
-        XCTAssertEqual(menu.header, "Cado — Loading model…")
+        XCTAssertEqual(menu.header, "Cado — Loading speech model…")
         XCTAssertEqual(menu.glyph, .ready)
         XCTAssertNil(menu.reason)
     }
@@ -96,9 +96,9 @@ final class StatusMenuContentTests: XCTestCase {
     /// A first load takes a while: the menu says why, not just "Preparing".
     func testAFirstLoadShowsItsDetail() {
         let menu = content(.starting(.modelPreparing), engine: .loading)
-        XCTAssertEqual(menu.header, "Cado — Preparing model…")
+        XCTAssertEqual(menu.header, "Cado — Preparing speech model…")
         XCTAssertEqual(menu.glyph, .ready)
-        XCTAssertEqual(menu.reason, .init(title: "Preparing model for this Mac (first load, ~20 s)…", action: nil))
+        XCTAssertEqual(menu.reason, .init(title: ModelHints.preparing, action: nil))
     }
 
     // MARK: - Recent Dictations
@@ -211,11 +211,25 @@ final class StatusMenuContentTests: XCTestCase {
                        UpdateMenuRow(title: "Update Available (0.3.0)…", isEnabled: true))
     }
 
-    func testConfigLineOnlyWithErrorsCountsAllIssues() {
-        let warning = ConfigIssue(severity: .warning, message: "w")
-        let error = ConfigIssue(severity: .error, message: "e")
-        XCTAssertNil(content(.ready, configIssues: [warning]).configIssues)
-        XCTAssertEqual(content(.ready, configIssues: [error, warning]).configIssues,
-                       "⚠️ Config: 2 config issue(s) — see log")
+    private func issue(_ severity: ConfigIssue.Severity, _ topic: ConfigIssue.Topic = .hotkeys,
+                       _ summary: String = "Hold to talk has no keys set.") -> ConfigIssue {
+        ConfigIssue(severity: severity, topic: topic, message: "`hold` …", summary: summary)
+    }
+
+    /// Errors only, in plain words, and a click opens Settings where the
+    /// hotkeys are fixed; no emoji, no "see log".
+    func testConfigLineSaysWhatsWrongAndOpensSettings() {
+        XCTAssertNil(content(.ready, configIssues: [issue(.warning)]).configIssues)
+        XCTAssertEqual(content(.ready, configIssues: [issue(.error), issue(.warning)]).configIssues,
+                       .init(title: "Hold to talk has no keys set. Fix it in Settings › Hotkeys.",
+                             action: .openSettings))
+        XCTAssertEqual(content(.ready, configIssues: [issue(.error), issue(.error)]).configIssues,
+                       .init(title: "2 hotkey problems. Fix them in Settings › Hotkeys.", action: .openSettings))
+    }
+
+    func testAConfigErrorSettingsCantFixPointsAtTheConfigFile() {
+        XCTAssertEqual(content(.ready, configIssues: [issue(.error, .engine, "x")]).configIssues,
+                       .init(title: "There's a problem in Cado's config file. Choose Open Config File… to fix it.",
+                             action: nil))
     }
 }

@@ -9,7 +9,8 @@ struct OnboardingModelOption: Equatable, Identifiable {
         case inApp
         /// Settings gets it: an OS-managed model (Apple Speech), or nothing to fetch.
         case settings
-        /// A command to run in the repo.
+        /// Only a command in a source checkout fetches it (logged, never
+        /// shown): the app can't, so onboarding sends the user to Settings.
         case command(String)
     }
 

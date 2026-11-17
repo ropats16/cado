@@ -104,7 +104,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// still needed fires when it closes (once).
     private var launchPromptsDeferred = false
 
-    private var configIssues: [ConfigIssue] = []
     private var isMicWarm = false
 
     // MARK: - Lifecycle
@@ -207,7 +206,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = configStore.config
         menu.render(StatusMenuContent(status: monitor.status, inputs: monitor.inputs,
                                       hold: "\(config.hold)", toggle: "\(config.toggle)",
-                                      configIssues: configIssues,
+                                      // Re-read: a hotkey fixed in Settings clears its line.
+                                      configIssues: ConfigValidator.validate(config),
                                       recentDictations: recents.recent(),
                                       historyEnabled: config.dictationHistory,
                                       update: MainActor.assumeIsolated { updater.flatMap(UpdateMenuRow.init) },
@@ -221,8 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Logs each invalid/conflicting binding (errors via `Log.error`, warnings
     /// via `Log.info`); the menu summarises them. Reporting only.
     private func reportConfigIssues() {
-        configIssues = ConfigValidator.validate(configStore.config)
-        for issue in configIssues {
+        for issue in ConfigValidator.validate(configStore.config) {
             switch issue.severity {
             case .error:   Log.error("Config issue: \(issue.message)")
             case .warning: Log.info("Config issue: \(issue.message)")

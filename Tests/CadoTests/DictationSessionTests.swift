@@ -170,7 +170,7 @@ final class DictationSessionTests: XCTestCase {
         XCTAssertTrue(capture.begins.isEmpty, "A denied mic would record silence")
         XCTAssertEqual(engine.prewarms, 0)
         XCTAssertTrue(clock.timers.isEmpty)
-        XCTAssertEqual(feedback.events, [.notify("Cado — Needs Microphone",
+        XCTAssertEqual(feedback.events, [.notify("Microphone not allowed",
                                                  ReadinessIssue.microphoneDenied.detail)])
 
         session.handle(.holdUp)
@@ -185,12 +185,12 @@ final class DictationSessionTests: XCTestCase {
         session.handle(.toggle)
 
         XCTAssertTrue(capture.begins.isEmpty)
-        XCTAssertEqual(feedback.notifications, ["Cado — Model missing"], "Same issue: one notice per window")
+        XCTAssertEqual(feedback.notifications, ["Speech model missing"], "Same issue: one notice per window")
         XCTAssertEqual(session.phase, .idle)
 
         clock.advance(by: 0.1)
         session.handle(.toggle)
-        XCTAssertEqual(feedback.notifications, ["Cado — Model missing", "Cado — Model missing"],
+        XCTAssertEqual(feedback.notifications, ["Speech model missing", "Speech model missing"],
                        "Window over: the issue is noticed again")
     }
 
@@ -199,7 +199,7 @@ final class DictationSessionTests: XCTestCase {
         session.handle(.toggle)
         status = .notReady(.modelMissing(path: "/m.bin", download: nil))
         session.handle(.toggle)
-        XCTAssertEqual(feedback.notifications, ["Cado — Needs Microphone", "Cado — Model missing"])
+        XCTAssertEqual(feedback.notifications, ["Microphone not allowed", "Speech model missing"])
     }
 
     func testSameIssueAfterBeingReadyIsNoticedAtOnce() {
@@ -210,7 +210,7 @@ final class DictationSessionTests: XCTestCase {
         dictate("granted")
         status = Self.micDenied
         session.handle(.holdDown)
-        XCTAssertEqual(feedback.notifications, ["Cado — Needs Microphone", "Cado — Needs Microphone"],
+        XCTAssertEqual(feedback.notifications, ["Microphone not allowed", "Microphone not allowed"],
                        "The status changed in between, so it's news again")
     }
 

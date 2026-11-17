@@ -157,12 +157,14 @@ final class OnboardingContentTests: XCTestCase {
         XCTAssertEqual(step.primary, OnboardingButton(title: "Resume", action: .download(Self.turbo.key)))
     }
 
-    func testAModelFetchedByCommandShowsTheCommand() {
+    /// Users have no source checkout: a model the app can't download is
+    /// swapped for another in Settings, never fetched by command.
+    func testAModelTheAppCantDownloadSendsToSettings() {
         let byCommand = option(Self.turbo, fetch: .command("make parakeet-model"))
         let step = content(engine: .missing, options: [byCommand]).step(.model)
         XCTAssertEqual(step.state, .todo)
-        XCTAssertNil(step.primary)
-        XCTAssertTrue(step.note?.contains("make parakeet-model") == true, step.note ?? "nil")
+        XCTAssertEqual(step.note, "Cado can't download Turbo (English/EU). Choose another speech model in Settings.")
+        XCTAssertEqual(step.primary, OnboardingButton(title: "Open Settings", action: .readiness(.openSettings)))
     }
 
     func testAnOSManagedModelSendsToSettings() {

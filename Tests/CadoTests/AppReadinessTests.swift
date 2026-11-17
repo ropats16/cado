@@ -91,7 +91,7 @@ final class AppReadinessTests: XCTestCase {
     func testMicDeniedIsNotReadyWithReasonAndSettingsAction() {
         let status = AppReadiness.status(for: inputs(microphone: .denied))
         XCTAssertEqual(status, .notReady(.microphoneDenied))
-        XCTAssertEqual(status.title, "Needs Microphone")
+        XCTAssertEqual(status.title, "Microphone not allowed")
         XCTAssertEqual(status.issue?.action, .openMicrophoneSettings)
         XCTAssertFalse(status.issue?.detail.isEmpty ?? true)
         XCTAssertFalse(status.allowsDictation, "A denied mic must not record silence")
@@ -108,8 +108,20 @@ final class AppReadinessTests: XCTestCase {
     func testAccessibilityDeniedNeedsAccessibility() {
         let status = AppReadiness.status(for: inputs(accessibility: .denied, tap: .notInstalled))
         XCTAssertEqual(status, .notReady(.accessibilityNeeded))
-        XCTAssertEqual(status.title, "Needs Accessibility")
+        XCTAssertEqual(status.title, "Accessibility not allowed")
         XCTAssertEqual(status.issue?.action, .openAccessibilitySettings)
+    }
+
+    /// One shape for every status title: subject first, sentence case.
+    func testStatusTitlesShareOneStyle() {
+        let titles = [ReadinessIssue.accessibilityNeeded, .microphoneDenied, .microphoneRestricted,
+                      .microphoneNotDetermined, .modelMissing(path: "/m", download: nil),
+                      .modelFailed(reason: "x", download: nil), .hotkeyTapFailed, .hotkeysStarting,
+                      .modelVerifying, .modelLoading, .modelPreparing].map(\.title)
+        XCTAssertEqual(titles, ["Accessibility not allowed", "Microphone not allowed", "Microphone restricted",
+                                "Microphone not allowed", "Speech model missing", "Speech model failed to load",
+                                "Hotkeys unavailable", "Starting hotkeys…", "Verifying speech model…",
+                                "Loading speech model…", "Preparing speech model…"])
     }
 
     func testModelMissingAndFailedAreDistinct() {
@@ -119,37 +131,44 @@ final class AppReadinessTests: XCTestCase {
         XCTAssertEqual(missing, .notReady(.modelMissing(path: Self.modelPath, download: Self.download)))
         XCTAssertEqual(failed, .notReady(.modelFailed(reason: "bad file", download: Self.download)))
         XCTAssertNotEqual(missing, failed)
-        XCTAssertEqual(missing.title, "Model missing")
-        XCTAssertEqual(failed.title, "Model failed to load")
+        XCTAssertEqual(missing.title, "Speech model missing")
+        XCTAssertEqual(failed.title, "Speech model failed to load")
         XCTAssertNotEqual(missing.issue?.detail, failed.issue?.detail)
-        XCTAssertEqual(missing.issue?.action, .openModelsFolder)
+        XCTAssertEqual(missing.issue?.action, .openSettings, "Settings is where another model is chosen")
         XCTAssertFalse(missing.allowsDictation)
         XCTAssertFalse(failed.allowsDictation)
     }
 
-    func testModelHintsKeepTheMenuWording() {
+    /// The menu line says what's wrong and where in Cado to fix it; the
+    /// command (for a model the app can't fetch) stays out of it.
+    func testModelHintsPointInsideTheApp() {
         XCTAssertEqual(ReadinessIssue.modelMissing(path: Self.modelPath, download: Self.download).detail,
-                       "Model missing — run `\(Self.command)`")
+                       "The speech model isn't downloaded, and Cado can't download it. "
+                           + "Choose another in Settings › Speech Model.")
         XCTAssertEqual(ReadinessIssue.modelMissing(path: Self.modelPath, download: nil).detail,
-                       "Model file missing — see Settings")
+                       "The speech model file is missing. Choose another in Settings › Speech Model.")
+        XCTAssertEqual(ReadinessIssue.modelMissing(path: Self.modelPath, download: nil).action, .openSettings)
         XCTAssertEqual(ReadinessIssue.modelFailed(reason: "x", download: nil).detail,
-                       "Model failed to load — see log")
+                       "The speech model didn't load. Choose another in Settings › Speech Model.")
+        XCTAssertEqual(ReadinessIssue.modelFailed(reason: "x", download: nil).action, .openSettings)
         XCTAssertEqual(ReadinessIssue.modelFailed(reason: "x", download: Self.download).detail,
-                       "Model failed to load — see log, or try `\(Self.command)` to re-download it")
+                       "The speech model didn't load. Choose another in Settings › Speech Model.")
     }
 
-    func testModelNoticesKeepTheirWording() {
+    func testModelNoticesSayWhatToDoInTheAppAndLogTheDetail() {
         let path = Self.modelPath, command = Self.command
         XCTAssertEqual(ModelHints.notice(for: .missing, engine: engine(.missing)),
-                       ModelNotice(title: "Cado: model not found",
-                                   body: "Model file not found at \(path). Run `\(command)` to download it.",
-                                   log: "Model not found at \(path). Run `\(command)` to download it."))
-        XCTAssertEqual(ModelHints.notice(for: .missing, engine: engine(.missing, download: nil))?.body,
-                       "Model file not found at \(path).")
+                       ModelNotice(title: "Speech model not downloaded",
+                                   body: "Cado can't download this model. Choose another in Settings › Speech Model.",
+                                   log: "Model not found at \(path). It downloads with: \(command)"))
+        XCTAssertEqual(ModelHints.notice(for: .missing, engine: engine(.missing, download: nil)),
+                       ModelNotice(title: "Speech model not found",
+                                   body: "The model file is missing. Choose another in Settings › Speech Model.",
+                                   log: "Model not found at \(path)."))
         XCTAssertEqual(ModelHints.notice(for: .failed(reason: "bad"), engine: engine(.failed(reason: "bad"))),
-                       ModelNotice(title: "Cado: model failed to load",
-                                   body: "bad Try `\(command)` to re-download it.",
-                                   log: "Model load failed: bad"))
+                       ModelNotice(title: "Speech model failed to load",
+                                   body: "bad Choose another in Settings › Speech Model.",
+                                   log: "Model load failed: bad. It downloads with: \(command)"))
         XCTAssertNil(ModelHints.notice(for: .ready, engine: engine(.ready)))
         XCTAssertNil(ModelHints.notice(for: .loading, engine: engine(.loading)))
     }
@@ -157,70 +176,68 @@ final class AppReadinessTests: XCTestCase {
     /// An engine whose models aren't files fetched by command (e.g. OS-managed)
     /// gets its own instructions, and no file path is assumed.
     func testInstructionHintsReplaceTheFileWording() {
-        let hint = ModelDownloadHint.instructions("Open Settings › Model to download it.")
-        XCTAssertEqual(ReadinessIssue.modelMissing(path: "en-US", download: hint).detail,
-                       "Model missing — Open Settings › Model to download it.")
-        XCTAssertEqual(ReadinessIssue.modelFailed(reason: "x", download: hint).detail, "Model failed to load — see log")
+        let text = "Download it in Settings › Speech Model."
+        let hint = ModelDownloadHint.instructions(text)
+        XCTAssertEqual(ReadinessIssue.modelMissing(path: "en-US", download: hint).detail, text)
+        XCTAssertEqual(ReadinessIssue.modelFailed(reason: "x", download: hint).detail,
+                       "The speech model didn't load. Choose another in Settings › Speech Model.")
 
         let missing = EngineReadiness(status: .missing, modelPath: "en-US", download: hint)
         XCTAssertEqual(ModelHints.notice(for: .missing, engine: missing),
-                       ModelNotice(title: "Cado: model not installed",
-                                   body: "Open Settings › Model to download it.",
-                                   log: "Model not installed (en-US). Open Settings › Model to download it."))
+                       ModelNotice(title: "Speech model not downloaded", body: text,
+                                   log: "Model not installed (en-US). \(text)"))
         let failed = EngineReadiness(status: .failed(reason: "bad"), modelPath: "en-US", download: hint)
         XCTAssertEqual(ModelHints.notice(for: .failed(reason: "bad"), engine: failed)?.body,
-                       "bad Open Settings › Model to download it.")
+                       "bad Choose another in Settings › Speech Model.")
     }
 
-    /// WhisperKit, Parakeet: Settings downloads the model, so the menu and
-    /// the notice send the user there first (the command still works), and
-    /// the menu line opens Settings rather than the models folder.
+    /// WhisperKit, Parakeet, whisper: Settings downloads the model, so the
+    /// menu and the notice send the user there; the command is only logged.
     func testInAppDownloadHintsPointAtSettings() {
-        let hint = ModelDownloadHint.inApp(command: "make whisperkit-model WHISPERKIT=tiny.en")
+        let command = "make whisperkit-model WHISPERKIT=tiny.en"
+        let hint = ModelDownloadHint.inApp(command: command)
         let missing = ReadinessIssue.modelMissing(path: "/m/whisperkit/tiny.en", download: hint)
-        XCTAssertEqual(missing.detail,
-                       "Model missing — download it in Settings › Model (or run `make whisperkit-model WHISPERKIT=tiny.en`)")
+        XCTAssertEqual(missing.detail, "The speech model isn't downloaded. Download it in Settings › Speech Model.")
         XCTAssertEqual(missing.action, .openSettings)
 
         // Installed but broken: Settings only offers models that aren't there.
         let failed = ReadinessIssue.modelFailed(reason: "x", download: hint)
-        XCTAssertEqual(failed.detail,
-                       "Model failed to load — see log, or try `make whisperkit-model WHISPERKIT=tiny.en` to re-download it")
+        XCTAssertEqual(failed.detail, "The speech model didn't load. Click to open the Models folder, delete it, "
+                           + "then download it again in Settings › Speech Model.")
         XCTAssertEqual(failed.action, .openModelsFolder)
 
         let engine = EngineReadiness(status: .missing, modelPath: "/m/whisperkit/tiny.en", download: hint)
         XCTAssertEqual(ModelHints.notice(for: .missing, engine: engine),
-                       ModelNotice(title: "Cado: model not downloaded",
-                                   body: "Download it in Settings › Model, or run `make whisperkit-model WHISPERKIT=tiny.en`.",
-                                   log: "Model not downloaded (/m/whisperkit/tiny.en). Download it in Settings › Model, "
-                                       + "or run `make whisperkit-model WHISPERKIT=tiny.en`."))
+                       ModelNotice(title: "Speech model not downloaded",
+                                   body: "Download it in Settings › Speech Model.",
+                                   log: "Model not downloaded (/m/whisperkit/tiny.en). It downloads with: \(command)"))
         let broken = EngineReadiness(status: .failed(reason: "bad"), modelPath: "/m/whisperkit/tiny.en", download: hint)
         XCTAssertEqual(ModelHints.notice(for: .failed(reason: "bad"), engine: broken)?.body,
-                       "bad Try `make whisperkit-model WHISPERKIT=tiny.en` to re-download it, "
-                           + "or delete the model and download it again in Settings › Model.")
+                       "bad Choose Open Models Folder… in the Cado menu, delete the model, "
+                           + "then download it again in Settings › Speech Model.")
     }
 
     func testOSManagedModelsOpenSettingsToo() {
-        let hint = ModelDownloadHint.instructions("Open Settings › Model to download it.")
+        let hint = ModelDownloadHint.instructions("Download it in Settings › Speech Model.")
         XCTAssertEqual(ReadinessIssue.modelMissing(path: "en-US", download: hint).action, .openSettings)
     }
 
-    func testFailedSwitchNoticeSkipsTheRedownloadHint() {
-        // The engine already fell back to the previous model: a hint would
-        // name the wrong file.
+    func testFailedSwitchNoticeSkipsTheFix() {
+        // The engine already fell back to the previous model: a fix would
+        // name the wrong model.
         XCTAssertEqual(ModelHints.notice(for: .failed(reason: "bad"), engine: engine(.ready))?.body, "bad")
     }
 
     func testLoadingAndVerifyingAreTransientAndStillAllowDictation() {
         let loading = AppReadiness.status(for: inputs(engine: .loading))
         XCTAssertEqual(loading, .starting(.modelLoading))
-        XCTAssertEqual(loading.title, "Loading model…")
+        XCTAssertEqual(loading.title, "Loading speech model…")
         XCTAssertTrue(loading.allowsDictation, "Jobs queue behind a loading model")
         XCTAssertEqual(AppReadiness.status(for: inputs(engine: .notLoaded)), .starting(.modelLoading))
 
         let verifying = AppReadiness.status(for: inputs(engine: .verifying))
         XCTAssertEqual(verifying, .starting(.modelVerifying))
-        XCTAssertEqual(verifying.title, "Verifying model…")
+        XCTAssertEqual(verifying.title, "Verifying speech model…")
         XCTAssertTrue(verifying.allowsDictation)
     }
 

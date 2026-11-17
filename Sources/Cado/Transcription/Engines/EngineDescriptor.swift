@@ -173,6 +173,6 @@ enum ModelDownloadHint: Equatable {
     /// MODEL=small.en-q5_1` or `make whisperkit-model WHISPERKIT=tiny.en`.
     case inApp(command: String)
     /// A sentence, for engines whose models aren't fetched by a command, e.g.
-    /// "Open Settings › Model to download it."
+    /// "Download it in Settings › Speech Model."
     case instructions(String)
 }

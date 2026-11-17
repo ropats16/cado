@@ -229,8 +229,11 @@ struct OnboardingContent: Equatable {
                 return (.todo, OnboardingButton(title: title, action: .download(option.key)), nil, nil)
             case .settings:
                 return (.todo, OnboardingButton(title: "Open Settings", action: .readiness(.openSettings)), nil, nil)
-            case .command(let command):
-                return (.todo, nil, nil, "Download it from Cado's source folder with: \(command)")
+            case .command:
+                // Only a source checkout fetches it (the command is logged
+                // with the engine's missing-model notice).
+                return (.todo, OnboardingButton(title: "Open Settings", action: .readiness(.openSettings)), nil,
+                        "Cado can't download \(option.title). Choose another speech model in Settings.")
             }
         }
     }

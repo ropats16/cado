@@ -7,7 +7,7 @@ import Speech
 ///
 /// How it maps onto `TranscriptionStatus` (`AppleSpeechEngine.isPresent`):
 /// - `.installed` → present; `load()` goes `.loading` → `.ready` as for a file.
-/// - `.notInstalled` → `.missing`, with the engine's "Open Settings › Model"
+/// - `.notInstalled` → `.missing`, with the engine's "Settings › Speech Model"
 ///   hint; Settings' Download button calls `AppleSpeechAssets.install`.
 /// - `.downloading` → `.missing` too, Settings showing the progress; when the
 ///   install finishes (from Settings or elsewhere) the engine loads it.

@@ -17,10 +17,10 @@ enum ReadinessAction: Equatable {
     case openMicrophoneSettings
     /// Show the system microphone prompt (only possible while undetermined).
     case requestMicrophone
-    /// Where the model file goes, to drop in or re-download one.
+    /// Where the model files are, to delete a broken download.
     case openModelsFolder
-    /// Settings' Model section, for a model it downloads (Download button,
-    /// or Apple Speech's OS-managed model).
+    /// Settings' Speech Model section: its Download buttons (or Apple
+    /// Speech's OS-managed model), or another model to pick.
     case openSettings
 }
 
@@ -53,19 +53,20 @@ enum ReadinessIssue: Equatable {
         }
     }
 
-    /// Short, for the menu header and notices (`AppStatus.headline`).
+    /// Short, for the menu header and notices (`AppStatus.headline`). One
+    /// shape: the subject, then its state, in sentence case.
     var title: String {
         switch self {
-        case .accessibilityNeeded: return "Needs Accessibility"
-        case .microphoneDenied, .microphoneNotDetermined: return "Needs Microphone"
+        case .accessibilityNeeded: return "Accessibility not allowed"
+        case .microphoneDenied, .microphoneNotDetermined: return "Microphone not allowed"
         case .microphoneRestricted: return "Microphone restricted"
-        case .modelMissing: return "Model missing"
-        case .modelFailed: return "Model failed to load"
+        case .modelMissing: return "Speech model missing"
+        case .modelFailed: return "Speech model failed to load"
         case .hotkeyTapFailed: return "Hotkeys unavailable"
         case .hotkeysStarting: return "Starting hotkeys…"
-        case .modelVerifying: return "Verifying model…"
-        case .modelLoading: return "Loading model…"
-        case .modelPreparing: return "Preparing model…"
+        case .modelVerifying: return "Verifying speech model…"
+        case .modelLoading: return "Loading speech model…"
+        case .modelPreparing: return "Preparing speech model…"
         }
     }
 
@@ -89,9 +90,9 @@ enum ReadinessIssue: Equatable {
         case .hotkeysStarting:
             return "Installing the hotkey listener."
         case .modelVerifying:
-            return "Checking the model file (first use only)."
+            return "Checking the speech model (first use only)."
         case .modelLoading:
-            return "Loading the transcription model."
+            return "Loading the speech model."
         case .modelPreparing:
             return ModelHints.preparing
         }
@@ -102,8 +103,11 @@ enum ReadinessIssue: Equatable {
         case .accessibilityNeeded, .hotkeyTapFailed: return .openAccessibilitySettings
         case .microphoneDenied, .microphoneRestricted: return .openMicrophoneSettings
         case .microphoneNotDetermined: return .requestMicrophone
-        case .modelMissing(_, .inApp?), .modelMissing(_, .instructions?): return .openSettings
-        case .modelMissing, .modelFailed: return .openModelsFolder
+        // Settings downloads it, or picks another; a broken download is
+        // deleted from the Models folder first (`ModelHints.failed`).
+        case .modelMissing, .modelFailed(_, .command?), .modelFailed(_, .instructions?), .modelFailed(_, nil):
+            return .openSettings
+        case .modelFailed(_, .inApp?): return .openModelsFolder
         case .hotkeysStarting, .modelVerifying, .modelLoading, .modelPreparing: return nil
         }
     }
@@ -127,8 +131,8 @@ enum AppStatus: Equatable {
 
     var title: String { issue?.title ?? "Ready" }
 
-    /// "Cado — <title>": the menu header, and the title of a blocked
-    /// press's notice.
+    /// "Cado — <title>": the menu header. (Notices use `title`: the
+    /// system already names the app.)
     var headline: String { "Cado — \(title)" }
 
     /// Whether a hotkey press should start a recording. A loading or

@@ -54,6 +54,49 @@ final class ConfigValidationTests: XCTestCase {
                        "`hold` and `toggle` are the same binding (⌃ ⇧); both modes would trigger on the same key.")
     }
 
+    /// The words users see (Settings, the menu) use the names Settings
+    /// shows for the hotkeys, never the config keys; the log keeps those.
+    func testSummariesUseTheSettingsNames() {
+        var config = Config.defaults
+        config.toggle = config.hold
+        XCTAssertEqual(errors(config).first?.summary, "Hold to talk and Toggle to talk use the same keys (⌃ ⇧).")
+        XCTAssertEqual(errors(config).first?.topic, .hotkeys)
+
+        config = .defaults
+        config.hold = KeyBinding(keyCode: -1, modifiers: [])
+        XCTAssertEqual(errors(config).first?.summary, "Hold to talk has no keys set.")
+        config = .defaults
+        config.toggle = KeyBinding(keyCode: -1, modifiers: [])
+        XCTAssertEqual(errors(config).first?.summary, "Toggle to talk has no keys set.")
+
+        config = .defaults
+        config.hold = KeyBinding(keyCode: 50, modifiers: ["control"])
+        config.cancelKeyCode = 50
+        XCTAssertEqual(warnings(config).first?.summary,
+                       "Hold to talk uses the cancel key, so pressing it may cancel instead.")
+
+        config = .defaults
+        config.toggle = KeyBinding(keyCode: -1, modifiers: ["controll", "shift"])
+        XCTAssertEqual(warnings(config).first?.summary,
+                       "Toggle to talk includes a key Cado doesn't recognize (“controll”), so it's ignored.")
+    }
+
+    func testSummariesCarryNoConfigSyntax() {
+        var configs: [Config] = []
+        var same = Config.defaults; same.toggle = same.hold; configs.append(same)
+        var empty = Config.defaults; empty.hold = KeyBinding(keyCode: -1, modifiers: []); configs.append(empty)
+        var cancel = Config.defaults; cancel.toggle = KeyBinding(keyCode: 49, modifiers: ["control"])
+        cancel.cancelKeyCode = 49; configs.append(cancel)
+        var unknown = Config.defaults; unknown.hold = KeyBinding(keyCode: -1, modifiers: ["hyper"]); configs.append(unknown)
+        var engine = Config.defaults; engine.engine = "nonsense"; configs.append(engine)
+        for config in configs {
+            for issue in ConfigValidator.validate(config) {
+                UserFacingCopy.assertPlain(issue.summary)
+                XCTAssertFalse(issue.summary.contains("keyCode"), issue.summary)
+            }
+        }
+    }
+
     func testHoldEqualsToggleViaAliasesIsError() {
         var config = Config.defaults
         config.hold = KeyBinding(keyCode: -1, modifiers: ["control", "shift"])
