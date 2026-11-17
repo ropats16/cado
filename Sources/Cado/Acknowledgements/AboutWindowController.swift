@@ -36,18 +36,6 @@ final class AboutWindowController {
     }
 }
 
-extension AppInfo {
-    /// "Version 0.3.0 (12)", or "Development build" when run from source.
-    static var versionText: String {
-        let info = Bundle.main.infoDictionary
-        guard let short = info?["CFBundleShortVersionString"] as? String, !short.isEmpty else { return "Development build" }
-        if let build = info?["CFBundleVersion"] as? String, !build.isEmpty, build != short {
-            return "Version \(short) (\(build))"
-        }
-        return "Version \(short)"
-    }
-}
-
 /// About: the mascot, name and version over the credits in Settings' cards
 /// (the intro, a card per `## ` section, then Cado's own license).
 /// Selectable text, clickable links.
@@ -88,7 +76,7 @@ struct AboutView: View {
                     .accessibilityAddTraits(.isHeader)
                     .padding(.leading, 2)
                     .padding(.bottom, -8)
-                AcknowledgementsView.credits(content)
+                AcknowledgementsCredits.credits(content)
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -98,20 +86,8 @@ struct AboutView: View {
     }
 }
 
-/// The credits themselves.
-struct AcknowledgementsView: View {
-    let content: AcknowledgementsContent
-
-    var body: some View {
-        ScrollView {
-            Self.credits(content)
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .background(Brand.Palette.background)
-        .tint(Brand.Palette.accentText)
-    }
-
+/// The credits cards About shows.
+enum AcknowledgementsCredits {
     static func credits(_ content: AcknowledgementsContent) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {

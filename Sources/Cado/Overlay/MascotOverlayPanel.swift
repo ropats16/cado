@@ -54,8 +54,8 @@ final class MascotOverlayPanel: MascotSurface {
     /// The window, once shown and until discarded.
     private(set) var window: NSPanel?
     var onClick: (() -> Void)?
-    /// The right-click menu's items (#45). Hide takes the mascot off screen
-    /// until the next dictation; Settings… opens the Settings window.
+    /// The right-click menu's items (#45). Hide (offered while the mascot
+    /// rests) turns "Always show the mascot" off, so it goes until the next dictation; Settings… opens the Settings window.
     var onHide: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     /// Applied live, and re-asserted on every show.
@@ -140,8 +140,12 @@ final class MascotOverlayPanel: MascotSurface {
         let hide = NSMenuItem(title: MascotAccessibility.hideTitle, action: #selector(menuHide), keyEquivalent: "")
         let settings = NSMenuItem(title: MascotAccessibility.settingsTitle, action: #selector(menuSettings), keyEquivalent: "")
         for item in [hide, settings] { item.target = self; menu.addItem(item) }
+        hide.isEnabled = canHide
         return menu
     }
+    /// Hide only does something while the mascot rests on screen: during a
+    /// dictation or meeting the mascot shows regardless of the setting.
+    var canHide: Bool { model.isMini }
     @objc private func menuHide() { onHide?() }
     @objc private func menuSettings() { onOpenSettings?() }
 
@@ -318,7 +322,10 @@ final class MascotHostingView: NSHostingView<MascotView> {
     // and Settings… are its actions, as the right-click menu has them.
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .button }
-    override func accessibilityLabel() -> String? { MascotAccessibility.label }
+    override func accessibilityLabel() -> String? {
+        let pose = rootView.model.pose
+        return pose == .idle ? MascotAccessibility.label : MascotView.accessibilityLabel(for: pose)
+    }
     override func accessibilityHelp() -> String? { MascotAccessibility.help }
     override func accessibilityPerformPress() -> Bool {
         guard let onClick = owner?.onClick else { return false }
@@ -326,10 +333,14 @@ final class MascotHostingView: NSHostingView<MascotView> {
         return true
     }
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
-        [NSAccessibilityCustomAction(name: MascotAccessibility.hideTitle) { [weak self] in
-            self?.owner?.onHide?(); return true },
-         NSAccessibilityCustomAction(name: MascotAccessibility.settingsTitle) { [weak self] in
-            self?.owner?.onOpenSettings?(); return true }]
+        var actions: [NSAccessibilityCustomAction] = []
+        if owner?.canHide == true {
+            actions.append(NSAccessibilityCustomAction(name: MascotAccessibility.hideTitle) { [weak self] in
+                self?.owner?.onHide?(); return true })
+        }
+        actions.append(NSAccessibilityCustomAction(name: MascotAccessibility.settingsTitle) { [weak self] in
+            self?.owner?.onOpenSettings?(); return true })
+        return actions
     }
 
     /// The app is never active, so every click is a first click.

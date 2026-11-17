@@ -232,6 +232,7 @@ final class MascotOverlayPanelTests: XCTestCase {
         var hid = 0, opened = 0
         adapter.onHide = { hid += 1 }
         adapter.onOpenSettings = { opened += 1 }
+        adapter.render(.resting)
         adapter.show()
         let view = try XCTUnwrap(adapter.window?.contentView as? MascotHostingView)
         let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [],
@@ -255,10 +256,30 @@ final class MascotOverlayPanelTests: XCTestCase {
         XCTAssertTrue(view.isAccessibilityElement())
         XCTAssertEqual(view.accessibilityRole(), .button)
         XCTAssertEqual(view.accessibilityLabel(), "Cado mascot")
+        adapter.render(.listening)
+        XCTAssertEqual(view.accessibilityLabel(), "Cado is listening")
+        adapter.render(.thinking)
+        XCTAssertEqual(view.accessibilityLabel(), "Cado is transcribing")
+        adapter.render(.resting)
         XCTAssertNotNil(view.accessibilityHelp())
         XCTAssertTrue(view.accessibilityPerformPress())
         XCTAssertEqual(clicks, 1)
         XCTAssertEqual(view.accessibilityCustomActions()?.map(\.name), ["Hide Mascot", "Settings…"])
+    }
+
+    /// Hide does nothing while a dictation shows the mascot: not offered then.
+    func testHideOfferedOnlyWhileResting() throws {
+        let adapter = try makeAdapter()
+        adapter.render(.listening)
+        adapter.show()
+        let view = try XCTUnwrap(adapter.window?.contentView as? MascotHostingView)
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [],
+                                                     timestamp: 0, windowNumber: 0, context: nil,
+                                                     eventNumber: 0, clickCount: 1, pressure: 1))
+        let menu = try XCTUnwrap(view.menu(for: event))
+        XCTAssertEqual(menu.items.first?.isEnabled, false)
+        XCTAssertEqual(menu.items.last?.isEnabled, true)
+        XCTAssertEqual(view.accessibilityCustomActions()?.map(\.name), ["Settings…"])
     }
 
     /// The window takes mouse events only while the pointer is over the body,
