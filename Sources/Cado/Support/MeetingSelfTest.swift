@@ -1,14 +1,17 @@
 import AVFoundation
 import Foundation
 
-/// `Cado --meeting-test --me <me.wav> --them <them.wav> [--app <name>] [--notes <dir>] [--model <file>] [--engine <id>]`
+/// `Cado --meeting-test --me <me.wav> --them <them.wav> [--app <name>] [--notes <dir>] [--model <file>] [--engine <id>]
+/// [--me-reference <text>] [--them-reference <text>]`
 ///
 /// Runs a whole meeting (#30) end to end without a mic, a meeting app or any
 /// permission: the two WAV files play as Me and Others through the same
 /// captures, `MeetingSession`, chunking, real engine (as `--selftest` picks
 /// it) and `NotesLibrary` the app uses, then the note is printed. Notes go
 /// to `--notes` (default: a fresh temp folder), never the user's notes
-/// folder; notices are printed instead of shown.
+/// folder; notices are printed instead of shown. With a side's reference
+/// text, that side's turns are scored against it (`WordErrorRate`, as the
+/// bench does): speaker bleed shows up as Me insertions (#36).
 ///
 /// Exit status: 0 a note was written; 1 no note (or the engine failed to
 /// load); 2 bad usage.
@@ -17,7 +20,7 @@ enum MeetingSelfTest {
         guard let mePath = CommandLineSupport.value("--me", in: arguments),
               let themPath = CommandLineSupport.value("--them", in: arguments) else {
             err("usage: Cado --meeting-test --me <me.wav> --them <them.wav> [--app <name>] [--notes <dir>] "
-                + "[--model <file>] [--engine <id>]")
+                + "[--model <file>] [--engine <id>] [--me-reference <text>] [--them-reference <text>]")
             return 2
         }
         let appName = CommandLineSupport.value("--app", in: arguments) ?? "Zoom"
@@ -85,7 +88,21 @@ enum MeetingSelfTest {
         }
         err("Note: \(note.url.path)")
         print(text, terminator: "")
+        for speaker in MeetingSpeaker.allCases {
+            let flag = speaker == .me ? "--me-reference" : "--them-reference"
+            guard let reference = CommandLineSupport.value(flag, in: arguments) else { continue }
+            let wer = WordErrorRate.score(reference: reference, hypothesis: turnText(of: speaker, in: text))
+            err(String(format: "%@ WER: %.1f%% (S %d, D %d, I %d of %d words)", speaker.rawValue, wer.rate * 100,
+                       wer.substitutions, wer.deletions, wer.insertions, wer.referenceWords))
+        }
         return 0
+    }
+
+    /// Every turn of `speaker` in the note's text, joined.
+    static func turnText(of speaker: MeetingSpeaker, in note: String) -> String {
+        let label = "**\(speaker.rawValue):** "
+        return note.components(separatedBy: "\n").filter { $0.hasPrefix(label) }
+            .map { String($0.dropFirst(label.count)) }.joined(separator: " ")
     }
 
     private static func duration(_ path: String) throws -> Double {

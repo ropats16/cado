@@ -130,4 +130,13 @@ final class SpeakerBleedFilterTests: XCTestCase {
         XCTAssertEqual(plan.pieces, [Piece(speaker: .them, start: 2.25, text: " Hi.", end: 2.9),
                                      Piece(speaker: .them, start: 3, text: " Old.")])
     }
+
+    // MARK: - Measuring (`--meeting-test --me-reference`)
+
+    func testTheMeetingTestScoresEachSidesTurns() {
+        let note = "Recorded from Zoom (Others) and your microphone (Me).\n\n**Me:** Hi all.\n\n"
+            + "**Others:** Hello.\n\n**Me:** Bye now.\n"
+        XCTAssertEqual(MeetingSelfTest.turnText(of: .me, in: note), "Hi all. Bye now.")
+        XCTAssertEqual(MeetingSelfTest.turnText(of: .them, in: note), "Hello.")
+    }
 }
