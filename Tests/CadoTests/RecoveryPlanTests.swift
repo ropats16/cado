@@ -105,6 +105,18 @@ final class RecoveryPlanTests: XCTestCase {
         XCTAssertTrue(between.shouldGiveUp)
     }
 
+    /// Once recovery gave up, it stays given up: a failed save of the
+    /// give-up's note must not send the next launch back to transcribing.
+    func testGivingUpSticksEvenWhenItsNoteFailedToSave() {
+        let events: [SpoolEvent] = [hello, .recoveryStarted, .recoveryStarted, .recoveryGaveUp(reason: "stalled"),
+                                    .noteSaveFailed(reason: "full")]
+        let plan = RecoveryPlan(events: events, sampleCounts: full)
+        XCTAssertTrue(plan.gaveUp)
+        XCTAssertTrue(plan.shouldGiveUp)
+        XCTAssertFalse(plan.transcriptionComplete, "A give-up's note isn't a finished transcript")
+        XCTAssertFalse(RecoveryPlan(events: [hello, .recoveryStarted], sampleCounts: full).gaveUp)
+    }
+
     func testTranscriptionCompleteOnceNoteSavingWasReached() {
         func complete(_ events: [SpoolEvent]) -> Bool { RecoveryPlan(events: events, sampleCounts: full).transcriptionComplete }
         XCTAssertTrue(complete([.recoveryStarted, .noteSaveFailed(reason: "full")]))

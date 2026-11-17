@@ -69,7 +69,12 @@ struct RecoveryPlan: Equatable {
     var transcriptionComplete = false
     var concluded: Concluded?
 
-    var shouldGiveUp: Bool { stalledAttempts >= Self.maxStalledAttempts }
+    /// Recovery already gave up on this meeting (`.recoveryGaveUp`). The
+    /// decision sticks: a later launch finishes the give-up (saves the note
+    /// from what's journaled), it never starts transcribing again.
+    var gaveUp = false
+
+    var shouldGiveUp: Bool { gaveUp || stalledAttempts >= Self.maxStalledAttempts }
 
     init(events: [SpoolEvent], sampleCounts: [MeetingSpeaker: Int]) {
         var sides: [MeetingSpeaker: Side] = [:]
@@ -136,8 +141,10 @@ struct RecoveryPlan: Equatable {
             case .noteSaveFailed:
                 saveFailed = true
                 reachedSaving = true
-                transcriptionComplete = true
-            case .recoveryGaveUp, .toldUser: break   // `MeetingSession` reads these itself
+                if !gaveUp { transcriptionComplete = true }   // a give-up's note isn't a finished transcript
+            case .recoveryGaveUp:
+                gaveUp = true
+            case .toldUser: break   // `MeetingSession` reads it itself
             }
         }
         closeAttempt()
