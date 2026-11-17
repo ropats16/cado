@@ -68,8 +68,10 @@ import Foundation
 /// (the memory part can't wait), journaled the same way.
 ///
 /// Rules worth knowing:
-/// - Start is ignored unless idle; during a recovery the user is told why.
-///   Stop only while recording.
+/// - Start is ignored unless idle or recovering. During a recovery it holds
+///   the recovery at a chunk boundary (`hold`, #48) and records at once; the
+///   recovery goes on once the new meeting is written down. Stop only while
+///   recording.
 /// - Recording stops by itself at `maxSeconds`, with a notice; the note is
 ///   still written and says so.
 /// - Memory: neither the session nor the captures (`retainsSamples: false`)
@@ -204,6 +206,9 @@ final class MeetingSession {
         var toldSpoolFailed = false
         /// An earlier launch said "the meeting is safe" (`.toldUser`).
         var toldMeetingIsSafe = false
+        /// A recovery held for a meeting the user started (#48): nothing more
+        /// is submitted until it's resumed.
+        var onHold = false
 
         init(id: Int, appName: String, startedAt: TimeInterval, startDate: Date, spool: MeetingSpoolHandle,
              me: MeetingStream?, them: MeetingStream?, recovery: RecoveryPlan.Reason? = nil) {
@@ -263,6 +268,9 @@ final class MeetingSession {
     /// `recoverLeftovers` was called; the leftovers are listed when idle.
     private var recoveryRequested = false
     private var leftovers: [LeftoverMeeting] = []
+    /// A recovery held while a meeting the user started records and is
+    /// written down (#48); resumed after it.
+    private var held: Meeting?
     private var isQuitting = false
     /// Audio copies under way whose source lives only in memory: quitting
     /// waits for them (an on-disk spool's copy is just redone next launch).
@@ -329,13 +337,7 @@ final class MeetingSession {
     // MARK: - Intents
 
     func start(_ app: MeetingApp) {
-        if let recovering = current, recovering.isRecovery {
-            // One meeting at a time: the earlier one first, and say so.
-            feedback.notify(title: "Meeting not started",
-                            body: "Cado is still finishing a meeting with \(recovering.appName) that wasn't finished. "
-                                + "Start the new one once it's done.")
-            return
-        }
+        if let recovering = current, recovering.isRecovery, !isQuitting { hold(recovering) }
         guard case .idle = state, !isQuitting else { return }
         meetingCount += 1
         let id = meetingCount
@@ -370,12 +372,16 @@ final class MeetingSession {
         isQuitting = true
         leftovers = []
         recoveryRequested = false
+        if let recovery = held {
+            held = nil
+            if recovery.inFlight != nil { journalPause(recovery.spool) }   // else journaled when it was held
+        }
         switch state {
         case .idle:
             whenCopiesAreSafe(done)
         case .finishing(let meeting) where meeting.isRecovery, .transcribing(let meeting) where meeting.isRecovery:
             Log.info("Meeting recovery: Cado is quitting; the meeting with \(meeting.appName) goes on next launch.")
-            pauseForQuit(meeting.spool)
+            journalPause(meeting.spool)
             end()
             whenCopiesAreSafe(done)
         case .recording(let meeting):
@@ -403,9 +409,9 @@ final class MeetingSession {
         }
     }
 
-    /// A clean quit during a recovery doesn't count against it
+    /// A clean quit (or hold) during a recovery doesn't count against it
     /// (`.recoveryPaused`); with the journal full, the attempt's mark goes.
-    private func pauseForQuit(_ spool: MeetingSpoolHandle) {
+    private func journalPause(_ spool: MeetingSpoolHandle) {
         if !spool.record(.recoveryPaused) { endAttemptMark(spool) }
     }
 
@@ -625,7 +631,7 @@ final class MeetingSession {
     /// Submits the next job unless one is in flight (or Cado is quitting).
     /// A job whose audio can't be read back counts as failed at once.
     private func submitNext(_ meeting: Meeting) {
-        while meeting.inFlight == nil, meeting.quit == nil, !meeting.queue.isEmpty {
+        while meeting.inFlight == nil, meeting.quit == nil, !meeting.onHold, !meeting.queue.isEmpty {
             let job = meeting.queue.removeFirst()
             let samples: [Float]
             do {
@@ -643,6 +649,12 @@ final class MeetingSession {
     }
 
     private func transcribed(_ id: Int, _ result: Result<Transcript, Error>) {
+        if let recovery = held, recovery.id == id, let job = recovery.inFlight {
+            // The held recovery's last passage: journaled, then the pause (a chunk boundary).
+            recovery.inFlight = nil
+            recordResult(result, of: job, recovery)
+            return journalPause(recovery.spool)
+        }
         guard let meeting = meeting(id), let job = meeting.inFlight else { return }
         meeting.inFlight = nil
         recordResult(result, of: job, meeting)
@@ -979,11 +991,43 @@ final class MeetingSession {
         engine.endPrewarm()
     }
 
-    /// Back to idle; then the next leftover, if any are waiting.
+    /// Back to idle; then a held recovery, or the next leftover, if any.
     private func end() {
+        if !isQuitting, let recovery = held {
+            held = nil
+            return resume(recovery)
+        }
         state = .idle
         report()
         startNextRecovery()
+    }
+
+    /// The user starts a meeting during a recovery (#48): recording comes
+    /// first. The recovery is held at a chunk boundary: the passage already
+    /// in the engine (one queue for everything) finishes and is journaled,
+    /// nothing more is submitted or read back; its state stays in memory and
+    /// its spool locked. `.recoveryPaused` is journaled once nothing of it is
+    /// in flight, so a crash meanwhile isn't held against it, unless its own
+    /// last passage caused it.
+    private func hold(_ recovery: Meeting) {
+        Log.info("Meeting recovery: the meeting with \(recovery.appName) waits while a new meeting records.")
+        recovery.onHold = true
+        held = recovery
+        if recovery.inFlight == nil { journalPause(recovery.spool) }
+        state = .idle
+    }
+
+    /// The new meeting is written down: the held recovery goes on where it
+    /// was, as a new attempt (journaled, so the crash-loop guard counts it).
+    private func resume(_ recovery: Meeting) {
+        recovery.onHold = false
+        state = recovery.allEnded ? .transcribing(recovery) : .finishing(recovery)
+        report()
+        Log.info("Meeting recovery: going on with the meeting with \(recovery.appName).")
+        guard beginAttempt(recovery.spool) else { return waitForRoom(recovery) }
+        guard recovery.allEnded else { return readBack(recovery.id) }
+        submitNext(recovery)
+        completeIfDone(recovery)
     }
 
     // MARK: - Recovery
@@ -1121,7 +1165,7 @@ final class MeetingSession {
         var allZero = false
         let id = meeting.id
         background({ allZero = audio.isAllZero(.them) }, { [weak self] in
-            guard let self, let meeting = self.meeting(id) else { return }
+            guard let self, let meeting = self.meeting(id) ?? self.held.flatMap({ $0.id == id ? $0 : nil }) else { return }
             meeting.themAllZero = allZero
             self.completeIfDone(meeting)
         })

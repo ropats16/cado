@@ -1000,19 +1000,97 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertFalse(h.isDiscarded)
     }
 
-    /// L4: starting a meeting during a recovery says why it doesn't start.
-    func testStartingAMeetingWhileRecoveringIsRefusedWithAReason() {
-        _ = leftover(bothStarted)
+    /// #48 (was L4's refusal): starting a meeting during a recovery holds
+    /// the recovery at a chunk boundary and records at once; the recovery
+    /// goes on after the new meeting's note, every passage exactly once.
+    func testStartingAMeetingDuringARecoveryHoldsItAndGoesOnAfter() {
+        let h = leftover(bothStarted)
         session.recoverLeftovers()
-        session.start(zoom)
-        XCTAssertTrue(recorder.requests.isEmpty, "One meeting at a time")
-        XCTAssertEqual(feedback.titles, ["Meeting not started"])
-        XCTAssertEqual(feedback.notices[0].body, "Cado is still finishing a meeting with Zoom that wasn't finished. "
-                       + "Start the new one once it's done.")
-        UserFacingCopy.assertPlain(feedback.notices[0].body)
+        engine.finishNext()                      // one passage done; the next is in the engine
+        XCTAssertEqual(session.status, .recovering(app: "Zoom", done: 1, total: 3))
+        startBoth()
+        XCTAssertEqual(recorder.requests.count, 1, "Recording starts at once")
+        XCTAssertEqual(session.status, .recording(app: "Zoom", startedAt: 1_000, lost: []))
+        XCTAssertTrue(session.blocksDictation)
+        XCTAssertTrue(feedback.notices.isEmpty, "Nothing to refuse")
+        XCTAssertFalse(h.events.contains(.recoveryPaused), "Not before its passage in the engine is back")
+        XCTAssertEqual(engine.outstanding, 1, "Nothing more of the recovery is submitted")
+
+        engine.finishNext()                      // the held recovery's passage comes back
+        XCTAssertEqual(h.events.filter { if case .transcribed = $0 { return true } else { return false } }.count, 2,
+                       "Journaled as usual")
+        XCTAssertEqual(h.events.last, .recoveryPaused, "Held at a chunk boundary: a crash now doesn't count against it")
+        XCTAssertEqual(engine.outstanding, 0)
+
+        clock.advance(by: 10)
+        session.stop()
+        recorder.me.finish(audio(10, [(1, 2, 0.4)]))
+        recorder.them.finish(audio(10, []))
         engine.finishAll()
-        session.start(zoom)
-        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(feedback.titles, ["Meeting note saved", "Meeting note recovered"], "The new meeting first")
+        XCTAssertEqual(notes.saved.count, 2)
+        XCTAssertEqual(notes.saved[0].body.components(separatedBy: "**Me:**").count, 2)
+        XCTAssertTrue(notes.saved[1].body.hasSuffix(
+            "**Me:** Hello from me.\n\n**Others:** Hi from them.\n\n**Me:** Bye now.\n"), "Every passage exactly once")
+        XCTAssertEqual(engine.jobs.count, 3 + 1, "The recovery's three, the new meeting's one")
+        XCTAssertTrue(h.isDiscarded)
+        XCTAssertEqual(session.status, .idle)
+        let shown = feedback.statuses.map { status -> String in
+            switch status {
+            case .idle: return "idle"
+            case .recording: return "recording"
+            case .transcribing: return "transcribing"
+            case .recovering: return "recovering"
+            }
+        }
+        XCTAssertEqual(shown.reduce(into: [String]()) { if $0.last != $1 { $0.append($1) } },
+                       ["recovering", "recording", "transcribing", "recovering", "idle"])
+    }
+
+    /// Held with nothing of it in the engine (only its silence scan left):
+    /// paused at once; the scan's answer isn't lost meanwhile; resumed as a
+    /// new attempt, journaled.
+    func testAHeldRecoveryIsPausedAtOnceAndResumedAsANewAttempt() {
+        var queued: [(work: () -> Void, done: () -> Void)] = []
+        session = makeSession(background: { queued.append(($0, $1)) })
+        let h = leftover(bothStarted)
+        session.recoverLeftovers()
+        engine.finishAll()
+        XCTAssertEqual(session.status, .recovering(app: "Zoom", done: 3, total: 3), "Waiting for the silence scan")
+        startBoth()
+        XCTAssertEqual(h.events.last, .recoveryPaused, "Nothing in flight: paused at once")
+        queued[0].work(); queued[0].done()       // the scan answers while it's held
+        XCTAssertTrue(notes.saved.isEmpty, "Not finished while held")
+
+        var atSave: [[SpoolEvent]] = []
+        notes.onSave = { atSave.append(h.events) }
+        clock.advance(by: 10)
+        session.stop()
+        recorder.me.finish(audio(10, [(1, 2, 0.4)]))
+        recorder.them.finish(audio(10, []))
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.count, 2)
+        XCTAssertEqual(Array(atSave[1].suffix(2)), [.recoveryPaused, .recoveryStarted], "A new attempt, counted")
+        XCTAssertTrue(h.isDiscarded)
+        XCTAssertEqual(session.status, .idle)
+    }
+
+    /// Quitting while a recovery is held pauses it for the next launch (the
+    /// new meeting is handled as any quit).
+    func testQuittingWhileARecoveryIsHeldPausesItForNextLaunch() {
+        let h = leftover(bothStarted)
+        session.recoverLeftovers()
+        startBoth()                              // the recovery's first passage is still in the engine
+        var done = false
+        session.quit { done = true }
+        recorder.me.finish(audio(10, [(1, 2, 0.4)]))
+        recorder.them.finish(audio(10, []))
+        XCTAssertTrue(done)
+        XCTAssertEqual(h.events.last, .recoveryPaused)
+        XCTAssertFalse(h.isDiscarded, "Left for the next launch")
+        engine.finishAll()
+        XCTAssertFalse(notes.saved.contains { $0.body.contains("quit unexpectedly") }, "Not recovered now")
+        XCTAssertEqual(h.events.filter { $0 == .recoveryStarted }.count, 1, "Not resumed")
     }
 
     func testRecoveryWaitsForAMeetingUnderWay() {

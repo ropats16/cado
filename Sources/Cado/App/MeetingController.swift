@@ -51,9 +51,10 @@ final class MeetingController: MeetingActivity {
 
     var status: MeetingStatus { session.status }
 
-    /// The menu is opening: which apps could be recorded right now.
+    /// The menu is opening: which apps could be recorded right now (also
+    /// during a recovery, which recording holds, #48).
     func refreshApps() {
-        if session.status == .idle {
+        if session.status == .idle || session.status.isRecovering {
             choice = MeetingAppChoice.decide(supported: SystemAudioReadiness.canRecord(systemAudio()),
                                              apps: RecordableApps.current())
         }
