@@ -26,6 +26,8 @@ struct Config: Codable {
     var hold: KeyBinding
     var toggle: KeyBinding
     var cancelKeyCode: Int          // Esc = 53
+    /// Starts or stops a meeting recording (#32). Default ⌃⌥M.
+    var meetingHotkey: KeyBinding
     var maxRecordingSeconds: Double // <= 0 = no limit (a 30-min ceiling still applies)
     var trailingSpace: Bool
     var microphoneUID: String?      // nil = system default input
@@ -64,6 +66,15 @@ struct Config: Codable {
     /// Keep a meeting's audio after its note is saved (#31). Off (the default):
     /// the audio is deleted once the note is saved.
     var keepMeetingAudio: Bool
+    /// Ask "Record this meeting?" when a meeting app starts using the mic,
+    /// and whether to stop when it lets go (#32). On by default; it never
+    /// records by itself.
+    var meetingDetection: Bool
+    /// A meeting stops by itself after this many minutes, the note written
+    /// as usual (#32). Default 120; <= 0 = Off (`MeetingLimit`).
+    var maxMeetingMinutes: Double
+    /// The one-time recording-consent reminder was acknowledged (#32).
+    var meetingConsentShown: Bool
 
     static var defaults: Config {
         Config(
@@ -89,7 +100,11 @@ struct Config: Codable {
             notesFolder: "",
             notesFolderBookmark: nil,
             dictationHistory: false,
-            keepMeetingAudio: false
+            keepMeetingAudio: false,
+            meetingHotkey: .controlOptionM,
+            meetingDetection: true,
+            maxMeetingMinutes: MeetingLimit.defaultMinutes,
+            meetingConsentShown: false
         )
     }
 
@@ -102,7 +117,9 @@ struct Config: Codable {
          mascotPositions: [String: MascotPosition] = [:], onboardingDone: Bool = false,
          usagePing: Bool = false,
          notesFolder: String = "", notesFolderBookmark: String? = nil,
-         dictationHistory: Bool = false, keepMeetingAudio: Bool = false) {
+         dictationHistory: Bool = false, keepMeetingAudio: Bool = false,
+         meetingHotkey: KeyBinding = .controlOptionM, meetingDetection: Bool = true,
+         maxMeetingMinutes: Double = MeetingLimit.defaultMinutes, meetingConsentShown: Bool = false) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -128,6 +145,10 @@ struct Config: Codable {
         self.notesFolderBookmark = notesFolderBookmark
         self.dictationHistory = dictationHistory
         self.keepMeetingAudio = keepMeetingAudio
+        self.meetingHotkey = meetingHotkey
+        self.meetingDetection = meetingDetection
+        self.maxMeetingMinutes = maxMeetingMinutes
+        self.meetingConsentShown = meetingConsentShown
     }
 
     init(from decoder: Decoder) throws {
@@ -163,6 +184,10 @@ struct Config: Codable {
         notesFolderBookmark = try c.decodeIfPresent(String.self, forKey: .notesFolderBookmark)
         dictationHistory = try c.decodeIfPresent(Bool.self, forKey: .dictationHistory) ?? d.dictationHistory
         keepMeetingAudio = try c.decodeIfPresent(Bool.self, forKey: .keepMeetingAudio) ?? d.keepMeetingAudio
+        meetingHotkey = try c.decodeIfPresent(KeyBinding.self, forKey: .meetingHotkey) ?? d.meetingHotkey
+        meetingDetection = try c.decodeIfPresent(Bool.self, forKey: .meetingDetection) ?? d.meetingDetection
+        maxMeetingMinutes = try c.decodeIfPresent(Double.self, forKey: .maxMeetingMinutes) ?? d.maxMeetingMinutes
+        meetingConsentShown = try c.decodeIfPresent(Bool.self, forKey: .meetingConsentShown) ?? d.meetingConsentShown
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this

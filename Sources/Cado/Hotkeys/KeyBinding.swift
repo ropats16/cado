@@ -32,6 +32,10 @@ struct KeyBinding: Codable, Equatable {
     static let rightOption = KeyBinding(keyCode: 61, modifiers: [])
     /// ⌃⌥Space — default toggle key.
     static let controlOptionSpace = KeyBinding(keyCode: 49, modifiers: ["control", "option"])
+    /// ⌃⌥M — default meeting start/stop (#32): the toggle's modifiers, M for
+    /// meeting. Not a macOS shortcut, nor one in Zoom, Teams, Meet or Slack,
+    /// and it types nothing.
+    static let controlOptionM = KeyBinding(keyCode: 46, modifiers: ["control", "option"])
 
     static let spaceKeyCode = 49
     /// Default cancel key; also aborts a Settings capture.
@@ -212,9 +216,18 @@ extension KeyBinding: CustomStringConvertible {
         switch keyCode {
         case spaceKeyCode: return "Space"
         case escapeKeyCode: return "Esc"
-        default: return "key\(keyCode)"
+        default: return letterKeys[keyCode] ?? "key\(keyCode)"
         }
     }
+
+    /// Letter and digit keys by key code, as printed on a US keyboard (key
+    /// codes are positions, so another layout may label the key otherwise).
+    private static let letterKeys: [Int: String] = [
+        0: "A", 11: "B", 8: "C", 2: "D", 14: "E", 3: "F", 5: "G", 4: "H", 34: "I", 38: "J", 40: "K",
+        37: "L", 46: "M", 45: "N", 31: "O", 35: "P", 12: "Q", 15: "R", 1: "S", 17: "T", 32: "U", 9: "V",
+        13: "W", 7: "X", 16: "Y", 6: "Z",
+        29: "0", 18: "1", 19: "2", 20: "3", 21: "4", 23: "5", 22: "6", 26: "7", 28: "8", 25: "9",
+    ]
 }
 
 // MARK: - Capture

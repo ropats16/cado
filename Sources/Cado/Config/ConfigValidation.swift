@@ -77,6 +77,8 @@ enum ConfigValidator {
                 summary: "\(Self.toggle) uses the cancel key, so pressing it may cancel instead."))
         }
 
+        issues += meetingHotkeyIssues(config)
+
         // warning — modifier names the runtime won't recognise (and so ignores).
         for name in config.hold.unknownModifiers {
             issues.append(ConfigIssue(
@@ -103,12 +105,48 @@ enum ConfigValidator {
                     + "so Cado uses \(EngineKind.whisper.displayName)."))
         }
 
-        return issues
+        // Errors first, each group in the order found.
+        return issues.filter { $0.severity == .error } + issues.filter { $0.severity == .warning }
     }
 
     /// The hotkeys as Settings names them (its Hotkeys rows, the menu).
     static let hold = "Hold to talk"
     static let toggle = "Toggle to talk"
+    static let meeting = "Record meeting"
+
+    /// The meeting hotkey (#32): the same as a dictation hotkey (errors:
+    /// one press would do both), empty, on the cancel key, or with an
+    /// unknown modifier.
+    private static func meetingHotkeyIssues(_ config: Config) -> [ConfigIssue] {
+        let meeting = config.meetingHotkey
+        var issues: [ConfigIssue] = []
+        for (other, name, key) in [(config.hold, hold, "hold"), (config.toggle, toggle, "toggle")]
+        where meeting.isSameChord(as: other) {
+            issues.append(ConfigIssue(
+                severity: .error, topic: .hotkeys,
+                message: "`meetingHotkey` and `\(key)` are the same binding (\(meeting)); both would trigger on the same key.",
+                summary: "\(Self.meeting) and \(name) use the same keys (\(meeting))."))
+        }
+        if meeting.isUnmatchable {
+            issues.append(ConfigIssue(
+                severity: .error, topic: .hotkeys,
+                message: "`meetingHotkey` binding is empty (keyCode < 0 with no modifiers); it can never match.",
+                summary: "\(Self.meeting) has no keys set."))
+        }
+        if meeting.keyCode >= 0, config.cancelKeyCode == meeting.keyCode {
+            issues.append(ConfigIssue(
+                severity: .warning, topic: .hotkeys,
+                message: "`cancelKeyCode` (\(config.cancelKeyCode)) collides with the `meetingHotkey` key code.",
+                summary: "\(Self.meeting) uses the cancel key, so pressing it may cancel a dictation too."))
+        }
+        for name in meeting.unknownModifiers {
+            issues.append(ConfigIssue(
+                severity: .warning, topic: .hotkeys,
+                message: "`meetingHotkey` has unknown modifier \"\(name)\"; it will be ignored.",
+                summary: Self.unknownKey(name, in: Self.meeting)))
+        }
+        return issues
+    }
 
     private static func unknownKey(_ name: String, in hotkey: String) -> String {
         "\(hotkey) includes a key Cado doesn't recognize (“\(name)”), so it's ignored."
