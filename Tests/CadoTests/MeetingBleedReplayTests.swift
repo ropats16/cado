@@ -9,7 +9,9 @@ import XCTest
 /// a chunk with its time, also two at once (Me talking over Others' bleed),
 /// and, like a real one, it mishears quiet audio (the bleed loses its last
 /// word). The note must have no Others sentence under Me, and every Me
-/// sentence, the backchannel and the one said over Others included.
+/// sentence, the backchannel, the one said over Others and a reply reusing
+/// six of Others' words included. With headphones nothing is removed, not
+/// even "Bye everyone." said by both at once.
 @MainActor
 final class MeetingBleedReplayTests: XCTestCase {
     /// A sentence: a tone at `hz` from `start` to `end` seconds.
@@ -23,14 +25,16 @@ final class MeetingBleedReplayTests: XCTestCase {
         Line(hz: 600, start: 2.0, end: 4.5, text: "The quarterly numbers look pretty good overall."),
         Line(hz: 1000, start: 7.0, end: 10.0, text: "Let's move on to the hiring plan for next quarter."),
         Line(hz: 1400, start: 12.0, end: 12.8, text: "Sounds good."),
+        Line(hz: 1800, start: 13.05, end: 13.45, text: "Bye everyone."),           // with Me
     ]
     private static let me = [
         Line(hz: 400, start: 0.5, end: 1.5, text: "Hi everyone, thanks for joining."),
         Line(hz: 800, start: 3.0, end: 3.4, text: "Yeah."),                          // over Others
         Line(hz: 1200, start: 8.0, end: 9.5, text: "Sorry, can I jump in here?"),    // over Others
-        Line(hz: 1600, start: 10.5, end: 11.5, text: "I think we should ship on Friday."),
+        Line(hz: 1600, start: 10.5, end: 11.5, text: "Then the hiring plan for next quarter can wait."),  // reusing Others' words
+        Line(hz: 2000, start: 13.0, end: 13.4, text: "Bye everyone."),             // with Others
     ]
-    private static let seconds = 14.0
+    private static let seconds = 15.0
     /// The mic hears the speakers 12 dB down, 40 ms late.
     private static let bleedGain: Float = 0.25
     private static let bleedDelay = 0.04
@@ -201,8 +205,14 @@ final class MeetingBleedReplayTests: XCTestCase {
         "Others: The quarterly numbers look pretty good overall.",
         "Me: Yeah.",
         "Others: Let's move on to the hiring plan for next quarter.",
-        "Me: Sorry, can I jump in here? I think we should ship on Friday.",
-        "Others: Sounds good.",
+        "Me: Sorry, can I jump in here? Then the hiring plan for next quarter can wait.",
+        "Others: Sounds good. Bye everyone.",
+    ]
+    /// With headphones, nothing bleeds, so the meeting's last words, said by
+    /// both at once, stay on both sides. (On speakers they can't be told
+    /// from bleed: the known limit.)
+    private static let headphonesTurns = Array(expectedTurns.dropLast()) + [
+        "Others: Sounds good.", "Me: Bye everyone.", "Others: Bye everyone.",
     ]
 
     /// Plays the whole fixture and stops.
@@ -235,13 +245,13 @@ final class MeetingBleedReplayTests: XCTestCase {
         }
     }
 
-    /// Headphones: no bleed, and the note is the same, every Me line kept.
+    /// Headphones: no bleed, and every Me line is kept.
     func testWithHeadphonesTheNoteIsTheSame() async throws {
         try writeWavs(bleed: false)
         let run = try makeRun()
         let note = try await recordWholeMeeting(run)
         XCTAssertFalse(run.engine.heard.contains(" The quarterly numbers look pretty good"))
-        XCTAssertEqual(turns(note), Self.expectedTurns)
+        XCTAssertEqual(turns(note), Self.headphonesTurns)
     }
 
     /// A crash mid-meeting: the next launch rebuilds the note from the
