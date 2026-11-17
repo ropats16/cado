@@ -46,6 +46,9 @@ struct Transcript: Equatable {
     }
 
     let segments: [Segment]
+    /// The language the engine decoded in, when it tells: under auto-detect
+    /// the one it detected (whisper.cpp, WhisperKit). nil = not known.
+    var language: String? = nil
 
     /// All segment text joined, as spoken. Untrimmed: whisper.cpp segments carry
     /// their own leading spaces.
@@ -105,9 +108,12 @@ final class TranscriptionEngine: @unchecked Sendable {
     private var loadedSpec: ModelSpec?
     /// Set while the model is unloaded for idleness: what the next job reloads.
     private var idleSpec: ModelSpec?
-    /// Set by `prewarm()` until the next job (or `endPrewarm()`): a recording
-    /// is under way, so the model must not be unloaded however long it runs.
-    private var isHeld = false
+    /// Holds taken by `prewarm()`, each ended by the job it expected (or
+    /// `endPrewarm()`): while any is open a recording is under way, so the
+    /// model must not be unloaded however long it runs. A count, so a job
+    /// or release belonging to one holder never ends another's (a meeting's
+    /// passage never ends the hold of a dictation started in its tail).
+    private var holds = 0
     /// Bumped by every job and load; an idle timer only fires if it's unchanged.
     private var activity = 0
 
@@ -125,6 +131,9 @@ final class TranscriptionEngine: @unchecked Sendable {
     /// The model in use (or being switched to). After a failed switch it is
     /// the previous model again, which the engine went back to.
     var model: ModelSpec { lock.withLock { _model } }
+
+    /// How long without a job before the model is unloaded; nil = never.
+    var idleUnloadAfter: TimeInterval? { lock.withLock { _idleUnloadAfter } }
 
     /// Called on the main thread with each status change the engine reports,
     /// including `.missing` when `load()` finds no model file. Set it before
@@ -199,11 +208,11 @@ final class TranscriptionEngine: @unchecked Sendable {
 
     /// A job is coming (a recording started): reload an idle-unloaded model now
     /// so it's ready when the audio arrives, and keep it loaded — however long
-    /// the recording runs — until the next job is submitted or `endPrewarm()`.
+    /// the recording runs — until its job finishes or `endPrewarm()`.
     func prewarm() {
         queue.async { [self] in
             reloadIfIdle(warmUp: true)
-            isHeld = true
+            holds += 1
             noteActivity()
         }
     }
@@ -212,7 +221,7 @@ final class TranscriptionEngine: @unchecked Sendable {
     /// discarded): the idle clock runs again.
     func endPrewarm() {
         queue.async { [self] in
-            isHeld = false
+            holds = max(0, holds - 1)
             noteActivity()
         }
     }
@@ -232,17 +241,31 @@ final class TranscriptionEngine: @unchecked Sendable {
     /// `transcribe(_:)` for callers that need the job queued before this call
     /// returns. `completion` runs on the engine's queue.
     func transcribe(_ samples: [Float], completion: @escaping (Result<Transcript, Error>) -> Void) {
+        run(samples, language: nil) { result, _ in completion(result) }
+    }
+
+    /// One job as `transcribe(_:completion:)`, decoded in `language` instead
+    /// of the model's own (nil: the model's own, as every dictation is; only
+    /// engines that take it per job honour it, `ModelSpec.takesLanguagePerJob`),
+    /// so a meeting in another language can share the loaded model (#47).
+    /// `completion` (on the engine's queue) also gets the model the job ran
+    /// on: nil when none was loaded, the previous one after a failed switch.
+    /// The job ends one `prewarm()` hold when it finishes, unless
+    /// `releasesHold` is false (it isn't the job the hold was for).
+    func run(_ samples: [Float], language: String?, releasesHold: Bool = true,
+             completion: @escaping (Result<Transcript, Error>, ModelSpec?) -> Void) {
         queue.async { [self] in
             reloadIfIdle(warmUp: false)   // the job itself pays the first-run costs
             let result: Result<Transcript, Error>
             if let adapter {
-                result = Result { Transcript(segments: try adapter.transcribe(samples: samples)) }
+                result = Result { try adapter.transcribe(samples: samples, language: language) }
             } else {
                 result = .failure(TranscriptionError.modelNotLoaded)
             }
-            isHeld = false
+            let ranOn = adapter == nil ? nil : loadedSpec
+            if releasesHold { holds = max(0, holds - 1) }
             noteActivity()
-            completion(result)
+            completion(result, ranOn)
         }
     }
 
@@ -359,12 +382,12 @@ final class TranscriptionEngine: @unchecked Sendable {
         guard let delay = lock.withLock({ _idleUnloadAfter }) else { return }
         let mark = activity
         queue.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, self.activity == mark, !self.isHeld, self.adapter != nil,
+            guard let self, self.activity == mark, self.holds == 0, self.adapter != nil,
                   self.lock.withLock({ self._idleUnloadAfter }) != nil else { return }
             let spec = self.loadedSpec
             self.unload()
             self.idleSpec = spec
-            Log.info("Unloaded the model after \(Int(delay))s idle; the next dictation reloads it.")
+            Log.info("Unloaded \(spec?.displayName ?? "the model") after \(Int(delay))s idle; it reloads on its next job.")
         }
     }
 

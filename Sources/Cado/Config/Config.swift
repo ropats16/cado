@@ -73,6 +73,12 @@ struct Config: Codable {
     /// Who writes summaries: a `SummaryProvider` raw value. Kept as written;
     /// read it through `summaryProviderChoice`.
     var summaryProvider: String
+    /// The language meetings are transcribed in (#47): "same" (the default,
+    /// also for configs without the key: dictation's `language`, on the
+    /// dictation model), "auto" (detected per passage, on a multilingual
+    /// model) or an ISO code. Kept as written; read it through
+    /// `meetingLanguageChoice` (`MeetingLanguage.swift`).
+    var meetingLanguage: String
     /// The user confirmed that meeting text goes to OpenRouter (#35). Without
     /// it, nothing is ever sent, whatever else is set.
     var openRouterConsent: Bool
@@ -120,6 +126,7 @@ struct Config: Codable {
             keepMeetingAudio: false,
             meetingSummaries: true,
             summaryProvider: SummaryProvider.onDevice.rawValue,
+            meetingLanguage: MeetingLanguageChoice.sameID,
             openRouterConsent: false,
             openRouterModel: "",
             meetingHotkey: .controlOptionM,
@@ -141,6 +148,7 @@ struct Config: Codable {
          notesFolder: String = "", notesFolderBookmark: String? = nil,
          dictationHistory: Bool = false, keepMeetingAudio: Bool = false,
          meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue,
+         meetingLanguage: String = MeetingLanguageChoice.sameID,
          openRouterConsent: Bool = false, openRouterModel: String = "",
          meetingHotkey: KeyBinding = .controlOptionM, meetingDetection: Bool = true,
          maxMeetingMinutes: Double = MeetingLimit.defaultMinutes, meetingConsentShown: Bool = false,
@@ -172,6 +180,7 @@ struct Config: Codable {
         self.keepMeetingAudio = keepMeetingAudio
         self.meetingSummaries = meetingSummaries
         self.summaryProvider = summaryProvider
+        self.meetingLanguage = meetingLanguage
         self.openRouterConsent = openRouterConsent
         self.openRouterModel = openRouterModel
         self.meetingHotkey = meetingHotkey
@@ -216,6 +225,7 @@ struct Config: Codable {
         keepMeetingAudio = try c.decodeIfPresent(Bool.self, forKey: .keepMeetingAudio) ?? d.keepMeetingAudio
         meetingSummaries = try c.decodeIfPresent(Bool.self, forKey: .meetingSummaries) ?? d.meetingSummaries
         summaryProvider = try c.decodeIfPresent(String.self, forKey: .summaryProvider) ?? d.summaryProvider
+        meetingLanguage = try c.decodeIfPresent(String.self, forKey: .meetingLanguage) ?? d.meetingLanguage
         openRouterConsent = try c.decodeIfPresent(Bool.self, forKey: .openRouterConsent) ?? d.openRouterConsent
         openRouterModel = try c.decodeIfPresent(String.self, forKey: .openRouterModel) ?? d.openRouterModel
         meetingHotkey = try c.decodeIfPresent(KeyBinding.self, forKey: .meetingHotkey) ?? d.meetingHotkey

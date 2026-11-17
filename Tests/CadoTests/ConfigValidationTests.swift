@@ -197,6 +197,47 @@ final class ConfigValidationTests: XCTestCase {
         XCTAssertTrue(ConfigValidator.validate(config).isEmpty, "Treated as no limit")
     }
 
+    // MARK: - Language codes (#47)
+
+    func testBadMeetingLanguageWarnsOnMeetingsTab() {
+        for bad in ["hindi", "en-US", "xx", "h1"] {
+            var config = Config.defaults
+            config.meetingLanguage = bad
+            let found = warnings(config)
+            XCTAssertEqual(found.map(\.topic), [.meetingLanguage], bad)
+            XCTAssertTrue(found.first?.summary.contains("Meetings tab") ?? false, bad)
+        }
+    }
+
+    func testBadDictationLanguageWarnsOnSpeechModelTab() {
+        for bad in ["hindi", "en-US", "EN"] {
+            var config = Config.defaults
+            config.language = bad
+            let found = warnings(config)
+            XCTAssertEqual(found.map(\.topic), [.dictationLanguage], bad)
+            XCTAssertTrue(found.first?.summary.contains("Speech Model tab") ?? false, bad)
+        }
+    }
+
+    func testKnownLanguagesDontWarn() {
+        for code in ["en", "hi", "auto", "", "ja", "sv", "haw"] {
+            var config = Config.defaults
+            config.language = code
+            config.meetingLanguage = code
+            XCTAssertTrue(warnings(config).isEmpty, code)
+        }
+        var config = Config.defaults
+        config.meetingLanguage = "same"
+        XCTAssertTrue(warnings(config).isEmpty)
+        config.meetingLanguage = "HI"   // meetings lower-case it
+        XCTAssertTrue(warnings(config).isEmpty)
+    }
+
+    func testSameIsNotADictationLanguage() {
+        var config = Config.defaults
+        config.language = "same"
+        XCTAssertEqual(warnings(config).map(\.topic), [.dictationLanguage])
+    }
     // MARK: - Overlaps and meeting length (#32)
 
     func testMeetingOverlappingHoldIsWarning() {

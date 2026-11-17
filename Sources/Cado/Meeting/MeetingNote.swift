@@ -87,6 +87,10 @@ struct MeetingNote: Equatable {
         /// when all of it is on disk: copied there, or still in the spool for
         /// the next launch to copy (the words cover both).
         case audioKept(URL)
+        /// Some passages ran on the dictation model, which can't write the
+        /// meeting's `language` ("auto" or a code), because the meeting's
+        /// own model couldn't be used (#47).
+        case ranOnFallbackModel(language: String)
     }
 
     var appName: String
@@ -197,6 +201,12 @@ struct MeetingNote: Equatable {
         case .audioKept(let url):
             return "The meeting's audio is kept in `\(url.path)`. If it isn't there yet, "
                 + "Cado copies it to its Meeting Audio folder the next time it starts."
+        case .ranOnFallbackModel(let language):
+            let cannot = language == ModelSpec.autoDetect
+                ? "it doesn't detect the language, so passages in another language may be wrong"
+                : "it doesn't understand \(EngineRegistry.languageName(language)), so those passages may be wrong"
+            return "Some of this meeting was transcribed with the dictation model because the meeting's own model "
+                + "couldn't be used; \(cannot)."
         }
     }
 

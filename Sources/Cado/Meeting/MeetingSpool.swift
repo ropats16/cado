@@ -7,8 +7,9 @@ import AVFoundation
 // meeting the app didn't get to finish.
 //
 // On disk: `<root>/<uuid>/` holding
-//   meeting.json   {"version":1,"id","appName","appBundleID","startDate","event"?}, written once
-//                  (a new meeting's calendar event comes later, in the journal:
+//   meeting.json   {"version":1,"id","appName","appBundleID","startDate","language"?,"event"?},
+//                  written once ("language" since #47; absent in older spools. A new
+//                  meeting's calendar event comes later, in the journal:
 //                  `SpoolEvent.calendarEvent`)
 //   me.f32         raw little-endian Float32, 16 kHz mono, append-only
 //   them.f32       same, for the meeting app's audio
@@ -38,6 +39,10 @@ struct SpooledMeeting: Codable, Equatable {
     let appName: String
     let appBundleID: String
     let startDate: Date
+    /// The language the meeting is decoded in (`Config.resolvedMeetingLanguage`
+    /// when it started), so a recovery transcribes the rest the same way.
+    /// nil: a spool from before #47 (the dictation model, as then).
+    var language: String? = nil
     /// The calendar event the note is named after (#38). Only meetings
     /// recorded by an early build of #38 have it here; it now arrives after
     /// the start and is journaled (`SpoolEvent.calendarEvent`), which wins.
@@ -73,6 +78,9 @@ enum SpoolEvent: Codable, Equatable {
     case noteSaveFailed(reason: String)                             // the note couldn't be saved anywhere; finish it next launch
     case recoveryGaveUp(reason: String)                             // recovery stopped trying; journaled before the note is written
     case toldUser(SpoolNotice)                                      // said once per meeting, not again on a later launch
+    /// A passage ran on a model that can't write the meeting's language
+    /// (#47); once per meeting. Cado before it skips the line it can't read.
+    case ranOnFallbackModel
     /// The calendar event the meeting is named after (#38), found after it
     /// started. An older Cado skips the line (and names it by app and time).
     case calendarEvent(MatchedEvent)
@@ -136,6 +144,8 @@ enum SpoolEvent: Codable, Equatable {
             try c.encode("recoveryGaveUp", forKey: .type); try c.encode(reason, forKey: .reason)
         case let .toldUser(notice):
             try c.encode("toldUser", forKey: .type); try c.encode(notice, forKey: .about)
+        case .ranOnFallbackModel:
+            try c.encode("ranOnFallbackModel", forKey: .type)
         case let .calendarEvent(event):
             try c.encode("calendarEvent", forKey: .type); try c.encode(event, forKey: .event)
         }
@@ -188,6 +198,8 @@ enum SpoolEvent: Codable, Equatable {
             self = .recoveryGaveUp(reason: try c.decode(String.self, forKey: .reason))
         case "toldUser":
             self = .toldUser(try c.decode(SpoolNotice.self, forKey: .about))
+        case "ranOnFallbackModel":
+            self = .ranOnFallbackModel
         case "calendarEvent":
             self = .calendarEvent(try c.decode(MatchedEvent.self, forKey: .event))
         case let other:
@@ -626,14 +638,17 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         let appName: String
         let appBundleID: String
         let startDate: Date
+        let language: String?
         /// Optional (#38): older files lack it and open as before.
         let event: MatchedEvent?
         init(version: Int, meeting: SpooledMeeting) {
             self.version = version; id = meeting.id; appName = meeting.appName
-            appBundleID = meeting.appBundleID; startDate = meeting.startDate; event = meeting.event
+            appBundleID = meeting.appBundleID; startDate = meeting.startDate; language = meeting.language
+            event = meeting.event
         }
         var meeting: SpooledMeeting {
-            SpooledMeeting(id: id, appName: appName, appBundleID: appBundleID, startDate: startDate, event: event)
+            SpooledMeeting(id: id, appName: appName, appBundleID: appBundleID, startDate: startDate,
+                           language: language, event: event)
         }
     }
 

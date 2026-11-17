@@ -93,6 +93,10 @@ import Foundation
 ///   setting) only after minutes without a chunk; the next chunk reloads it.
 ///   On stop the engine is prewarmed for the tail, and `endPrewarm` balances
 ///   it if no job followed.
+/// - Language (#47): `meetingLanguage` is read at start into the spool
+///   (`SpooledMeeting.language`); every job and the tail's prewarm carry
+///   it, a recovery too, so the engine (`MeetingModelRouter`) picks the
+///   model for it.
 /// - A meeting where no speech was transcribed writes no note; a notice says
 ///   so. Failed chunks don't lose the meeting: the note keeps what was
 ///   transcribed, and the audio is kept (`MeetingArchive`). The note names
@@ -154,6 +158,9 @@ final class MeetingSession {
         var cursor = 0
         /// The last `.settled` journaled for this side.
         var journaledSettled = 0
+        /// Under Auto-detect, the language last detected on a long passage
+        /// of this side, for its short ones (`PassageLanguage`, #47).
+        var lastLanguage: String?
         var isLive: Bool { startError == nil && lostAt == nil }
         init(_ speaker: MeetingSpeaker, _ stream: MeetingStream?) {
             self.speaker = speaker
@@ -167,6 +174,7 @@ final class MeetingSession {
         let range: Range<Int>
         /// Seconds from the meeting's start.
         let offset: TimeInterval
+        var duration: TimeInterval { Double(range.count) / AudioCapture.sampleRate }
     }
 
     private final class Meeting {
@@ -204,6 +212,9 @@ final class MeetingSession {
         var toldSpoolFailed = false
         /// An earlier launch said "the meeting is safe" (`.toldUser`).
         var toldMeetingIsSafe = false
+        /// A passage ran on a model that can't write the meeting's language
+        /// (`.ranOnFallbackModel`, #47): the note says so.
+        var ranOnFallbackModel = false
         /// The calendar event it's named after (#38): found after the start
         /// (`calendarEventFound`), or journaled by an earlier launch.
         var event: MatchedEvent?
@@ -254,6 +265,8 @@ final class MeetingSession {
     private let date: () -> Date
     private let systemAudioPermission: () -> SystemAudioPermission
     private let keepAudio: () -> Bool
+    /// The language a meeting started now is decoded in (#47), recorded in its spool.
+    private let meetingLanguage: () -> String?
     private let later: (@escaping () -> Void) -> Void
     private let background: (@escaping () -> Void, @escaping () -> Void) -> Void
     private let locale: Locale
@@ -290,6 +303,7 @@ final class MeetingSession {
          date: @escaping () -> Date = Date.init,
          systemAudioPermission: @escaping () -> SystemAudioPermission,
          keepAudio: @escaping () -> Bool = { false },
+         meetingLanguage: @escaping () -> String? = { nil },
          maxSeconds: @escaping () -> TimeInterval? = { MeetingSession.defaultMaxSeconds },
          locale: Locale = .current, timeZone: TimeZone = .current,
          calendarNaming: MeetingCalendarNaming = .off,
@@ -311,6 +325,7 @@ final class MeetingSession {
         self.date = date
         self.systemAudioPermission = systemAudioPermission
         self.keepAudio = keepAudio
+        self.meetingLanguage = meetingLanguage
         self.maxSeconds = maxSeconds
         self.locale = locale
         self.timeZone = timeZone
@@ -347,7 +362,7 @@ final class MeetingSession {
         let id = meetingCount
         let startDate = date()
         let spool = makeSpool(SpooledMeeting(id: UUID(), appName: app.name, appBundleID: app.bundleID,
-                                             startDate: startDate))
+                                             startDate: startDate, language: meetingLanguage()))
         let cap = MeetingLimit.cap(seconds: maxSeconds())
         let streams = recorder.streams(for: app, maxSeconds: cap)
         let meeting = Meeting(id: id, appName: app.name, startedAt: clock.now, startDate: startDate, spool: spool,
@@ -550,7 +565,7 @@ final class MeetingSession {
         report()
         if meeting.quit == nil {
             // Reload an idle-unloaded model for the tail while the streams finish.
-            engine.prewarm()
+            engine.prewarm(language: meeting.spool.meeting.language)
             meeting.prewarmed = true
         }
         for speaker in MeetingSpeaker.allCases where !meeting.side(speaker).ended {
@@ -643,14 +658,32 @@ final class MeetingSession {
             meeting.inFlight = job
             meeting.prewarmed = false
             let id = meeting.id
-            engine.transcribe(samples) { [weak self] result in self?.transcribed(id, result) }
+            let language = meeting.spool.meeting.language
+            let hint = PassageLanguage.hint(meetingLanguage: language, duration: job.duration,
+                                            lastDetected: meeting.side(job.speaker).lastLanguage)
+            let passage = MeetingPassageJob(meeting: meeting.spool.meeting.id, language: language, hint: hint)
+            engine.transcribe(samples, passage: passage) { [weak self] result in
+                self?.transcribed(id, result)
+            }
         }
     }
 
-    private func transcribed(_ id: Int, _ result: Result<Transcript, Error>) {
+    private func transcribed(_ id: Int, _ result: Result<MeetingPassage, Error>) {
         guard let meeting = meeting(id), let job = meeting.inFlight else { return }
         meeting.inFlight = nil
-        recordResult(result, of: job, meeting)
+        if case .success(let passage) = result {
+            let language = meeting.spool.meeting.language
+            if PassageLanguage.remembers(meetingLanguage: language, duration: job.duration),
+               passage.detected, let detected = passage.transcript.language {
+                meeting.side(job.speaker).lastLanguage = detected
+            }
+        }
+        recordResult(result.map(\.transcript), of: job, meeting)
+        // After the passage's own result: a crash between would otherwise redo it, maybe on the proper model, with the line.
+        if case .success(let passage) = result, passage.onFallbackModel, !meeting.ranOnFallbackModel {
+            meeting.ranOnFallbackModel = true
+            meeting.spool.record(.ranOnFallbackModel)   // if this fails, only a recovered note misses the line
+        }
         submitNext(meeting)
         completeIfDone(meeting)
     }
@@ -964,6 +997,9 @@ final class MeetingSession {
         if let reason = meeting.failures.first {
             caveats.append(.transcriptionFailed(failed: meeting.failures.count, of: meeting.total, reason: reason))
         }
+        if meeting.ranOnFallbackModel, let language = meeting.spool.meeting.language {
+            caveats.append(.ranOnFallbackModel(language: language))
+        }
         return caveats
     }
 
@@ -1048,6 +1084,7 @@ final class MeetingSession {
         meeting.done = plan.done
         meeting.total = plan.done
         meeting.capReached = plan.capReached
+        meeting.ranOnFallbackModel = plan.ranOnFallbackModel
         meeting.recoveredDuration = plan.duration
         meeting.toldMeetingIsSafe = leftover.events.contains(.toldUser(.meetingIsSafe))
         meeting.event = event

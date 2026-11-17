@@ -5,7 +5,7 @@ struct ConfigIssue: Equatable {
     enum Severity { case error, warning }
     /// What it's about: Settings' Hotkeys section fixes `.hotkeys`; only
     /// the config file fixes `.engine`.
-    enum Topic { case hotkeys, engine, meetings }
+    enum Topic { case hotkeys, engine, meetings, dictationLanguage, meetingLanguage }
     let severity: Severity
     let topic: Topic
     /// For the log: names the config keys and values.
@@ -110,8 +110,39 @@ enum ConfigValidator {
                     + "so Cado uses \(EngineKind.whisper.displayName)."))
         }
 
+        // warning — a language code no engine knows ("hindi", "en-US"): whisper
+        // would decode garbage. Dictation's is fixed on the Speech Model tab,
+        // meetings' on the Meetings tab.
+        if !Self.isKnownLanguage(config.language, allowSame: false) {
+            issues.append(ConfigIssue(
+                severity: .warning, topic: .dictationLanguage,
+                message: "`language` \"\(config.language)\" isn't a language code (use e.g. \"en\", \"hi\" or \"auto\").",
+                summary: "The dictation language in the config file (“\(config.language)”) isn't one Cado knows. "
+                    + "Pick a language on the Speech Model tab.",
+                tabs: [.speechModel]))
+        }
+        if !Self.isKnownLanguage(config.meetingLanguage, allowSame: true) {
+            issues.append(ConfigIssue(
+                severity: .warning, topic: .meetingLanguage,
+                message: "`meetingLanguage` \"\(config.meetingLanguage)\" isn't a language code (use e.g. \"hi\", \"auto\" or \"same\").",
+                summary: "The meeting language in the config file (“\(config.meetingLanguage)”) isn't one Cado knows. "
+                    + "Pick a language on the Meetings tab.",
+                tabs: [.meetings]))
+        }
+
         // Errors first, each group in the order found.
         return issues.filter { $0.severity == .error } + issues.filter { $0.severity == .warning }
+    }
+
+    /// Empty, "auto", "same" (meetings only) or an ISO 639 language code
+    /// (two or three letters, lower case, as whisper.cpp wants) — the codes
+    /// the Settings pickers offer are all in it.
+    static func isKnownLanguage(_ code: String, allowSame: Bool) -> Bool {
+        if code.isEmpty || code == ModelSpec.autoDetect { return true }
+        if allowSame, code.lowercased() == MeetingLanguageChoice.sameID { return true }
+        let code = allowSame ? code.lowercased() : code   // meetings lower-case it; dictation doesn't
+        guard code.count <= 3, code.allSatisfy({ $0.isASCII && $0.isLowercase }) else { return false }
+        return code == "jw" || Locale.LanguageCode(code).isISOLanguage
     }
 
     /// The hotkeys as Settings names them (its Hotkeys rows, the menu).

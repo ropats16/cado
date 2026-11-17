@@ -90,6 +90,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         },
         systemAudio: { [permissions] in permissions.systemAudio },
         keepAudio: { [configStore] in configStore.config.keepMeetingAudio },
+        meetingLanguage: { [configStore] in configStore.config.resolvedMeetingLanguage },
+        meetingModel: { [weak self] language in self?.meetingModel(for: language) ?? .dictation },
+        options: EngineOptions(threads: configStore.config.threads),
         maxSeconds: { [configStore] in MeetingLimit.seconds(minutes: configStore.config.maxMeetingMinutes) },
         consent: MeetingConsent(wasShown: { [configStore] in configStore.config.meetingConsentShown },
                                 markShown: { [configStore] in configStore.update { $0.meetingConsentShown = true } },
@@ -487,6 +490,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             && EngineRegistry.shared.available(in: .current, language: config.language).contains(.appleSpeech)
     }
 
+    /// The model for a meeting decoded in `language` (#47): the dictation
+    /// model when it fits, else the meeting's own (`MeetingModel.choose`).
+    private func meetingModel(for language: String?) -> MeetingModel.Choice {
+        MeetingModel.choose(language: language, dictation: engine.model, config: configStore.config,
+                            presentFilenames: ModelSelection.presentFilenames(), facts: engineFacts)
+    }
+
     private func idleUnloadAfter() -> TimeInterval? {
         ModelSelection.idleUnloadAfter(keepWarm: configStore.config.keepModelWarm,
                                        idleMinutes: configStore.config.modelIdleMinutes,
@@ -679,6 +689,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openRouter: openRouterSetup,
             calendar: calendar
         )
+        // The Meeting Language card says when the meeting model didn't load (#47).
+        vm.meetingModelFailure = { [weak self] in self?.meetings.router?.failure(for: $0) }
+        meetings.router?.onChange = { [weak vm] in MainActor.assumeIsolated { vm?.meetingModelChanged() } }
         settingsViewModel = vm
         return vm
     }

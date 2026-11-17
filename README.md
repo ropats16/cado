@@ -327,7 +327,42 @@ and says why).
 - **Transcribed as you go:** while you talk, Cado transcribes the meeting on
   your Mac in short passages (a few seconds of speech each, cut at pauses), so
   most of it is done by the time you stop. Dictation and meetings share one
-  transcription queue, one passage at a time.
+  transcription queue, one passage at a time (unless meetings use a model of
+  their own, see **Language** below).
+- **Language:** **Settings → Meetings → Meeting Language** is **Same as
+  dictation** by default, so meetings use the dictation model and language,
+  exactly as before. For meetings that mix languages (say Hindi and English),
+  choose **Auto-detect**: Cado detects the language of each passage on its own
+  and writes it in its own script (Hindi in Devanagari with the `small` model or
+  larger, English in Latin letters; nothing is translated or romanised). Or
+  choose one language. Meetings use the dictation model when it can do that,
+  also when it's a multilingual Whisper model or Turbo dictating in another
+  language: the one loaded model takes the meeting's language passage by
+  passage, so it isn't loaded twice. When it can't (an English-only `.en` model, or an engine that doesn't know
+  the language), they get a model of their own: first what Automatic would
+  pick for that language (Turbo for the European languages it supports, Apple
+  Speech where it supports the language, or the model you named for an
+  engine), else a multilingual Whisper model (Whisper's Automatic pick for
+  your Mac among the models you've downloaded). It's loaded only while
+  a meeting is transcribed (the first passage waits a second or so for it) and
+  let go two minutes after the last one, whatever **Keep model loaded** says
+  (that setting is the dictation model's), so dictation keeps its own model and
+  speed. While both are loaded a meeting takes more memory: roughly 0.7 GB
+  with `small` (the whole benchmark process peaked near 0.7 GB with only
+  `small` loaded; the increase itself wasn't measured). If no multilingual model is downloaded, the card
+  says so with a **Download** button, and meetings use the dictation model
+  meanwhile, and the note says so. A meeting model that fails to load isn't
+  tried again for the rest of that meeting (the card says so); the next
+  meeting tries it again. A meeting keeps the language it started
+  with, also when it's recovered after a crash. Limits: a sentence that
+  switches language midway comes out in one language (passages are cut at
+  pauses, so people taking turns are fine); under Auto-detect a very short
+  reply (under 2 seconds, "haan", "ok") is written in the language that side
+  last spoke in a longer passage, which is right unless it's the one word in
+  another language, and before any longer passage it's detected and can come
+  out in the wrong language or script; smaller models
+  are weaker at Hindi (`base` may write it in Urdu script; `small` is
+  readable; larger ones are much better, see `plans/meeting-languages-47.md`).
 - **Stop:** click **Stop Recording**. Only the last passage or two (what was
   being said as you stopped) is left to transcribe, so on a Mac that keeps up
   the note is ready shortly after, however long the meeting was. A Mac that
@@ -544,9 +579,12 @@ is refused; the first use of a new file shows **Verifying…** while it's hashed
 (once — the result is cached). If a switch fails, Cado keeps (or goes back
 to) the model it was using and Settings says why.
 
-**Language.** English-only (`.en`) models always transcribe English. With a
-multilingual model, pick the language in Settings (or `"language": "de"`, or
-`"auto"` to detect it each time).
+**Language.** English-only (`.en`) models always transcribe English: if the
+language set isn't English, Settings › Speech Model says so under Language,
+with the fix (choose a model without ".en" in its name). With a multilingual
+model, pick the language in Settings (or `"language": "de"`, or `"auto"` to
+detect it each time). Meetings have their own language setting (see
+**Meeting notes › Language**).
 
 **Keep model loaded.** Automatic by default: kept loaded, except on Macs with
 8 GB or less, where the model is unloaded after `modelIdleMinutes` (default 5)
@@ -625,6 +663,7 @@ opens the Settings tab with that hotkey (Dictation, or Meetings for `meetingHotk
 | `keepMeetingAudio`    | Keep a meeting's audio after its note is saved (default `false`: deleted). |
 | `meetingSummaries`    | Summarize each meeting note after it's saved (default `true`; needs macOS 26 with Apple Intelligence). |
 | `summaryProvider`     | Who writes summaries: `on-device` (default, Apple Intelligence on this Mac) or `openrouter` (only used once `openRouterConsent` is `true`; Settings asks you to confirm otherwise). |
+| `meetingLanguage`     | Language meetings are transcribed in: `same` (default, also when the key is missing: dictation's `language` and model), `auto` (detected per passage, on a multilingual model), or a code like `hi`. |
 | `meetingDetection`    | Ask "Record this meeting?" / "Stop recording?" when a meeting app starts or stops using the mic (default `true`; macOS 14.4+). Never records by itself. |
 | `maxMeetingMinutes`   | A meeting stops by itself after this many minutes (default `120`; `0` = Off; more than `1440` counts as 1440, so a meeting always stops after 24 hours). |
 | `meetingConsentShown` | The one-time recording-consent reminder was acknowledged (default `false`). |
@@ -740,7 +779,7 @@ a confirmation). Every other request only fetches a file.
 | Host | When | What's sent / received | Opt-in? |
 | --- | --- | --- | --- |
 | `huggingface.co` | `make setup` (`scripts/download_model.sh`) and the other `scripts/download_*_model.sh` scripts | Downloads whisper.cpp model files (and the VAD model for benchmarks), WhisperKit and Parakeet model folders. Each file is checked against a pinned SHA-256; WhisperKit/Parakeet files are also pinned to one repo commit. | You run the script |
-| `huggingface.co` | In the app, only when you click **Download** in Settings › Speech Model | Downloads whisper.cpp model files (from the same place as `make model`, pinned by SHA-256 only, like the script) and WhisperKit/Parakeet model files (pinned by commit and SHA-256), each verified before use. A plain file request: no cookies, no account. | Yes, per click |
+| `huggingface.co` | In the app, only when you click **Download** in Settings › Speech Model (or, for a meeting model, Settings › Meetings › Meeting Language) | Downloads whisper.cpp model files (from the same place as `make model`, pinned by SHA-256 only, like the script) and WhisperKit/Parakeet model files (pinned by commit and SHA-256), each verified before use. A plain file request: no cookies, no account. | Yes, per click |
 | Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Speech Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
 | `github.com` | Release builds of the app: about once a day while Cado runs, and when you choose **Check for Updates…** in the menu (or **Check Now** in Settings › General) | Fetches the update feed, `github.com/ropats16/cado/releases/latest/download/appcast.xml` ([Sparkle](https://sparkle-project.org)). If there's a newer version, Cado asks before installing it (unless you tick "Automatically download and install updates" in that prompt), then downloads its DMG from the same GitHub release (GitHub redirects both the feed and the DMG to `release-assets.githubusercontent.com`); the download must match the release's Ed25519 signature and Cado's code signature, or it's discarded. No system profile or identifier is sent (just a normal HTTPS request, with Cado's version in the User-Agent). Builds made with `make install`/`make package` never check. | On by default; turn off **Automatically check for updates** in Settings › General |
 | `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Send anonymous usage count** (onboarding, or Settings › General) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. Only sent by a build with a TelemetryDeck app ID; Cado 0.1.0 has none, so this switch sends nothing yet. | Yes, **off by default** |

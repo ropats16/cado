@@ -37,6 +37,9 @@ extension SettingsView {
             // the comment lines between slots, so merges stay clean) and puts
             // its card in SettingsView+<Feature>.swift. Planned slots:
 
+            // Slot: meeting language
+            meetingLanguageSection   // SettingsView+MeetingLanguage.swift (#47)
+
             // Slot: meeting detection on/off
             meetingDetectionSection   // SettingsView+MeetingDetection.swift (#32)
 

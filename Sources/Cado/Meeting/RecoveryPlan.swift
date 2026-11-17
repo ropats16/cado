@@ -57,6 +57,8 @@ struct RecoveryPlan: Equatable {
     /// Passages already done (transcribed or failed).
     var done = 0
     var capReached = false
+    /// A passage ran on a model that can't write the meeting's language (#47).
+    var ranOnFallbackModel = false
     /// The stop's time, else the longest side's audio on disk.
     var duration: TimeInterval = 0
     var stalledAttempts = 0
@@ -150,6 +152,8 @@ struct RecoveryPlan: Equatable {
             case .recoveryGaveUp:
                 gaveUp = true
             case .toldUser: break   // `MeetingSession` reads it itself
+            case .ranOnFallbackModel:
+                ranOnFallbackModel = true
             case let .calendarEvent(found):
                 self.event = found
             }
