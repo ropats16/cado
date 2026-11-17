@@ -1141,10 +1141,10 @@ final class MeetingSession {
     }
 
     /// Cado may have died between saving the meeting's note and journaling
-    /// it (#48): the note is looked for by the meeting's id, off main (a
-    /// listing of the notes folder; a note in iCloud may download first),
-    /// and adopted only if it's whole (`RecoveryPlan.isWholeNote`); else the
-    /// note is written afresh, the other one left as it is. Until the
+    /// it (#48): the notes with the meeting's id are looked for off main (a
+    /// listing of the notes folder), and the first whole one
+    /// (`RecoveryPlan.isWholeNote`) is adopted, a part beside it passed over;
+    /// with none whole the note is written afresh, the others left as they are. Until the
     /// lookup is back no other leftover starts and this one is untouched
     /// (its spool stays locked); a meeting the user starts meanwhile records
     /// at once and this leftover goes on once that one is written down, as a
@@ -1157,11 +1157,14 @@ final class MeetingSession {
         var returned = false
         lookingForNote = true
         background({
-            guard let note = notes.existingNote(id: info.id.uuidString, since: info.startDate) else { return }
-            guard let text = notes.text(of: note), plan.isWholeNote(text) else { notWhole = true; return }
-            let named = RecoveryPlan.audioFolder(namedIn: text)
-            found = (note, RecoveryPlan.adoption(hasAudio: hasAudio, namedFolder: named,
-                                                 namedFolderIsFree: named.map(archive.isFreeFolder) ?? false))
+            // The first whole one; a part left beside it (an older Cado's failed save) is passed over.
+            for note in notes.existingNotes(id: info.id.uuidString, since: info.startDate) {
+                guard let text = notes.text(of: note), plan.isWholeNote(text) else { notWhole = true; continue }
+                let named = RecoveryPlan.audioFolder(namedIn: text)
+                found = (note, RecoveryPlan.adoption(hasAudio: hasAudio, namedFolder: named,
+                                                     namedFolderIsFree: named.map(archive.isFreeFolder) ?? false))
+                return
+            }
         }, { [weak self] in
             guard let self else { return }
             self.lookingForNote = false

@@ -59,6 +59,14 @@ final class NoteMeetingIDTests: XCTestCase {
         XCTAssertNil(lib.note(withID: UUID().uuidString, changedSince: since))
     }
 
+    /// Every note with the id is found (#48: a part beside the whole one).
+    func testEveryNoteWithTheIDIsFound() throws {
+        let lib = library()
+        let a = try lib.create(meetingDraft(id: id)), b = try lib.create(meetingDraft(id: id))
+        try lib.create(meetingDraft(id: nil))
+        XCTAssertEqual(Set(lib.notes(withID: id, changedSince: .distantPast).map(\.lastPathComponent)), [a.id, b.id])
+    }
+
     /// Only notes changed since the meeting began are read.
     func testOnlyNotesChangedSinceTheMeetingBeganAreRead() throws {
         let lib = library()

@@ -79,7 +79,7 @@ final class MeetingSessionTests: XCTestCase {
         private(set) var saved: [NoteDraft] = []
         /// The notes folder: `/notes/<n>.md`, whole or partial.
         private(set) var files: [(url: URL, id: String?, text: String)] = []
-        /// `existingNote` calls (#48).
+        /// `existingNotes` calls (#48).
         private(set) var lookups = 0
         func save(_ draft: NoteDraft) throws -> URL {
             onSave?()
@@ -99,9 +99,9 @@ final class MeetingSessionTests: XCTestCase {
             files.append((url, id, text))
             return url
         }
-        func existingNote(id: String, since: Date) -> URL? {
+        func existingNotes(id: String, since: Date) -> [URL] {
             lookups += 1
-            return files.first { $0.id == id }?.url
+            return files.reversed().filter { $0.id == id }.map(\.url)   // newest first: a later part ahead of the note
         }
         func text(of note: URL) -> String? { files.first { $0.url == note }?.text }
     }
@@ -2496,6 +2496,23 @@ extension MeetingSessionTests {
         XCTAssertTrue(notes.saved[0].body.hasSuffix(allTurns))
         XCTAssertEqual(notes.files.count, 2, "The part is left")
         XCTAssertEqual(feedback.titles.last, "Meeting note saved")
+        XCTAssertTrue(h.inner.isDiscarded)
+    }
+
+    /// A part an older Cado left with the meeting's id is found first, the
+    /// whole note after it: the whole one is adopted, no third note written,
+    /// the part left as it is.
+    func testAWholeNoteIsAdoptedThoughAPartWithTheSameIDIsFoundFirst() throws {
+        let meeting = newMeeting()
+        let whole = wholeNote(for: meeting)
+        let text = try XCTUnwrap(notes.text(of: whole))
+        notes.add(meeting.id.uuidString, String(text.prefix(text.count - 12)))   // listed first below
+        let files = notes.files
+        let h = leftover(of: meeting, started + [.stopped(at: 10, capReached: false)])
+        session.recoverLeftovers()
+        XCTAssertTrue(notes.saved.isEmpty, "No note written: the whole one is adopted")
+        XCTAssertEqual(notes.files.map(\.url), files.map(\.url), "Nothing added, nothing removed")
+        XCTAssertEqual(feedback.savedNotes, [whole])
         XCTAssertTrue(h.inner.isDiscarded)
     }
 

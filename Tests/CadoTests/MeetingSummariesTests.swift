@@ -10,7 +10,7 @@ private final class RecordingNoteStore: MeetingNoteStore {
         saved.append(draft)
         return url
     }
-    func existingNote(id: String, since: Date) -> URL? { nil }
+    func existingNotes(id: String, since: Date) -> [URL] { [] }
 }
 
 /// #34: when summaries run and what they do to the note file, over real

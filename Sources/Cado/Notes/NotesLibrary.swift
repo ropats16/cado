@@ -385,10 +385,18 @@ final class NotesLibrary {
     /// reads run with this thread's "materialize dataless files" policy off,
     /// so one evicted after the check fails to open instead of downloading.
     func note(withID id: String, changedSince since: Date) -> URL? {
+        notes(withID: id, changedSince: since).first
+    }
+
+    /// Every note with `id: <id>` (as `note(withID:changedSince:)`, same
+    /// bounds and thread safety): more than one if, say, an older Cado left
+    /// part of a note beside the whole one (#48). In the folder's order.
+    func notes(withID id: String, changedSince since: Date) -> [URL] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey]
         let urls = (try? fileManager.contentsOfDirectory(at: folder(), includingPropertiesForKeys: keys,
                                                          options: [.skipsHiddenFiles])) ?? []
         return Self.withoutMaterializing {
+            var found: [URL] = []
             for url in urls where url.pathExtension.lowercased() == "md" {
                 let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey])
                 guard values?.isDirectory == false, let modified = values?.contentModificationDate,
@@ -397,10 +405,10 @@ final class NotesLibrary {
                 let head = (try? handle.read(upToCount: 16 * 1024)) ?? nil
                 try? handle.close()
                 guard let head else { continue }
-                let found = NoteFrontMatter.parse(String(decoding: head, as: UTF8.self)).value(for: "id")
-                if found?.caseInsensitiveCompare(id) == .orderedSame { return url }
+                let noteID = NoteFrontMatter.parse(String(decoding: head, as: UTF8.self)).value(for: "id")
+                if noteID?.caseInsensitiveCompare(id) == .orderedSame { found.append(url) }
             }
-            return nil
+            return found
         }
     }
 

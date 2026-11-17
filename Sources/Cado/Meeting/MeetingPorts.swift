@@ -47,14 +47,15 @@ protocol MeetingEngine: AnyObject {
 /// Writes a meeting note into the notes library; returns its file.
 protocol MeetingNoteStore: AnyObject {
     func save(_ draft: NoteDraft) throws -> URL
-    /// The note saved for the meeting `id` (`NoteDraft.id`), if it's there:
-    /// a later launch's check that Cado didn't die between saving a note and
+    /// The notes with the meeting's `id` (`NoteDraft.id`), all of them (a
+    /// part an older Cado left can sit beside the whole one): a later
+    /// launch's check that Cado didn't die between saving a note and
     /// journaling it (#48). Only files changed since `since` are read.
-    /// Called OFF the main thread (it lists the notes folder, and a note in
-    /// iCloud may have to download first), so it must be thread-safe.
-    func existingNote(id: String, since: Date) -> URL?
+    /// Called OFF the main thread (it lists the notes folder), so it must be
+    /// thread-safe.
+    func existingNotes(id: String, since: Date) -> [URL]
     /// The note's text as it is now; nil if it can't be read. Off main, like
-    /// `existingNote`.
+    /// `existingNotes`.
     func text(of note: URL) -> String?
 }
 
