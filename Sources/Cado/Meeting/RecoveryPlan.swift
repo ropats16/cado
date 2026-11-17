@@ -68,6 +68,9 @@ struct RecoveryPlan: Equatable {
     /// can't tell otherwise from events and sample counts alone.
     var transcriptionComplete = false
     var concluded: Concluded?
+    /// The calendar event the meeting was named after (#38), if one was
+    /// journaled (`.calendarEvent`; the last wins).
+    var event: MatchedEvent?
 
     /// Recovery already gave up on this meeting (`.recoveryGaveUp`). The
     /// decision sticks: a later launch finishes the give-up (saves the note
@@ -145,6 +148,8 @@ struct RecoveryPlan: Equatable {
             case .recoveryGaveUp:
                 gaveUp = true
             case .toldUser: break   // `MeetingSession` reads it itself
+            case let .calendarEvent(found):
+                self.event = found
             }
         }
         closeAttempt()

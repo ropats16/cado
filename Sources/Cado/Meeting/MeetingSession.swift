@@ -109,6 +109,11 @@ import Foundation
 ///   (`.recoveryPaused`, not counted as a failed attempt).
 /// - Each meeting (recovered ones too) gets an id; callbacks for any other
 ///   meeting are ignored.
+/// - Calendar title (#38): looked up once recording is under way, never
+///   before. An answer that comes before the note is written names it and is
+///   journaled (`.calendarEvent`), so a recovery names it the same way; a
+///   later answer, none, or none in time keeps the app and time. Logs never
+///   carry the title (nor paths, which contain it).
 ///
 /// Main-thread only.
 final class MeetingSession {
@@ -196,6 +201,9 @@ final class MeetingSession {
         var toldSpoolFailed = false
         /// An earlier launch said "the meeting is safe" (`.toldUser`).
         var toldMeetingIsSafe = false
+        /// The calendar event it's named after (#38): found after the start
+        /// (`calendarEventFound`), or journaled by an earlier launch.
+        var event: MatchedEvent?
 
         init(id: Int, appName: String, startedAt: TimeInterval, startDate: Date, spool: MeetingSpoolHandle,
              me: MeetingStream?, them: MeetingStream?, recovery: RecoveryPlan.Reason? = nil) {
@@ -336,8 +344,7 @@ final class MeetingSession {
         let id = meetingCount
         let startDate = date()
         let spool = makeSpool(SpooledMeeting(id: UUID(), appName: app.name, appBundleID: app.bundleID,
-                                             startDate: startDate,
-                                             event: calendarNaming.event(forMeetingStartingAt: startDate)))
+                                             startDate: startDate))
         let streams = recorder.streams(for: app, maxSeconds: maxSeconds)
         let meeting = Meeting(id: id, appName: app.name, startedAt: clock.now, startDate: startDate, spool: spool,
                               me: streams.me, them: streams.them)
@@ -351,6 +358,19 @@ final class MeetingSession {
             stream.onSamples = { [weak self] samples in self?.received(id, speaker, samples) }
             stream.begin { [weak self] error in self?.started(id, speaker, error) }
         }
+        // After the recording is under way: the calendar never holds it up.
+        calendarNaming.lookUp(forMeetingStartingAt: startDate) { [weak self] event in
+            self?.calendarEventFound(id, event)
+        }
+    }
+
+    /// The calendar's answer (#38): kept, and journaled so a recovery names
+    /// the note the same way. Dropped once the note is written (the meeting
+    /// is over: it keeps the app and time), or for nothing found.
+    private func calendarEventFound(_ id: Int, _ event: MatchedEvent?) {
+        guard let event, let meeting = meeting(id), !meeting.isRecovery, meeting.event == nil else { return }
+        meeting.event = event
+        meeting.spool.record(.calendarEvent(event))   // not journaled (disk full): a recovery uses the app and time
     }
 
     func stop() {
@@ -706,11 +726,11 @@ final class MeetingSession {
         let noteNamesFolder = failed && spool.hasAllAudioOnDisk
         if noteNamesFolder, let folder { caveats.append(.audioKept(folder)) }
         let note = MeetingNote(appName: app, start: meeting.startDate, duration: meeting.duration,
-                               turns: turns, caveats: caveats, event: meeting.spool.meeting.event)
+                               turns: turns, caveats: caveats, event: meeting.event)
         let draft = note.draft(locale: locale, timeZone: timeZone)
         do {
             let url = try notes.save(draft)
-            Log.info("Meeting note saved: \(url.path)")
+            Log.info("Meeting note saved (meeting \(spool.meeting.id)).")   // no path: it has the event title
             journalWrittenDown(spool, note: url.path, keepAudio: mustKeep, folder: folder)
             var body = draft.title
             if silence != nil { body += " — no sound came from \(app); see the note." }
@@ -761,7 +781,7 @@ final class MeetingSession {
     /// failed to write) and the next launch finishes the meeting. Only one
     /// with no folder (all in memory) is lost, and the notice says so.
     private func noteNotSaved(_ draft: NoteDraft, _ error: Error, _ meeting: Meeting, folder: URL?, hasAudio: Bool) {
-        Log.error("Couldn't save the meeting note: \(error.localizedDescription)")
+        Log.error("Couldn't save the meeting note (meeting \(meeting.spool.meeting.id)): \(Self.logged(error))")
         let spool = meeting.spool, title = title(meeting)
         let markdown = NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind,
                                               duration: draft.duration, body: draft.body,
@@ -823,7 +843,7 @@ final class MeetingSession {
         caveats.append(.quitBeforeTranscribing)
         let draft = MeetingNote(appName: meeting.appName, start: meeting.startDate, duration: meeting.duration,
                                 turns: MeetingTranscript.turns(meeting.pieces), caveats: caveats,
-                                event: meeting.spool.meeting.event)
+                                event: meeting.event)
             .draft(locale: locale, timeZone: timeZone)
         do {
             let url = try notes.save(draft)
@@ -845,7 +865,7 @@ final class MeetingSession {
         do {
             return try archive.newFolder(name: NotesLibrary.sanitise(title))
         } catch {
-            Log.error("Couldn't make the meeting's audio folder: \(error.localizedDescription)")
+            Log.error("Couldn't make the meeting's audio folder: \(Self.logged(error))")
             return nil
         }
     }
@@ -876,7 +896,7 @@ final class MeetingSession {
                 // Copied: if the journal can't say so, the name does, so a failed delete isn't copied again.
                 if !spool.record(.audioKept(folder: folder.path)), spool.hasFolder { spool.mark(.writtenDown) }
                 spool.discard()   // saved and copied
-                Log.info("Meeting audio kept in \(folder.path)")
+                Log.info("Meeting audio kept (meeting \(spool.meeting.id)).")
                 then(folder)
             }
             if fragile { self?.copyFinished() }
@@ -885,7 +905,7 @@ final class MeetingSession {
 
     private func audioNotCopied(_ spool: MeetingSpoolHandle, _ error: Error, title: String, tell: Bool,
                                 then: (URL?) -> Void) {
-        Log.error("Couldn't keep the meeting's audio: \(error.localizedDescription)")
+        Log.error("Couldn't keep the meeting's audio (meeting \(spool.meeting.id)): \(Self.logged(error))")
         spool.record(.audioKeepFailed(reason: error.localizedDescription))
         if tell {
             let place = spool.location?.path ?? "Cado's Meetings In Progress folder"
@@ -975,7 +995,8 @@ final class MeetingSession {
         let info = handle.meeting
         let counts = handle.audio().counts
         var plan = RecoveryPlan(events: leftover.events, sampleCounts: counts)
-        let title = MeetingNote.title(appName: info.appName, start: info.startDate, event: info.event, locale: locale, timeZone: timeZone)
+        let event = plan.event ?? info.event
+        let title = MeetingNote.title(appName: info.appName, start: info.startDate, event: event, locale: locale, timeZone: timeZone)
         if plan.concluded == nil {
             // What the journal couldn't take, the folder's name says.
             switch leftover.mark {
@@ -1014,6 +1035,7 @@ final class MeetingSession {
         meeting.capReached = plan.capReached
         meeting.recoveredDuration = plan.duration
         meeting.toldMeetingIsSafe = leftover.events.contains(.toldUser(.meetingIsSafe))
+        meeting.event = event
         state = .finishing(meeting)
         report()
         Log.info("Meeting recovery: the meeting with \(info.appName) from \(info.startDate) "
@@ -1088,10 +1110,10 @@ final class MeetingSession {
     /// delete it. Never a second note.
     private func finishCopy(_ handle: MeetingSpoolHandle, _ concluded: RecoveryPlan.Concluded, title: String) {
         guard concluded.audioPending, !handle.audio().isEmpty else {
-            Log.info("Meeting recovery: “\(title)” was already written down; removing what was left of it.")
+            Log.info("Meeting recovery: meeting \(handle.meeting.id) was already written down; removing what was left of it.")
             return handle.discard()
         }
-        Log.info("Meeting recovery: copying the audio of “\(title)” (the note was saved already).")
+        Log.info("Meeting recovery: copying the audio of meeting \(handle.meeting.id) (the note was saved already).")
         let folder = concluded.audioFolder.map { URL(fileURLWithPath: $0) }
         copyAudioThenDiscard(handle, into: folder, title: title, failuresSoFar: concluded.keepFailures) { [feedback] kept in
             guard let kept, concluded.keepFailures > 0 else { return }
@@ -1114,9 +1136,9 @@ final class MeetingSession {
     /// leave it there without a word.
     private func putAside(_ handle: MeetingSpoolHandle, _ events: [SpoolEvent], title: String) {
         guard !events.contains(.toldUser(.recordingSetAside)) else {
-            return Log.error("Meeting recovery: “\(title)” was set aside already; left where it is.")
+            return Log.error("Meeting recovery: meeting \(handle.meeting.id) was set aside already; left where it is.")
         }
-        Log.error("Meeting recovery: “\(title)” stopped Cado last time; setting its recording aside, untouched.")
+        Log.error("Meeting recovery: meeting \(handle.meeting.id) stopped Cado last time; setting its recording aside, untouched.")
         let folder = newArchiveFolder(title)
         let moved = folder.flatMap { handle.moveFolder(into: $0) } != nil
         let place = moved ? folder?.path : handle.location?.path
@@ -1128,8 +1150,16 @@ final class MeetingSession {
 
     // MARK: - Helpers
 
+    /// An error for the system log, which is public: a file error's text
+    /// names the file, and a note's or folder's name can be its calendar
+    /// event's title (#38). Its domain and code are enough to debug.
+    private static func logged(_ error: Error) -> String {
+        let e = error as NSError
+        return "\(e.domain) \(e.code)"
+    }
+
     private func title(_ meeting: Meeting) -> String {
-        MeetingNote.title(appName: meeting.appName, start: meeting.startDate, event: meeting.spool.meeting.event,
+        MeetingNote.title(appName: meeting.appName, start: meeting.startDate, event: meeting.event,
                           locale: locale, timeZone: timeZone)
     }
 

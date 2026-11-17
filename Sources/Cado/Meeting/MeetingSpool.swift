@@ -8,6 +8,8 @@ import AVFoundation
 //
 // On disk: `<root>/<uuid>/` holding
 //   meeting.json   {"version":1,"id","appName","appBundleID","startDate","event"?}, written once
+//                  (a new meeting's calendar event comes later, in the journal:
+//                  `SpoolEvent.calendarEvent`)
 //   me.f32         raw little-endian Float32, 16 kHz mono, append-only
 //   them.f32       same, for the meeting app's audio
 //   events.jsonl   one JSON object per line ("type" says which), append-only
@@ -36,8 +38,9 @@ struct SpooledMeeting: Codable, Equatable {
     let appName: String
     let appBundleID: String
     let startDate: Date
-    /// The calendar event the note is named after (#38), decided when the
-    /// meeting started so a recovered meeting keeps it. nil: not used.
+    /// The calendar event the note is named after (#38). Only meetings
+    /// recorded by an early build of #38 have it here; it now arrives after
+    /// the start and is journaled (`SpoolEvent.calendarEvent`), which wins.
     var event: MatchedEvent? = nil
 }
 
@@ -65,6 +68,9 @@ enum SpoolEvent: Codable, Equatable {
     case noteSaveFailed(reason: String)                             // the note couldn't be saved anywhere; finish it next launch
     case recoveryGaveUp(reason: String)                             // recovery stopped trying; journaled before the note is written
     case toldUser(SpoolNotice)                                      // said once per meeting, not again on a later launch
+    /// The calendar event the meeting is named after (#38), found after it
+    /// started. An older Cado skips the line (and names it by app and time).
+    case calendarEvent(MatchedEvent)
 
     /// Worth flushing to the disk itself, not just the OS.
     var isMilestone: Bool {
@@ -77,6 +83,7 @@ enum SpoolEvent: Codable, Equatable {
 
     private enum Key: String, CodingKey {
         case type, speaker, origin, reason, at, through, from, to, offset, segments, capReached, note, keepAudio, folder, about
+        case event
     }
 
     func encode(to encoder: Encoder) throws {
@@ -124,6 +131,8 @@ enum SpoolEvent: Codable, Equatable {
             try c.encode("recoveryGaveUp", forKey: .type); try c.encode(reason, forKey: .reason)
         case let .toldUser(notice):
             try c.encode("toldUser", forKey: .type); try c.encode(notice, forKey: .about)
+        case let .calendarEvent(event):
+            try c.encode("calendarEvent", forKey: .type); try c.encode(event, forKey: .event)
         }
     }
 
@@ -174,6 +183,8 @@ enum SpoolEvent: Codable, Equatable {
             self = .recoveryGaveUp(reason: try c.decode(String.self, forKey: .reason))
         case "toldUser":
             self = .toldUser(try c.decode(SpoolNotice.self, forKey: .about))
+        case "calendarEvent":
+            self = .calendarEvent(try c.decode(MatchedEvent.self, forKey: .event))
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown event \(other)")
         }

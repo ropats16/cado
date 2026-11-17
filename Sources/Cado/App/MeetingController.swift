@@ -33,7 +33,7 @@ final class MeetingController: MeetingActivity {
     /// observed (`Permissions.systemAudio`), read when the menu renders and
     /// when a meeting ends. `keepAudio`: Settings › Meetings › Keep meeting
     /// audio, read when a meeting ends. `calendarNaming`: names a meeting
-    /// after its calendar event when the user opted in (#38), read at its start.
+    /// after its calendar event when the user opted in (#38), looked up off main once it records.
     init(engine: TranscriptionEngine, activity: MeetingActivity, microphoneUID: @escaping () -> String?,
          notes: MeetingNoteStore, systemAudio: @escaping () -> SystemAudioPermission,
          keepAudio: @escaping () -> Bool, calendarNaming: MeetingCalendarNaming = .off,

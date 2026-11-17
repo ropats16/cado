@@ -60,6 +60,7 @@ class MeetingSpoolTests: XCTestCase {
         .noteSaved(note: nil, keepAudio: false, audioFolder: nil),
         .audioKept(folder: "/a/M"), .audioKeepFailed(reason: "full"), .noteSaveFailed(reason: "read-only"),
         .recoveryGaveUp(reason: "stalled"), .toldUser(.meetingIsSafe), .toldUser(.recordingSetAside),
+        .calendarEvent(MatchedEvent(title: "Weekly sync", attendees: ["Ada", "Alan"])),
     ]
 
     func testEventsRoundTripInOrder() throws {

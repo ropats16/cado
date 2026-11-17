@@ -26,11 +26,30 @@ final class CalendarNamingTests: XCTestCase {
             if access == .notDetermined { access = onRequest }
             completion(access)
         }
-        func events(from start: Date, to end: Date) -> [CalendarEventInfo] {
+        /// Reads answer at once, unless held: then they wait in `pendingReads`
+        /// until `answerReads()` (late), or forever (a stuck calendar).
+        var holdsReads = false
+        private(set) var pendingReads: [() -> Void] = []
+        private(set) var warmUps = 0
+        func events(from start: Date, to end: Date, _ completion: @escaping ([CalendarEventInfo]) -> Void) {
             reads += 1
-            return access == .granted ? events : []
+            let answer = { [unowned self] in completion(access == .granted ? events : []) }
+            holdsReads ? pendingReads.append(answer) : answer()
         }
+        func answerReads() {
+            let reads = pendingReads
+            pendingReads = []
+            reads.forEach { $0() }
+        }
+        func warmUp() { warmUps += 1 }
         func openSettings() { settingsOpened += 1 }
+    }
+
+    /// The gate's answer when the fake answers at once (nil: no answer yet).
+    static func lookUp(_ naming: MeetingCalendarNaming, at start: Date) -> MatchedEvent?? {
+        var answer: MatchedEvent??
+        naming.lookUp(forMeetingStartingAt: start) { answer = .some($0) }
+        return answer
     }
 
     private let now = Date(timeIntervalSince1970: 1_794_839_520)
@@ -135,16 +154,16 @@ final class CalendarNamingTests: XCTestCase {
         calendar.events = [event("Weekly sync", people: ["Ada"])]
         var enabled = false
         let naming = MeetingCalendarNaming(isEnabled: { enabled }, calendar: calendar)
-        XCTAssertNil(naming.event(forMeetingStartingAt: now))
+        XCTAssertEqual(Self.lookUp(naming, at: now), .some(nil))
         XCTAssertEqual(calendar.reads, 0, "Off: the calendar isn't even read")
         enabled = true
-        XCTAssertEqual(naming.event(forMeetingStartingAt: now), MatchedEvent(title: "Weekly sync", attendees: ["Ada"]))
+        XCTAssertEqual(Self.lookUp(naming, at: now), MatchedEvent(title: "Weekly sync", attendees: ["Ada"]))
         for access in [CalendarAccess.notDetermined, .denied, .restricted, .unavailable] {
             calendar.access = access
-            XCTAssertNil(naming.event(forMeetingStartingAt: now), "\(access)")
+            XCTAssertEqual(Self.lookUp(naming, at: now), .some(nil), "\(access)")
         }
         XCTAssertEqual(calendar.requests, 0, "Naming never asks for access")
-        XCTAssertNil(MeetingCalendarNaming.off.event(forMeetingStartingAt: now))
+        XCTAssertEqual(Self.lookUp(.off, at: now), .some(nil))
     }
 
     // MARK: - Note and front matter
