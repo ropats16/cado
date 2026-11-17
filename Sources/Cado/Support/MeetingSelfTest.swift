@@ -59,7 +59,7 @@ enum MeetingSelfTest {
             recorder: Recorder(me: me, them: them), engine: EngineMeetingAdapter(engine),
             notes: NotesLibrary(folder: { notesDir }),
             archive: FolderMeetingArchive(root: notesDir.appendingPathComponent("archive")),
-            feedback: console, activity: console, clock: clock,
+            spool: FolderMeetingSpool(root: notesDir.appendingPathComponent("spool")), feedback: console, activity: console, clock: clock,
             systemAudioPermission: { .unconfirmed })
         let app = MeetingApp(name: appName, bundleID: "test.\(appName)", target: .app(bundleID: "test", pid: 0))
 
@@ -109,8 +109,8 @@ enum MeetingSelfTest {
         let me: WavFileSource, them: WavFileSource
         init(me: WavFileSource, them: WavFileSource) { self.me = me; self.them = them }
         func streams(for app: MeetingApp, maxSeconds: Double) -> (me: MeetingStream, them: MeetingStream) {
-            (AudioCapture(source: me, idleSeconds: 0, maxSeconds: { maxSeconds }, keepsTime: true),
-             AudioCapture(source: them, idleSeconds: 0, maxSeconds: { maxSeconds }, keepsTime: true))
+            (AudioCapture(source: me, idleSeconds: 0, maxSeconds: { maxSeconds }, keepsTime: true, retainsSamples: false),
+             AudioCapture(source: them, idleSeconds: 0, maxSeconds: { maxSeconds }, keepsTime: true, retainsSamples: false))
         }
     }
 

@@ -217,6 +217,8 @@ final class InMemorySpoolHandle: MeetingSpoolHandle {
     private var audio: [MeetingSpeaker: [Float]] = [.me: [], .them: []]
     private var silent: [MeetingSpeaker: Bool] = [.me: true, .them: true]
     private(set) var events: [SpoolEvent] = []
+    /// `discard()` was called.
+    private(set) var isDiscarded = false
 
     init(_ meeting: SpooledMeeting) { self.meeting = meeting }
 
@@ -237,7 +239,7 @@ final class InMemorySpoolHandle: MeetingSpoolHandle {
                                to: folder.appendingPathComponent("\(fileName(speaker)).wav")) { try samples($0, of: speaker) }
         }
     }
-    func discard() { audio = [.me: [], .them: []]; events = [] }
+    func discard() { audio = [.me: [], .them: []]; events = []; isDiscarded = true }
 }
 
 // MARK: - Memory fallback

@@ -75,7 +75,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine: engine, activity: activity,
         microphoneUID: { [configStore] in configStore.config.microphoneUID },
         notes: notesLibrary,
-        systemAudio: { [permissions] in permissions.systemAudio })
+        systemAudio: { [permissions] in permissions.systemAudio },
+        keepAudio: { [configStore] in configStore.config.keepMeetingAudio })
     /// The mascot, watching `activity`. Attached at launch; builds its panel
     /// on first show (at launch with "always visible" on).
     private var overlay: MascotOverlay?

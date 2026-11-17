@@ -4,12 +4,16 @@ import Foundation
 // The live adapters behind `MeetingSession`'s ports. Thin on purpose: every
 // rule lives in the session.
 
-extension AudioCapture: MeetingStream {}
+extension AudioCapture: MeetingStream {
+    func end(then done: @escaping () -> Void) { end { _ in done() } }
+}
 
 /// The live streams: the configured mic and the app's audio through a
 /// process tap, each in its own capture that stops its source as soon as the
-/// meeting ends (no warm mic or lingering capture indicator), and keeps time
-/// across a source restart (`keepsTime`) so Me and Others stay interleaved.
+/// meeting ends (no warm mic or lingering capture indicator), keeps time
+/// across a source restart (`keepsTime`) so Me and Others stay interleaved,
+/// and keeps no audio in memory (`retainsSamples: false`: it goes to the
+/// session's spool as it's recorded).
 final class LiveMeetingRecorder: MeetingRecorder {
     private let microphoneUID: () -> String?
 
@@ -17,9 +21,9 @@ final class LiveMeetingRecorder: MeetingRecorder {
 
     func streams(for app: MeetingApp, maxSeconds: Double) -> (me: MeetingStream, them: MeetingStream) {
         let me = AudioCapture(source: MicSource(configuredUID: microphoneUID), idleSeconds: 0,
-                              maxSeconds: { maxSeconds }, keepsTime: true)
+                              maxSeconds: { maxSeconds }, keepsTime: true, retainsSamples: false)
         let them = AudioCapture(source: SystemAudioSource(target: app.target), idleSeconds: 0,
-                                maxSeconds: { maxSeconds }, keepsTime: true)
+                                maxSeconds: { maxSeconds }, keepsTime: true, retainsSamples: false)
         return (me, them)
     }
 }
@@ -45,7 +49,8 @@ extension NotesLibrary: MeetingNoteStore {
 }
 
 /// Keeps a meeting's audio as 16 kHz mono 16-bit WAVs (`Me.wav`,
-/// `Others.wav`), plus `Note.md` if given, in a folder of its own under
+/// `Others.wav`, a side with no audio left out), streamed from its spool,
+/// plus `Note.md` if given, in a folder of its own under
 /// `<root>`: `<name>`, or `<name> 2`, `<name> 3`… when a folder of that name
 /// exists already (another meeting in the same minute), so kept audio is
 /// never overwritten. By default `root` is Cado's support folder's
@@ -57,10 +62,13 @@ final class FolderMeetingArchive: MeetingArchive {
         self.root = root
     }
 
-    func keep(_ audio: [MeetingAudio], note: String?, name: String, into existing: URL?) throws -> URL {
+    func keep(_ audio: MeetingSpoolHandle?, note: String?, name: String, into existing: URL?) throws -> URL {
         let folder = try existing ?? newFolder(name)
-        for track in audio {
-            try WAVWriter.write(track.samples, to: folder.appendingPathComponent("\(track.speaker.rawValue).wav"))
+        do {
+            try audio?.exportAudio(to: folder) { $0.rawValue }
+        } catch {
+            if existing == nil { try? FileManager.default.removeItem(at: folder) }   // no empty folder left behind
+            throw error
         }
         if let note {
             try Data(note.utf8).write(to: folder.appendingPathComponent("Note.md"))

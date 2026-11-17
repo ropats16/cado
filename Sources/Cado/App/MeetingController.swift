@@ -1,8 +1,8 @@
 import Foundation
 
-/// Wires the meeting session (#30) to the live pieces and the menu: builds
-/// the session over the mic, the process tap, the shared engine and the notes
-/// library; works out which app "Record Meeting" would record when the menu
+/// Wires the meeting session (#30, #31) to the live pieces and the menu:
+/// builds the session over the mic, the process tap, the shared engine, the
+/// notes library and the on-disk spool (`FolderMeetingSpool`); works out which app "Record Meeting" would record when the menu
 /// opens; and re-renders the meeting rows each second while recording, for
 /// the elapsed time. Rules live in `MeetingSession` and `MeetingMenuContent`.
 ///
@@ -19,26 +19,29 @@ final class MeetingController: MeetingActivity {
     private var ticker: Timer?
     private lazy var session = MeetingSession(
         recorder: recorder, engine: engine, notes: notes, archive: FolderMeetingArchive(),
-        feedback: NotifierMeetingFeedback(), activity: self, clock: clock,
-        systemAudioPermission: systemAudio)
+        spool: FolderMeetingSpool(), feedback: NotifierMeetingFeedback(), activity: self, clock: clock,
+        systemAudioPermission: systemAudio, keepAudio: keepAudio)
     private let recorder: MeetingRecorder
     private let engine: MeetingEngine
     private let notes: MeetingNoteStore
     private let systemAudio: () -> SystemAudioPermission
+    private let keepAudio: () -> Bool
 
     /// `activity`: the app-wide feed (the overlay). `notes`: the notes
     /// library meeting notes are saved to. `systemAudio`: the permission as
     /// observed (`Permissions.systemAudio`), read when the menu renders and
-    /// when a meeting ends.
+    /// when a meeting ends. `keepAudio`: Settings › Notes › Keep meeting
+    /// audio, read when a meeting ends.
     init(engine: TranscriptionEngine, activity: MeetingActivity, microphoneUID: @escaping () -> String?,
          notes: MeetingNoteStore, systemAudio: @escaping () -> SystemAudioPermission,
-         clock: Clock = SystemClock()) {
+         keepAudio: @escaping () -> Bool, clock: Clock = SystemClock()) {
         self.activity = activity
         self.clock = clock
         recorder = LiveMeetingRecorder(microphoneUID: microphoneUID)
         self.engine = EngineMeetingAdapter(engine)
         self.notes = notes
         self.systemAudio = systemAudio
+        self.keepAudio = keepAudio
     }
 
     /// For `DictationSession`'s `busy`.
@@ -62,6 +65,12 @@ final class MeetingController: MeetingActivity {
         case .start(let app): session.start(app)
         case .stop: session.stop()
         }
+    }
+
+    /// Cado can transcribe: recover meetings an earlier run didn't finish
+    /// (`MeetingSession.recoverLeftovers`). Once per launch.
+    func recoverLeftovers() {
+        session.recoverLeftovers()
     }
 
     /// The app is quitting: `done` once the meeting (if any) is stopped and
