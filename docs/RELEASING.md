@@ -50,6 +50,16 @@ for drag-to-install). Maintainer-only; users never need this.
    - The first `make release` asks the keychain to let Sparkle's `sign_update`
      read the key: enter your login password and choose **Always Allow**.
 
+## Versioning
+
+Semantic versioning, `MAJOR.MINOR.PATCH`:
+
+- **PATCH** (0.2.x): fixes only; nothing a user has to relearn.
+- **MINOR** (0.x.0): new or changed features, UI or wording; note files written by older versions must still open.
+- **MAJOR** (x.0.0): breaking changes (a note or config format older data can't be read from, a raised macOS minimum). 1.0.0 = first release called stable.
+
+The version exists only as the `VERSION` given to `make release` and the `v<version>` tag; the build number is the git commit count. Before each release add a section to `CHANGELOG.md` (newest first, user-facing wording); it is the release's notes.
+
 ## Release
 
 ```sh
