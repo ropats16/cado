@@ -274,4 +274,27 @@ final class SpeakerBleedFilterTests: XCTestCase {
         XCTAssertEqual(MeetingSelfTest.turnText(of: .me, in: note), "Hi all. Bye now.")
         XCTAssertEqual(MeetingSelfTest.turnText(of: .them, in: note), "Hello.")
     }
+
+    // MARK: - Other scripts (#47)
+
+    func testAMixedLanguageMeetingWithHeadphonesKeepsEveryWordAsWritten() {
+        // Hindi in Devanagari and English, replies over each other and reusing
+        // each other's words: nothing bleeds, so the text is kept as written.
+        let pieces = [them(0, " नमस्ते, आज हम बजट के बारे में बात करेंगे।", end: 3),
+                      me(2.9, " हाँ, बजट के बारे में बात करते हैं।", end: 5),
+                      them(5.2, " The numbers look good, लेकिन marketing का खर्च ज़्यादा है।", end: 9),
+                      me(8.9, " ठीक है, marketing का खर्च हम कम कर सकते हैं।", end: 12),
+                      them(12.1, " धन्यवाद।", end: 12.8),
+                      me(12.2, " धन्यवाद।", end: 12.9)]
+        XCTAssertEqual(SpeakerBleedFilter.filtered(pieces), pieces)
+        XCTAssertEqual(MeetingTranscript.turns(pieces).map(\.text), [
+            "नमस्ते, आज हम बजट के बारे में बात करेंगे।", "हाँ, बजट के बारे में बात करते हैं।",
+            "The numbers look good, लेकिन marketing का खर्च ज़्यादा है।",
+            "ठीक है, marketing का खर्च हम कम कर सकते हैं।", "धन्यवाद।", "धन्यवाद।"])
+    }
+
+    func testDevanagariWordsStayWholeForMatching() {
+        XCTAssertEqual(TranscriptNormalizer.words(" नमस्ते, marketing का खर्च ज़्यादा है।"),
+                       ["नमस्ते", "marketing", "का", "खर्च", "ज़्यादा", "है"])
+    }
 }
