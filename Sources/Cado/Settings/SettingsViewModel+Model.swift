@@ -231,7 +231,10 @@ extension SettingsViewModel {
             let spec = currentModel()
             switch engines.downloadHint(for: spec) {
             case .inApp?, .command?:
-                if let model = downloadableModel(for: spec) {
+                // Named only when its row is in the list (not, say, a model
+                // that's there but reported missing a moment ago).
+                if let model = downloadableModel(for: spec),
+                   inAppDownloadableModels.contains(where: { $0.key == ModelDownloadKey(engine: engine, id: model.id) }) {
                     // Under way: its row shows the progress.
                     if isDownloadingModel(ModelDownloadKey(engine: engine, id: model.id)) { return nil }
                     return "Not downloaded. Click Download next to \(model.label) in “\(Self.downloadListTitle)”."

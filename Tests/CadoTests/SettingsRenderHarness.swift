@@ -60,7 +60,11 @@ final class SettingsRenderHarness: XCTestCase {
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let prefix = ProcessInfo.processInfo.environment["CADO_RENDER_PREFIX"] ?? "settings"
 
-        for (name, make) in [("", overview), ("-issues", issues), ("-apple-speech", appleSpeech)] as [(String, () async -> SettingsViewModel)] {
+        let scenes: [(String, () async -> SettingsViewModel)] = [
+            ("", overview), ("-issues", issues), ("-apple-speech", appleSpeech),
+            ("-long-list-downloading", longListDownloading), ("-long-list-missing", longListMissing),
+        ]
+        for (name, make) in scenes {
             for dark in [false, true] {
                 let vm = await make()
                 let file = out.appendingPathComponent("\(prefix)\(name)-\(dark ? "dark" : "light").png")
@@ -82,7 +86,11 @@ final class SettingsRenderHarness: XCTestCase {
             $0.language = "en"
             $0.soundCues = true
         }
+        // Emptied per scene: a model one scene installs isn't another's. (The
+        // folder Paths.modelsDir names under the override, which whisper's
+        // download hint reads.)
         let modelsDir = tempDir.appendingPathComponent("models", isDirectory: true)
+        try? FileManager.default.removeItem(at: modelsDir)
         let descriptor = EngineRegistry.shared.descriptor(for: engine)!
         let context = ModelContext(language: "en", hardware: environment.hardware, modelsDir: modelsDir,
                                    presentFilenames: [], customPath: "")
@@ -127,6 +135,22 @@ final class SettingsRenderHarness: XCTestCase {
         vm.commitHotkey(vm.holdBinding, for: .toggle)   // same chord twice → warning
         vm.recorder.startCapture(for: .hold, vm: vm)
         return vm
+    }
+
+    /// whisper's long Download list (closed when idle) with one download
+    /// under way and one failed: it opens by itself.
+    private func longListDownloading() async -> SettingsViewModel {
+        let vm = makeVM(engine: .whisper, status: .ready, login: StubLoginItem(enabled: true))
+        let rows = vm.inAppDownloadableModels
+        vm.modelDownloads[rows[2].key] = .downloading(fraction: 0.42)
+        vm.modelDownloads[rows[4].key] = .failed("Download failed: The network is offline.")
+        return vm
+    }
+
+    /// whisper's long list, the selected model missing: open, and the hint
+    /// names its button.
+    private func longListMissing() async -> SettingsViewModel {
+        makeVM(engine: .whisper, status: .missing, login: StubLoginItem(enabled: true), installAutomatic: false)
     }
 
     /// Apple Speech: the OS-managed model, not yet downloaded, after a failed try.

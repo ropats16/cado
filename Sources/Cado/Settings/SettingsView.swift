@@ -351,12 +351,17 @@ private struct ModelDownloadRow: View {
             Text(model.label).foregroundStyle(Brand.Palette.ink)
             Spacer(minLength: 8)
             if let progress = viewModel.modelDownloadLabel(key) {
+                // The bar says "downloading"; beside it just the percent, so
+                // the row fits on one line. VoiceOver reads the full label.
                 if case .downloading(let fraction)? = viewModel.modelDownloads[key] {
                     ProgressView(value: fraction)
                         .frame(width: 60)
-                        .accessibilityHidden(true)   // the label says it
+                        .accessibilityHidden(true)
+                    Text("\(Int((fraction * 100).rounded(.down)))%")
+                        .foregroundStyle(Brand.Palette.inkSecondary).monospacedDigit()
+                        .fixedSize()
+                        .accessibilityLabel(progress)
                 }
-                Text(progress).foregroundStyle(Brand.Palette.inkSecondary).monospacedDigit()
                 Button("Cancel") { viewModel.cancelModelDownload(key) }
             } else {
                 if viewModel.hasPartialDownload(key) {
