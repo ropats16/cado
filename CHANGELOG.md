@@ -2,7 +2,7 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
-## Unreleased
+## 0.4.0 (unreleased)
 
 ### Added
 - "Record this meeting?": when a meeting app (Zoom, Teams, Slack, Webex, Discord, FaceTime, or a browser for Meet and other web calls) starts using the microphone, Cado asks, with Record and Not Now. It asks in a notification, in the menu (the menu bar shows "Record?") and with the mascot, so it works with notifications off too. Cado never records by itself. Needs macOS 14.4 or later; turn it off in Settings › Meetings.
@@ -26,6 +26,7 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - A recording in Meetings In Progress whose details can't be read is no longer left there silently: its audio is kept as WAV files in the Meeting Audio folder, with the rest of the recording (the transcript so far included) next to them, and Cado tells you where, once.
 
 ### Changed
+- Release update feeds are signed as well as the app download. Requiring signed feeds in installed apps is staged for the following release, after the first signed feed is published and verified.
 - A hand-edited language in the config file that isn't a language code ("hindi", "en-US") is reported in Settings instead of giving garbled text.
 - With English dictation, Automatic takes the English-only file over the multilingual one of the same size. A larger multilingual model you download (say small, for meetings) is still used for dictation when it's bigger than your English-only ones.
 - Settings has tabs along the top: General, Dictation, Speech Model and Meetings, with the hotkeys first under Dictation. Notes folder and Keep meeting audio moved to Meetings; the mascot, sounds and Keep recent dictations to Dictation.
@@ -50,6 +51,8 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - Looking for a meeting's note never waits for a note in iCloud Drive (or another cloud folder) to download.
 
 ## 0.3.0 - 2026-11-17
+
+Prepared milestone, not published on GitHub. Its changes are included in 0.4.0.
 
 ### Added
 - Meetings are transcribed while you talk, so the note is ready shortly after you stop, even after an hour-long call (on a Mac that keeps up; a slower one finishes the rest after you stop).
