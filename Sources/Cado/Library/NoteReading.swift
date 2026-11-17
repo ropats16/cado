@@ -9,7 +9,8 @@ import Foundation
 /// paragraph line starting `**Me:**` / `**Them:**` starts a turn, and the
 /// lines under it (to the paragraph's end) belong to it. Its first line,
 /// "Recorded from Zoom (Them) and your microphone (Me).", becomes the
-/// header's app, and quotes before the first turn become `notices`. Anything
+/// header's app, and the quote right under it (before anything else)
+/// becomes `notices`. Anything
 /// else, and every other note, stays a `MarkdownBlock` in order, so an edited
 /// or foreign file still reads in full. Pure; never fails.
 struct NoteReading: Equatable {
@@ -50,7 +51,7 @@ struct NoteReading: Equatable {
 
     let header: Header
     /// A meeting's caveats ("Recording stopped at the 2-hour limit."), one
-    /// per line of the quote before its first turn.
+    /// per line of the quote that opens its body (under the intro line).
     let notices: [String]
     /// The body in order.
     let items: [Item]
@@ -88,7 +89,7 @@ struct NoteReading: Equatable {
         var items: [Item] = []
         for block in blocks {
             guard isMeeting else { items.append(.block(block)); continue }
-            if case .quote(let text) = block, !items.contains(where: { if case .turn = $0 { true } else { false } }) {
+            if case .quote(let text) = block, items.isEmpty {
                 notices += text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
                 continue
             }

@@ -101,11 +101,15 @@ final class NoteReadingTests: XCTestCase {
         ])
     }
 
-    /// A quote after the transcript started is the user's, not a notice.
-    func testOnlyQuotesBeforeTheFirstTurnAreNotices() {
+    /// Only the quote opening the body is notices; a quote further down
+    /// (after a heading, or the transcript) is the user's.
+    func testOnlyTheOpeningQuoteIsNotices() {
         let r = reading(note("**Me:** hi\n\n> a quote I added"))
         XCTAssertEqual(r.notices, [])
         XCTAssertEqual(r.items.last, .block(.quote("a quote I added")))
+        let summary = reading(note("Recorded from Zoom (Them) and your microphone (Me).\n\n## Summary\n\n> Keep it quiet."))
+        XCTAssertEqual(summary.notices, [])
+        XCTAssertEqual(summary.items, [.block(.heading(level: 2, text: "Summary")), .block(.quote("Keep it quiet."))])
     }
 
     // MARK: Other notes
