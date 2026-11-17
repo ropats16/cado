@@ -109,20 +109,25 @@ final class EngineSelectionTests: XCTestCase {
         XCTAssertNil(selected.fallbackReason)
     }
 
-    /// #47: a multilingual file (downloaded for meetings) must not take English
-    /// dictation from an installed `.en` model, even though it's no bigger
-    /// than the recommended one and a few KB bigger than the `.en` one.
-    func testEnglishAutomaticPrefersEnModelsOverMultilingualOnes() {
+    /// #47: within one size tier English takes the `.en` file over the multilingual
+    /// one (a few KB apart); a multilingual model of a larger tier still wins.
+    func testEnglishAutomaticPrefersEnOnlyWithinTheSameTier() {
         let hardware = HardwareProfile(isAppleSilicon: true, memoryBytes: 16 << 30)   // recommends medium.en-q5_0
         let pick = { (present: Set<String>, language: String) -> ModelSpec in
             ModelSelection.resolve(model: .automatic, modelPath: "", language: language, hardware: hardware,
                                    modelsDir: self.modelsDir, presentFilenames: present)
         }
+        // Same tier: the .en file, though small-q5_1 is a few KB smaller.
+        XCTAssertEqual(pick(["ggml-small.en-q5_1.bin", "ggml-small-q5_1.bin"], "en"),
+                       .file("/models/ggml-small.en-q5_1.bin"))
+        // Larger multilingual tier wins over smaller .en ones.
+        XCTAssertEqual(pick(["ggml-tiny.en-q5_1.bin", "ggml-small-q5_1.bin"], "en"),
+                       .file("/models/ggml-small-q5_1.bin"))
         XCTAssertEqual(pick(["ggml-base.en-q5_1.bin", "ggml-small-q5_1.bin"], "en"),
-                       .file("/models/ggml-base.en-q5_1.bin"))
-        // Only multilingual files present: still used.
+                       .file("/models/ggml-small-q5_1.bin"))
+        // Only multilingual files present: used.
         XCTAssertEqual(pick(["ggml-small-q5_1.bin"], "en"), .file("/models/ggml-small-q5_1.bin"))
-        // Other languages never use `.en` models and are unaffected.
+        // Other languages never use `.en` models.
         XCTAssertEqual(pick(["ggml-base.en-q5_1.bin", "ggml-small-q5_1.bin"], "hi"),
                        .file("/models/ggml-small-q5_1.bin", language: "hi"))
     }

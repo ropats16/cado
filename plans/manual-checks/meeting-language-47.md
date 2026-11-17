@@ -67,7 +67,8 @@ A multilingual whisper model must be downloaded for Auto-detect meetings
    `"meetingLanguage": "hindi"`, relaunch. The Meetings tab says the language
    isn't one Cado knows and to pick one; same for `"language": "en-US"` on the
    Speech Model tab. Pick a language in Settings: the warning goes.
-10. **Meeting download leaves dictation alone.** Dictation on English with
-    Whisper Automatic and an English-only model (e.g. base.en) downloaded;
-    download the meeting's multilingual model. Dictation's model in Settings
-    is still the English-only one.
+10. **Meeting download and dictation's model.** Dictation on English with
+    Whisper Automatic and base.en downloaded; download the meeting's
+    multilingual small. Expected: dictation moves to small (bigger, more
+    accurate; meetings reuse the loaded file). With small.en also downloaded,
+    dictation stays on small.en.

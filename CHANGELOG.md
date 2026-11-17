@@ -6,7 +6,7 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 
 ### Changed
 - A hand-edited language in the config file that isn't a language code ("hindi", "en-US") is reported in Settings instead of giving garbled text.
-- With English dictation, Automatic keeps an English-only model you have rather than switching to a multilingual one you downloaded for meetings.
+- With English dictation, Automatic takes the English-only file over the multilingual one of the same size. A larger multilingual model you download (say small, for meetings) is still used for dictation when it's bigger than your English-only ones.
 - Settings has tabs along the top: General, Dictation, Speech Model and Meetings, with the hotkeys first under Dictation. Notes folder and Keep meeting audio moved to Meetings; the mascot, sounds and Keep recent dictations to Dictation.
 - Settings remembers where you left its window, and long folder paths and model names no longer cut off.
 - The hotkey button that said "Record" now says "Change…", so it can't be mistaken for Record Meeting.
