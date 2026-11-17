@@ -6,7 +6,6 @@ import XCTest
 final class FakeSummaryKeyStore: SummaryKeyStore, @unchecked Sendable {
     private let lock = NSLock()
     private var key: String?
-    private var _hasKeyChecks = 0
     var saveSucceeds = true
     init(key: String? = nil) { self.key = key }
     func hasKey() -> Bool { lock.withLock { key != nil } }
@@ -16,7 +15,7 @@ final class FakeSummaryKeyStore: SummaryKeyStore, @unchecked Sendable {
         lock.withLock { self.key = key }
         return true
     }
-    func delete() { lock.withLock { key = nil } }
+    @discardableResult func delete() -> Bool { lock.withLock { key = nil }; return true }
 }
 
 /// A transport that answers from a queue and records each request. Never
@@ -46,6 +45,49 @@ final class FakeOpenRouterTransport: OpenRouterTransport, @unchecked Sendable {
         let data = try! JSONSerialization.data(withJSONObject: [
             "choices": [["message": ["role": "assistant", "content": content], "finish_reason": finish]]])
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+/// A flag a `@Sendable` closure can read.
+final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag: Bool
+    init(_ value: Bool) { flag = value }
+    var value: Bool { get { lock.withLock { flag } } set { lock.withLock { flag = newValue } } }
+}
+
+/// A scripted Keychain: statuses in, calls recorded. Never the real one.
+final class FakeKeychainItem: KeychainItemAPI, @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var calls: [String] = []
+    private var stored: Data?
+    var updateStatus: OSStatus?   // nil = behave like a keychain
+    var addStatus: OSStatus?
+    var deleteStatus: OSStatus?
+    init(stored: String? = nil) { self.stored = stored.map { Data($0.utf8) } }
+    private func log(_ c: String) { lock.withLock { calls.append(c) } }
+    var callList: [String] { lock.withLock { calls } }
+    func exists() -> OSStatus { log("exists"); return lock.withLock { stored == nil ? errSecItemNotFound : errSecSuccess } }
+    func read() -> (status: OSStatus, data: Data?) { log("read"); return lock.withLock { (stored == nil ? errSecItemNotFound : errSecSuccess, stored) } }
+    func update(_ data: Data) -> OSStatus {
+        log("update")
+        return lock.withLock {
+            if let s = updateStatus { return s }
+            guard stored != nil else { return errSecItemNotFound }
+            stored = data; return errSecSuccess
+        }
+    }
+    func add(_ data: Data) -> OSStatus {
+        log("add")
+        return lock.withLock { if let s = addStatus { return s }; stored = data; return errSecSuccess }
+    }
+    func delete() -> OSStatus {
+        log("delete")
+        return lock.withLock {
+            if let s = deleteStatus { return s }
+            let had = stored != nil; stored = nil
+            return had ? errSecSuccess : errSecItemNotFound
+        }
     }
 }
 
@@ -80,12 +122,16 @@ final class OpenRouterSummaryTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(secret)")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Title"), "Cado")
         XCTAssertEqual(Set(request.allHTTPHeaderFields?.keys.map { $0 } ?? []),
-                       ["Authorization", "Content-Type", "X-Title"], "Nothing else identifying")
+                       ["Authorization", "Content-Type"], "No app name or other identifying header")
 
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(request.httpBody)) as? [String: Any])
-        XCTAssertEqual(Set(body.keys), ["model", "messages", "temperature", "max_tokens", "stream"])
+        XCTAssertEqual(Set(body.keys), ["model", "messages", "temperature", "max_tokens", "stream", "provider"])
+        XCTAssertEqual(body["max_tokens"] as? Int, 4_000)
+        let provider = try XCTUnwrap(body["provider"] as? [String: Any])
+        XCTAssertEqual(provider["data_collection"] as? String, "deny", "Never a provider that may keep or train on the text")
+        XCTAssertEqual(provider["zdr"] as? Bool, true)
+        XCTAssertEqual(provider.count, 2)
         XCTAssertEqual(body["model"] as? String, "openai/gpt-4o-mini")
         XCTAssertEqual(body["stream"] as? Bool, false)
         let messages = try XCTUnwrap(body["messages"] as? [[String: String]])
@@ -142,9 +188,11 @@ final class OpenRouterSummaryTests: XCTestCase {
         XCTAssertEqual(ctx2, .tooLong)
         let bad = await failure(status: 400, body: #"{"error":{"code":400,"message":"bad param"}}"#)
         XCTAssertEqual(bad, .failed("OpenRouter rejected the request (HTTP 400)."))
-        for status in [500, 502, 503] {
+        let e500 = await failure(status: 500, body: #"{"error":{"code":500,"message":"down"}}"#)
+        XCTAssertEqual(e500, .failed("OpenRouter answered HTTP 500."))
+        for status in [502, 503, 504] {
             let e = await failure(status: status, body: #"{"error":{"code":\#(status),"message":"down"}}"#)
-            XCTAssertEqual(e, .failed("OpenRouter answered HTTP \(status)."))
+            XCTAssertEqual(e, .busy, "Provider down, overloaded or timed out: try again shortly")
         }
     }
 
@@ -152,7 +200,7 @@ final class OpenRouterSummaryTests: XCTestCase {
         let limited = await failure(status: 200, body: #"{"error":{"code":429,"message":"rate"}}"#)
         XCTAssertEqual(limited, .busy)
         let down = await failure(status: 200, body: #"{"error":{"code":502,"message":"provider down"}}"#)
-        XCTAssertEqual(down, .failed("OpenRouter answered HTTP 502."))
+        XCTAssertEqual(down, .busy)
     }
 
     func testOddAnswers() async {
@@ -182,7 +230,7 @@ final class OpenRouterSummaryTests: XCTestCase {
     func testNoErrorTextEverContainsTheKeyOrTheProvidersMessage() async {
         // A provider may echo the request in its message; it is never copied.
         let echo = #"{"error":{"code":500,"message":"bad input: Me: private words \#(secret)"}}"#
-        for status in [400, 401, 402, 429, 500, 502] {
+        for status in [400, 401, 402, 403, 404, 429, 500, 502] {
             let error = await failure(status: status, body: echo)
             XCTAssertFalse("\(String(describing: error))".contains(secret))
             XCTAssertFalse("\(String(describing: error))".contains("private words"))
@@ -201,16 +249,141 @@ final class OpenRouterSummaryTests: XCTestCase {
     }
 
     func testAServerErrorStopsTheRunAndNothingIsRetriedBeyondThePipeline() async {
-        let transport = FakeOpenRouterTransport([.response(503, "{}"), .response(503, "{}")])
+        let transport = FakeOpenRouterTransport([.response(500, "{}"), .response(500, "{}")])
         do {
             _ = try await SummaryPipeline(summarizer: summarizer(transport), sleep: { _ in })
                 .run([(speaker: .me, text: "Budget?")])
             XCTFail("Should throw")
-        } catch { XCTAssertEqual(error as? SummarizerError, .failed("OpenRouter answered HTTP 503.")) }
+        } catch { XCTAssertEqual(error as? SummarizerError, .failed("OpenRouter answered HTTP 500.")) }
         XCTAssertEqual(transport.requests.count, 1)
     }
 
     // MARK: Models
+
+    func testTheDocumentedErrorTypeWinsOverTheStatus() async {
+        func body(_ code: Int, _ type: String, _ message: String = "m") -> String {
+            #"{"error":{"code":\#(code),"message":"\#(message)","metadata":{"error_type":"\#(type)"}}}"#
+        }
+        let notSet: (String) -> SummarizerError = { .unavailable(.notSetUp($0)) }
+        // The type decides even when the status says something else.
+        let a = await failure(status: 500, body: body(500, "provider_overloaded"))
+        XCTAssertEqual(a, .busy)
+        let b = await failure(status: 403, body: body(403, "content_policy_violation"))
+        XCTAssertEqual(b, .refused)
+        let c = await failure(status: 403, body: body(403, "refusal"))
+        XCTAssertEqual(c, .refused)
+        let d = await failure(status: 403, body: body(403, "permission_denied", "Request blocked by guardrail"))
+        XCTAssertEqual(d, notSet(OpenRouterSetup.permissionSentence))
+        let e = await failure(status: 404, body: body(404, "not_found"))
+        XCTAssertEqual(e, notSet(OpenRouterSetup.unknownModelSentence))
+        let f = await failure(status: 504, body: body(504, "timeout"))
+        XCTAssertEqual(f, .busy)
+        let g = await failure(status: 400, body: body(400, "payment_required"))
+        XCTAssertEqual(g, notSet(OpenRouterSetup.noCreditsSentence))
+    }
+
+    func testStatusAloneStillMapsWhenThereIsNoType() async {
+        let notSet: (String) -> SummarizerError = { .unavailable(.notSetUp($0)) }
+        let moderated = await failure(status: 403, body: #"{"error":{"code":403,"message":"flagged","metadata":{"reasons":["violence"],"flagged_input":"x"}}}"#)
+        XCTAssertEqual(moderated, .refused)
+        let permission = await failure(status: 403, body: #"{"error":{"code":403,"message":"Key lacks access"}}"#)
+        XCTAssertEqual(permission, notSet(OpenRouterSetup.permissionSentence))
+        let unknown404 = await failure(status: 404, body: #"{"error":{"code":404,"message":"No endpoints found for x/y"}}"#)
+        XCTAssertEqual(unknown404, notSet(OpenRouterSetup.unknownModelSentence))
+        let invalid = await failure(status: 400, body: #"{"error":{"code":400,"message":"x/y is not a valid model ID"}}"#)
+        XCTAssertEqual(invalid, notSet(OpenRouterSetup.unknownModelSentence))
+        let weird = await failure(status: 403, body: "{\"error\":{\"code\":\"403\",\"message\":7,\"metadata\":[]}}")
+        XCTAssertEqual(weird, notSet(OpenRouterSetup.permissionSentence), "Odd field types don't break the mapping")
+    }
+
+    func testNoProviderThatKeepsNothingIsSaidPlainly() async {
+        let expected = SummarizerError.unavailable(.notSetUp(
+            "No provider for this model accepts requests without keeping your text. Choose another model in Settings › Meetings."))
+        XCTAssertEqual(OpenRouterSetup.dataPolicySentence, "No provider for this model accepts requests without keeping your text. Choose another model in Settings › Meetings.")
+        let a = await failure(status: 404, body: #"{"error":{"code":404,"message":"No endpoints found matching your data policy (Free model publication). Configure: https://openrouter.ai/settings/privacy"}}"#)
+        XCTAssertEqual(a, expected)
+        let b = await failure(status: 404, body: #"{"error":{"code":404,"message":"No endpoints found matching your data policy","metadata":{"error_type":"not_found"}}}"#)
+        XCTAssertEqual(b, expected, "The data policy wins over the generic not-found")
+        UserFacingCopy.assertPlain(OpenRouterSetup.dataPolicySentence)
+        for text in [OpenRouterSetup.unknownModelSentence, OpenRouterSetup.permissionSentence,
+                     OpenRouterSetup.outOfRoomSentence, OpenRouterSetup.turnedOffSentence] { UserFacingCopy.assertPlain(text) }
+    }
+
+    func testAnErrorFinishInsideAnOKResponseIsNotAccepted() async {
+        let partial = await failure(status: 200, body: FakeOpenRouterTransport.completion(FakeOpenRouterTransport.goodAnswer, finish: "error"))
+        XCTAssertEqual(partial, .busy, "Partial text from an interrupted generation is never used")
+        let withError = #"{"error":{"code":503,"message":"x","metadata":{"error_type":"provider_overloaded"}},"choices":[{"message":{"content":"Decisions:\n- Partial"},"finish_reason":"error"}]}"#
+        let b = await failure(status: 200, body: withError)
+        XCTAssertEqual(b, .busy)
+    }
+
+    func testAReasoningModelThatRanOutOfRoomSaysSo() async {
+        let empty = await failure(status: 200, body: FakeOpenRouterTransport.completion("", finish: "length"))
+        XCTAssertEqual(empty, .failed("The model ran out of room for its answer. Try another model."))
+        // Cut off but with text: still read as before.
+        let transport = FakeOpenRouterTransport([.response(200, FakeOpenRouterTransport.completion(FakeOpenRouterTransport.goodAnswer, finish: "length"))])
+        let summary = try? await summarizer(transport).summarize("Me: hi", part: 1, of: 1)
+        XCTAssertEqual(summary?.decisions, ["Ship it"])
+    }
+
+    // MARK: Turned off mid-run
+
+    func testNothingIsSentOnceItIsTurnedOff() async throws {
+        let transport = FakeOpenRouterTransport()
+        let on = LockedFlag(true)
+        let s = OpenRouterSummarizer(model: "a/b", apiKey: secret, transport: transport, allowed: { on.value })
+        _ = try await s.summarize("Me: hi", part: 1, of: 2)
+        XCTAssertEqual(transport.requests.count, 1)
+        on.value = false
+        let off = SummarizerError.unavailable(.notSetUp("OpenRouter was turned off, so nothing more was sent."))
+        do { _ = try await s.summarize("Me: more", part: 2, of: 2); XCTFail() } catch { XCTAssertEqual(error as? SummarizerError, off) }
+        do { _ = try await s.merge([MeetingSummary(keyPoints: ["a"])]); XCTFail() } catch { XCTAssertEqual(error as? SummarizerError, off) }
+        XCTAssertEqual(transport.requests.count, 1, "Neither the passage nor the merge was sent")
+        XCTAssertEqual(s.model, "a/b")
+    }
+
+    func testTurningItOffStopsTheRetryToo() async {
+        let transport = FakeOpenRouterTransport([.response(429, #"{"error":{"code":429,"message":"r"}}"#)])
+        let on = LockedFlag(true)
+        let s = OpenRouterSummarizer(model: "a/b", apiKey: secret, transport: transport, allowed: { on.value })
+        do {
+            _ = try await SummaryPipeline(summarizer: s, busyRetryDelays: [.seconds(1)], sleep: { _ in on.value = false })
+                .run([(speaker: .me, text: "Budget?")])
+            XCTFail("Should stop")
+        } catch { XCTAssertEqual(error as? SummarizerError, .unavailable(.notSetUp(OpenRouterSetup.turnedOffSentence))) }
+        XCTAssertEqual(transport.requests.count, 1, "The retry was not sent")
+    }
+
+    // MARK: Small context windows
+
+    func testASmallContextModelChunksToFit() {
+        XCTAssertEqual(OpenRouterSummarizer.limits(forContext: nil).passageTokens, 24_000)
+        XCTAssertEqual(OpenRouterSummarizer.limits(forContext: 1_000_000).passageTokens, 24_000)
+        let small = OpenRouterSummarizer.limits(forContext: 8_192)
+        XCTAssertLessThan(small.passageTokens + OpenRouterSummarizer.answerTokens, 8_192)
+        XCTAssertGreaterThan(small.passageTokens, 0)
+        let s = OpenRouterSummarizer(model: "a/b", apiKey: secret, transport: FakeOpenRouterTransport(), contextTokens: 8_192)
+        XCTAssertEqual(s.limits, small)
+        XCTAssertGreaterThan(OpenRouterSummarizer.limits(forContext: 2_000).passageTokens, 0, "Never zero")
+    }
+
+    func testARefreshTeachesContextSizesAndDropsBatchAndNonTextModels() async throws {
+        let body = #"{"data":[{"id":"t/small-ctx","context_length":8192,"architecture":{"output_modalities":["text"]}},{"id":"t/small-ctx:batch","context_length":8192},{"id":"t/img","architecture":{"output_modalities":["image"]}},{"id":"t/dup"},{"id":"t/dup"}]}"#
+        let listing = try OpenRouterModels.parseListing(Data(body.utf8))
+        XCTAssertEqual(listing.ids, ["t/dup", "t/small-ctx"])
+        XCTAssertEqual(listing.contextLengths, ["t/small-ctx": 8192])
+        XCTAssertNil(OpenRouterModels.knownContext(for: "t/small-ctx"))
+        _ = try await OpenRouterModels.fetch(using: FakeOpenRouterTransport([.response(200, body)]))
+        XCTAssertEqual(OpenRouterModels.knownContext(for: "t/small-ctx"), 8192)
+        let s = OpenRouterSummarizer(model: "t/small-ctx", apiKey: secret, transport: FakeOpenRouterTransport())
+        XCTAssertEqual(s.limits, OpenRouterSummarizer.limits(forContext: 8192))
+    }
+
+    func testTheCuratedListIsShortAndEveryIDLooksRight() {
+        XCTAssertTrue((3...4).contains(OpenRouterModels.curated.count))
+        XCTAssertEqual(Set(OpenRouterModels.curated).count, OpenRouterModels.curated.count)
+        for id in OpenRouterModels.curated { XCTAssertTrue(id.contains("/") && !id.contains(":") && !id.contains(" "), id) }
+    }
 
     func testTheModelListIsReadAndSorted() throws {
         let body = #"{"data":[{"id":"z/b","architecture":{"output_modalities":["text"]}},{"id":"a/img","architecture":{"output_modalities":["image"]}},{"id":"a/a"}]}"#
@@ -228,10 +401,77 @@ final class OpenRouterSummaryTests: XCTestCase {
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
     }
 
+    func testTheModelListRequestCarriesNoIdentifyingHeaders() async throws {
+        let transport = FakeOpenRouterTransport([.response(200, #"{"data":[]}"#)])
+        _ = try await OpenRouterModels.fetch(using: transport)
+        XCTAssertEqual(transport.requests.first?.allHTTPHeaderFields ?? [:], [:])
+    }
+
     func testTheDefaultModelIsInTheCuratedList() {
         XCTAssertTrue(OpenRouterModels.curated.contains(OpenRouterModels.defaultID))
         XCTAssertEqual(OpenRouterModels.effective("  "), OpenRouterModels.defaultID)
         XCTAssertEqual(OpenRouterModels.effective(" a/b "), "a/b")
+    }
+
+    // MARK: Keychain store (through the fake security seam)
+
+    func testHasKeyIsReadOnceThenKeptInStep() {
+        let item = FakeKeychainItem(stored: "k")
+        let store = KeychainSummaryKeyStore(item: item)
+        XCTAssertTrue(store.hasKey()); XCTAssertTrue(store.hasKey()); XCTAssertTrue(store.hasKey())
+        XCTAssertEqual(item.callList, ["exists"], "One lookup however often it is asked")
+        XCTAssertTrue(store.delete())
+        XCTAssertFalse(store.hasKey())
+        XCTAssertTrue(store.save("new"))
+        XCTAssertTrue(store.hasKey())
+        XCTAssertEqual(item.callList.filter { $0 == "exists" }.count, 1, "Save and delete update it without asking again")
+        XCTAssertEqual(store.load(), "new")
+    }
+
+    func testSaveAddsWhenThereIsNoItemAndUpdatesWhenThereIs() {
+        let empty = FakeKeychainItem()
+        let a = KeychainSummaryKeyStore(item: empty)
+        XCTAssertTrue(a.save("k1"))
+        XCTAssertEqual(empty.callList, ["update", "add"])
+        let full = FakeKeychainItem(stored: "old")
+        let b = KeychainSummaryKeyStore(item: full)
+        XCTAssertTrue(b.save("k2"))
+        XCTAssertEqual(full.callList, ["update"])
+        XCTAssertEqual(b.load(), "k2")
+    }
+
+    func testSaveRecoversWhenTheUpdateFailsForAnotherReason() {
+        let item = FakeKeychainItem(stored: "old")
+        item.updateStatus = errSecInteractionNotAllowed
+        let store = KeychainSummaryKeyStore(item: item)
+        XCTAssertTrue(store.save("fresh"))
+        XCTAssertEqual(item.callList, ["update", "delete", "add"])
+        XCTAssertEqual(store.load(), "fresh")
+        XCTAssertTrue(store.hasKey())
+    }
+
+    func testSaveReportsFailureAndDoesNotTrustTheCache() {
+        let item = FakeKeychainItem()
+        item.addStatus = errSecAuthFailed
+        let store = KeychainSummaryKeyStore(item: item)
+        XCTAssertFalse(store.save("k"))
+        XCTAssertFalse(store.hasKey(), "Asks the Keychain, which has nothing")
+        let broken = FakeKeychainItem(stored: "old")
+        broken.updateStatus = errSecAuthFailed; broken.addStatus = errSecAuthFailed
+        XCTAssertFalse(KeychainSummaryKeyStore(item: broken).save("k"))
+    }
+
+    func testDeleteReportsItsStatus() {
+        let item = FakeKeychainItem(stored: "k")
+        let store = KeychainSummaryKeyStore(item: item)
+        XCTAssertTrue(store.hasKey())
+        item.deleteStatus = errSecAuthFailed
+        XCTAssertFalse(store.delete())
+        XCTAssertTrue(store.hasKey(), "Still there, as far as anyone can tell: asked again")
+        item.deleteStatus = nil
+        XCTAssertTrue(store.delete())
+        XCTAssertTrue(store.delete(), "Nothing to remove counts as removed")
+        XCTAssertFalse(store.hasKey())
     }
 
     // MARK: Catalog and consent gating
@@ -271,12 +511,10 @@ final class OpenRouterSummaryTests: XCTestCase {
     }
 
     func testSummarizeMeetingsOnNeverSendsWithoutConsentOrKey() async throws {
-        let note = dir.appendingPathComponent("a.md")
         let library = NotesLibrary(folder: { [dir] in dir! }, watcher: FakeFolderWatcher(), timeZone: TimeZone(identifier: "UTC")!)
         let meeting = MeetingNote(appName: "Zoom", start: Date(timeIntervalSince1970: 1_794_839_520), duration: 60,
                                   turns: [.init(speaker: .me, text: "Budget?"), .init(speaker: .them, text: "Unchanged.")], caveats: [])
         let saved = try library.save(meeting.draft(locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!))
-        _ = note
         for (consent, key) in [(false, true), (true, false), (false, false)] {
             var config = Config.defaults
             config.summaryProvider = SummaryProvider.openRouter.rawValue
