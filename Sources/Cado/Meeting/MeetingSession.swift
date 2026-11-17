@@ -82,8 +82,11 @@ final class MeetingSession {
         body: "Dictation is off while a meeting records. Stop the recording from the Cado menu first.")
 
     /// A leftover whose recovery was begun this many times already without
-    /// finishing (Cado quit or crashed during it) isn't tried again: its audio
-    /// goes to the archive and the user is told.
+    /// getting a single passage further (Cado crashed or quit during it)
+    /// isn't tried again: its audio goes to the archive and the user is
+    /// told. An attempt that journaled a result doesn't count, so a long
+    /// recovery can be quit and resumed; it can't loop, since each such
+    /// attempt moved the journal on.
     static let maxRecoveryAttempts = 2
     /// Recovery reads a side back this many samples at a time (30 s), one
     /// slice per side per main-loop turn.
@@ -717,9 +720,10 @@ final class MeetingSession {
                               startDate: info.startDate, spool: handle, me: nil, them: nil, isRecovery: true)
         var settled: [MeetingSpeaker: Int] = [:], doneThrough: [MeetingSpeaker: Int] = [:]
         var seen = Set<String>()
-        var attempts = 0
+        var attempts = 0, startedAttempt = false, progressed = false
         var stoppedAt: TimeInterval?
         func result(_ speaker: MeetingSpeaker, _ range: Range<Int>) -> Bool {
+            progressed = true
             guard seen.insert("\(speaker.spoolKey) \(range.lowerBound) \(range.upperBound)").inserted else { return false }
             meeting.done += 1
             meeting.total += 1
@@ -746,9 +750,12 @@ final class MeetingSession {
                 stoppedAt = at
                 meeting.capReached = capReached
             case .recoveryStarted:
-                attempts += 1
+                if startedAttempt && !progressed { attempts += 1 }
+                startedAttempt = true
+                progressed = false
             }
         }
+        if startedAttempt && !progressed { attempts += 1 }
         var onDisk: TimeInterval = 0
         for side in meeting.sides.values {
             let count = handle.sampleCount(of: side.speaker)

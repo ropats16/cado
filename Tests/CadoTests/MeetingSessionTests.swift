@@ -872,6 +872,20 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertEqual(session.status, .idle)
     }
 
+    /// Attempts that got further (quit during a long recovery) don't count.
+    func testARecoveryThatMadeProgressIsResumedHoweverOftenItWasQuit() {
+        let hello = SpoolEvent.transcribed(.me, range: 12_800..<37_600, offset: 0.8,
+                                           segments: [SpoolSegment(start: 0.3, text: "Hello from me.")])
+        let hi = SpoolEvent.transcribed(.them, range: 44_800..<84_800, offset: 2.8,
+                                        segments: [SpoolSegment(start: 0.3, text: "Hi from them.")])
+        _ = leftover(bothStarted + [.recoveryStarted, hello, .recoveryStarted, hi, .recoveryStarted, .settled(.me, through: 40_000)])
+        session.recoverLeftovers()
+        engine.finishAll()
+        XCTAssertEqual(engine.jobs, [4])
+        XCTAssertEqual(feedback.titles, ["Meeting note recovered"])
+        XCTAssertTrue(notes.saved[0].body.hasSuffix("**Me:** Hello from me.\n\n**Others:** Hi from them.\n\n**Me:** Bye now.\n"))
+    }
+
     func testARecoveryAttemptIsJournaled() {
         let h = leftover(bothStarted)
         session.recoverLeftovers()
