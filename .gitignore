@@ -2,7 +2,8 @@
 .build/
 .swiftpm/
 *.xcodeproj
-Package.resolved
+# Package.resolved is committed (#27): releases build exactly these dependency
+# revisions (scripts/package_app.sh --force-resolved-versions).
 
 # Build output
 /dist/
