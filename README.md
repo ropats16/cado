@@ -191,6 +191,10 @@ A third permission, **Screen & System Audio Recording**, is only for
 [meeting notes](#meeting-notes): macOS asks for it the first time you click
 **Record Meeting**. Dictation never needs it.
 
+A fourth, **Calendars**, is optional and only asked for if you switch on
+[calendar meeting titles](#calendar-meeting-titles) (Settings › Meetings, or the
+optional Calendar step in onboarding). Cado never asks for it otherwise.
+
 > ⚠️ **If you just granted Accessibility but it still says "Not granted,"** see
 > [Troubleshooting](#troubleshooting) below — there's a quick one-time reset.
 
@@ -403,6 +407,38 @@ and says why).
   other app is recorded on its own (Chrome never includes Chrome Canary, Edge
   never Edge Beta); for a clean "Others", use a meeting app or another browser.
 
+### Calendar meeting titles
+
+Optional, **off by default**. Settings › Meetings › **Name meetings from my
+calendar** (or the optional Calendar step in onboarding).
+
+- **Turning it on** is what makes macOS ask to let Cado see your calendar
+  (Calendars, full access: macOS has no read-only option). If you say no, the
+  switch stays off and says how to allow it later in System Settings › Privacy &
+  Security › Calendars; Cado never asks at launch or without you switching it on.
+- **How it works:** when you click **Record Meeting**, Cado looks for the
+  calendar event in progress then, or starting within 5 minutes. All-day,
+  declined and cancelled events are ignored; an event with other people invited
+  or a video link (Zoom, Meet, Teams, Webex…) wins over a plain block; then the
+  one that starts closest to now. The note is named after that event (the file
+  name too: `2026-11-17 Weekly sync.md`; characters filenames can't hold, like
+  `/` and `:`, are replaced, and a clash gets ` 2`) and gets two extra lines of
+  front matter: `event` (the event's title) and `attendees` (the other people's
+  display names, up to 20). **Email addresses are never saved**, and you're left
+  out. Other Markdown apps ignore the extra lines; older notes read as before.
+- **No match, off, or not allowed:** the note is named "Meeting with Zoom —
+  date time" as always.
+- **Recovered meetings** keep the name: it's decided when the recording starts
+  and saved with the recording.
+- **Only your own events:** events from shared or subscribed calendars aren't
+  used, and rooms and resources aren't listed as people.
+- **Never slows recording:** if the calendar is slow to answer, recording starts
+  anyway and the note falls back to the app and time.
+- **Private:** your calendar is read on this Mac only, and Cado sends nothing
+  anywhere. But the event's title and the invitees' names are saved in the
+  note, so they go wherever your notes folder syncs (iCloud, Obsidian Sync...).
+  They aren't given to the summary.
+
 ### Summaries
 
 Needs macOS 26 or later with Apple Intelligence turned on (System Settings ›
@@ -592,6 +628,7 @@ opens the Settings tab with that hotkey (Dictation, or Meetings for `meetingHotk
 | `meetingDetection`    | Ask "Record this meeting?" / "Stop recording?" when a meeting app starts or stops using the mic (default `true`; macOS 14.4+). Never records by itself. |
 | `maxMeetingMinutes`   | A meeting stops by itself after this many minutes (default `120`; `0` = Off; more than `1440` counts as 1440, so a meeting always stops after 24 hours). |
 | `meetingConsentShown` | The one-time recording-consent reminder was acknowledged (default `false`). |
+| `nameMeetingsFromCalendar` | Name meeting notes after the matching calendar event (default `false`; see [Calendar meeting titles](#calendar-meeting-titles)). |
 
 ---
 
@@ -685,6 +722,12 @@ on-device model: the transcript never leaves your Mac. Only if you opt in to
 OpenRouter in Settings (with a warning and a confirmation) is a meeting's
 text sent to OpenRouter and the model's company to write the summary.
 
+[Calendar meeting titles](#calendar-meeting-titles) are off until you switch them
+on. Then Cado reads your calendar on this Mac to find the event a meeting
+belongs to, and keeps only its title and the invitees' names in that meeting's
+note. Cado sends nothing from your calendar anywhere, but that note lives in
+your notes folder and goes wherever that folder syncs.
+
 ---
 
 ## Network activity
@@ -705,7 +748,8 @@ a confirmation). Every other request only fetches a file.
 | `openrouter.ai` | Only when you click **Refresh** next to the model list | A plain `GET` of OpenRouter's public model list: no key, no text, no body; only the system's default `User-Agent` header. The names are shown in the picker and not saved. | Yes, per click |
 
 Meeting summaries with Apple Intelligence (the default) contact nothing: macOS
-downloads and updates that model itself, not Cado.
+downloads and updates that model itself, not Cado. Calendar meeting titles
+contact nothing either: Cado reads your calendar through macOS, on this Mac.
 
 Downloads from `huggingface.co` are mostly redirected to Hugging Face's CDN
 (`*.hf.co`, e.g. `us.aws.cdn.hf.co`; the host varies by region). The speech

@@ -88,6 +88,10 @@ struct Config: Codable {
     var maxMeetingMinutes: Double
     /// The one-time recording-consent reminder was acknowledged (#32).
     var meetingConsentShown: Bool
+    /// Name meeting notes after the matching calendar event (#38). Off unless
+    /// the user switches it on (Settings, onboarding); that is also what asks
+    /// macOS for Calendar access. Missing in older configs = off.
+    var nameMeetingsFromCalendar: Bool
 
     static var defaults: Config {
         Config(
@@ -118,12 +122,11 @@ struct Config: Codable {
             summaryProvider: SummaryProvider.onDevice.rawValue,
             openRouterConsent: false,
             openRouterModel: "",
-
-
             meetingHotkey: .controlOptionM,
             meetingDetection: true,
             maxMeetingMinutes: MeetingLimit.defaultMinutes,
-            meetingConsentShown: false
+            meetingConsentShown: false,
+            nameMeetingsFromCalendar: false
         )
     }
 
@@ -139,10 +142,9 @@ struct Config: Codable {
          dictationHistory: Bool = false, keepMeetingAudio: Bool = false,
          meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue,
          openRouterConsent: Bool = false, openRouterModel: String = "",
-
-
          meetingHotkey: KeyBinding = .controlOptionM, meetingDetection: Bool = true,
-         maxMeetingMinutes: Double = MeetingLimit.defaultMinutes, meetingConsentShown: Bool = false) {
+         maxMeetingMinutes: Double = MeetingLimit.defaultMinutes, meetingConsentShown: Bool = false,
+         nameMeetingsFromCalendar: Bool = false) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -172,12 +174,11 @@ struct Config: Codable {
         self.summaryProvider = summaryProvider
         self.openRouterConsent = openRouterConsent
         self.openRouterModel = openRouterModel
-
-
         self.meetingHotkey = meetingHotkey
         self.meetingDetection = meetingDetection
         self.maxMeetingMinutes = maxMeetingMinutes
         self.meetingConsentShown = meetingConsentShown
+        self.nameMeetingsFromCalendar = nameMeetingsFromCalendar
     }
 
     init(from decoder: Decoder) throws {
@@ -217,12 +218,12 @@ struct Config: Codable {
         summaryProvider = try c.decodeIfPresent(String.self, forKey: .summaryProvider) ?? d.summaryProvider
         openRouterConsent = try c.decodeIfPresent(Bool.self, forKey: .openRouterConsent) ?? d.openRouterConsent
         openRouterModel = try c.decodeIfPresent(String.self, forKey: .openRouterModel) ?? d.openRouterModel
-
-
         meetingHotkey = try c.decodeIfPresent(KeyBinding.self, forKey: .meetingHotkey) ?? d.meetingHotkey
         meetingDetection = try c.decodeIfPresent(Bool.self, forKey: .meetingDetection) ?? d.meetingDetection
         maxMeetingMinutes = try c.decodeIfPresent(Double.self, forKey: .maxMeetingMinutes) ?? d.maxMeetingMinutes
         meetingConsentShown = try c.decodeIfPresent(Bool.self, forKey: .meetingConsentShown) ?? d.meetingConsentShown
+        nameMeetingsFromCalendar = try c.decodeIfPresent(Bool.self, forKey: .nameMeetingsFromCalendar)
+            ?? d.nameMeetingsFromCalendar
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this

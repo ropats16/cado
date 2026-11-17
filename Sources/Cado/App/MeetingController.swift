@@ -40,18 +40,20 @@ final class MeetingController: MeetingActivity, MeetingRecording {
     /// when a meeting ends. `keepAudio`: Settings › Meetings › Keep meeting
     /// audio, read when a meeting ends. `maxSeconds`: Settings › Meetings ›
     /// Max meeting length (nil = Off), read as a meeting starts. `consent`:
-    /// the one-time reminder every start passes.
+    /// the one-time reminder every start passes. `calendarNaming`: names a
+    /// meeting after its calendar event when the user opted in (#38), looked
+    /// up off main once it records.
     convenience init(engine: TranscriptionEngine, activity: MeetingActivity, microphoneUID: @escaping () -> String?,
                      notes: MeetingNoteStore, systemAudio: @escaping () -> SystemAudioPermission,
                      keepAudio: @escaping () -> Bool, maxSeconds: @escaping () -> TimeInterval?, consent: MeetingConsent,
-                     clock: Clock = SystemClock()) {
+                     calendarNaming: MeetingCalendarNaming = .off, clock: Clock = SystemClock()) {
         let recorder = LiveMeetingRecorder(microphoneUID: microphoneUID)
         let engine = EngineMeetingAdapter(engine)
         self.init(activity: activity, systemAudio: systemAudio, consent: consent, clock: clock) { controller in
             MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: FolderMeetingArchive(),
                            spool: FolderMeetingSpool(), feedback: NotifierMeetingFeedback(), activity: controller,
                            clock: clock, systemAudioPermission: systemAudio, keepAudio: keepAudio,
-                           maxSeconds: maxSeconds)
+                           maxSeconds: maxSeconds, calendarNaming: calendarNaming)
         }
     }
 

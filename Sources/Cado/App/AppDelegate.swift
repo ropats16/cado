@@ -93,7 +93,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         maxSeconds: { [configStore] in MeetingLimit.seconds(minutes: configStore.config.maxMeetingMinutes) },
         consent: MeetingConsent(wasShown: { [configStore] in configStore.config.meetingConsentShown },
                                 markShown: { [configStore] in configStore.update { $0.meetingConsentShown = true } },
-                                ask: MeetingConsentAlert.ask))
+                                ask: MeetingConsentAlert.ask),
+        calendarNaming: calendarNaming)
+    private lazy var calendarNaming = MeetingCalendarNaming(
+        isEnabled: { [configStore] in configStore.config.nameMeetingsFromCalendar }, calendar: calendar)
+    /// The one calendar (#38): read only when the user opted in; asked only from Settings or onboarding.
+    private let calendar: CalendarPort = EventKitCalendar()
     /// Meeting detection, the meeting hotkey and the mascot's meeting clicks (#32).
     private lazy var meetingAssistant = MeetingAssistant(
         meetings: meetings, feed: CoreAudioMicUsers(), notices: NotificationMeetingPrompts(),
@@ -166,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // permissions (until then the monitor assumes none).
         monitor.start()
         startOnboardingOrPrompt()
+        calendarNaming.warmUp()   // off main; only if on and already allowed
         // Off the main thread, last: a slow or failing request can't touch launch.
         let ping = launchPing, optedIn = configStore.config.usagePing
         Task.detached(priority: .utility) { await ping.sendLaunch(enabled: optedIn) }
@@ -174,9 +180,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Returning from System Settings: show a permission change at once.
     func applicationDidBecomeActive(_ notification: Notification) {
         MainActor.assumeIsolated {
+            settingsViewModel?.refreshCalendarAccess()   // allowed or taken away in System Settings
             guard isOnboardingVisible else { return }
             monitor.recheck()
             onboardingModel?.recheckNotifications()   // switched on in System Settings
+            onboardingModel?.recheckCalendar()
         }
     }
 
@@ -362,6 +370,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 notifications: Notifier.permission,
                 setUsagePing: { [weak self] on in
                     MainActor.assumeIsolated { self?.sharedSettingsViewModel().setUsagePing(on) }
+                },
+                calendar: calendar,
+                setCalendarNaming: { [weak self] on in
+                    MainActor.assumeIsolated { self?.sharedSettingsViewModel().setNameMeetingsFromCalendar(on) }
                 })
             let controller = OnboardingWindowController(viewModel: model)
             controller.onClose = { [weak self] in self?.onboardingClosed() }
@@ -664,7 +676,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             updater: updater ?? DisabledUpdater(),
             summaryCatalog: summaryCatalog,
-            openRouter: openRouterSetup
+            openRouter: openRouterSetup,
+            calendar: calendar
         )
         settingsViewModel = vm
         return vm

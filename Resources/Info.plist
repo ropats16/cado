@@ -54,5 +54,9 @@
          this key a tap records silence and macOS never shows the prompt. -->
     <key>NSAudioCaptureUsageDescription</key>
     <string>Cado records your Mac's audio during a meeting you start, so the other participants are transcribed alongside you. Audio is processed on-device and never leaves your Mac.</string>
+    <!-- Calendar read access (macOS 14+) for "Name meetings from my calendar" (#38). Asked
+         only when the user switches that on; without this key macOS kills the app on the request. -->
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Cado reads your calendar to name a meeting note after the event you're in, and to list who was invited. macOS only offers full access, but Cado only reads events and never changes them. Your calendar is read on this Mac and isn't sent anywhere; the event's title and the names of the people invited are saved in the note, so they go wherever your notes folder syncs.</string>
 </dict>
 </plist>

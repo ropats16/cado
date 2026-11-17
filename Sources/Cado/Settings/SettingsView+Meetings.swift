@@ -48,6 +48,9 @@ extension SettingsView {
 
             // Slot: summaries on/off
             summariesSection   // SettingsView+Summaries.swift (#34)
+
+            // Slot: calendar meeting titles
+            calendarSection   // SettingsView+Calendar.swift (#38)
         }
     }
 }

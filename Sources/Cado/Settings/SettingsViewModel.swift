@@ -72,6 +72,8 @@ final class SettingsViewModel: ObservableObject {
     let openRouter: OpenRouterSetup
     /// State of the OpenRouter card: the consent step, the model list, the key field.
     @Published var openRouterState = OpenRouterCardState()
+    /// The calendar behind "Name meetings from my calendar" (#38; SettingsViewModel+Calendar.swift).
+    let calendar: CalendarPort
 
     // MARK: - Published display state
 
@@ -167,8 +169,10 @@ final class SettingsViewModel: ObservableObject {
          onDictationHistoryChange: @escaping () -> Void = {},
          updater: AppUpdater = DisabledUpdater(),
          summaryCatalog: SummarizerCatalog = LiveSummarizerCatalog(),
-         openRouter: OpenRouterSetup = .inert) {
+         openRouter: OpenRouterSetup = .inert,
+         calendar: CalendarPort = UnavailableCalendar()) {
         self.openRouter = openRouter
+        self.calendar = calendar
         self.updater = updater
         self.summaryCatalog = summaryCatalog
         self.configStore = configStore

@@ -94,6 +94,8 @@ struct MeetingNote: Equatable {
     var duration: TimeInterval
     var turns: [MeetingTranscript.Turn]
     var caveats: [Caveat] = []
+    /// The calendar event the meeting was named after (#38), if any.
+    var event: MatchedEvent? = nil
 
     /// "Meeting with Zoom — 16 Nov 2026 at 14:32" (the locale's medium date
     /// and short time).
@@ -107,9 +109,17 @@ struct MeetingNote: Equatable {
         return "Meeting with \(appName) — \(formatter.string(from: start))"
     }
 
+    /// The event's title when the meeting matched one (#38), else the
+    /// app-and-time title.
+    static func title(appName: String, start: Date, event: MatchedEvent?, locale: Locale = .current,
+                      timeZone: TimeZone = .current) -> String {
+        event?.title ?? title(appName: appName, start: start, locale: locale, timeZone: timeZone)
+    }
+
     func draft(locale: Locale = .current, timeZone: TimeZone = .current) -> NoteDraft {
-        NoteDraft(title: Self.title(appName: appName, start: start, locale: locale, timeZone: timeZone),
-                  date: start, kind: NoteKind.meeting, duration: duration, body: body)
+        NoteDraft(title: Self.title(appName: appName, start: start, event: event, locale: locale, timeZone: timeZone),
+                  date: start, kind: NoteKind.meeting, duration: duration, body: body,
+                  event: event?.title, attendees: event?.attendees ?? [])
     }
 
     var body: String {
