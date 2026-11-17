@@ -325,28 +325,6 @@ final class LibraryViewModel: ObservableObject {
 
 /// How a list row reads under its title.
 enum NoteRowText {
-    /// "Today at 14:32 · Meeting · 30 min"; the kind is left out for a plain note.
-    static func subtitle(_ note: NoteSummary, now: Date = Date(), calendar: Calendar = .current) -> String {
-        var parts = [dateText(note.date, calendar: calendar)]
-        if note.kind != NoteKind.note, !note.kind.isEmpty {
-            parts.append(note.kind.prefix(1).uppercased() + note.kind.dropFirst())
-        }
-        if let duration = note.duration, duration >= 1 { parts.append(durationText(duration)) }
-        return parts.joined(separator: " · ")
-    }
-
-    /// "Today, 2:32 PM", "Yesterday, ...", else "Nov 3, 2026, ...".
-    static func dateText(_ date: Date, calendar: Calendar) -> String {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.locale = calendar.locale ?? .current
-        formatter.doesRelativeDateFormatting = true
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
-
     /// The library's preview is raw Markdown; show it without the markers.
     static func preview(_ raw: String) -> String {
         let text = raw.split(separator: " ").map { $0.allSatisfy { $0 == "#" } ? "" : String($0) }

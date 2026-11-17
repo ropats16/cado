@@ -450,15 +450,6 @@ final class LibraryViewModelTests: XCTestCase {
 
     // MARK: row text
 
-    func testRowSubtitle() throws {
-        let note = NoteSummary(id: "x.md", title: "x", date: t0, kind: "meeting", duration: 1830, preview: "", url: dir)
-        let calendar = Calendar(identifier: .gregorian)
-        let text = NoteRowText.subtitle(note, calendar: calendar)
-        XCTAssertTrue(text.hasSuffix("· Meeting · 31 min"), text)
-        let plain = NoteSummary(id: "y.md", title: "y", date: t0, kind: "note", duration: nil, preview: "", url: dir)
-        XCTAssertFalse(NoteRowText.subtitle(plain, calendar: calendar).contains("·"))
-    }
-
     func testPreviewDropsMarkdownMarkers() {
         XCTAssertEqual(NoteRowText.preview("## Summary Agreed **big** *deal* [spec](https://x.y)"),
                        "Summary Agreed big deal spec")

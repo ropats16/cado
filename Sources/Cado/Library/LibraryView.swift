@@ -11,7 +11,7 @@ struct LibraryView: View {
         HSplitView {
             sidebar
                 .frame(minWidth: 240, idealWidth: 300, maxWidth: 420)
-            LibraryDetailView(note: viewModel.detail, listState: viewModel.listState)
+            LibraryDetailView(viewModel: viewModel)
                 .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Brand.Palette.background)
@@ -60,7 +60,12 @@ struct LibraryView: View {
                 .textFieldStyle(.plain)
                 .focused($searchFocused)
                 .accessibilityLabel("Search notes")
-                .onChange(of: search) { _, text in Task { await viewModel.setQuery(text) } }
+                .onChange(of: search) { _, text in
+                    if text != viewModel.query { Task { await viewModel.setQuery(text) } }
+                }
+                .onChange(of: viewModel.query) { _, query in
+                    if search != query { search = query }   // cleared to show a note
+                }
             if !search.isEmpty {
                 Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain)
@@ -79,9 +84,16 @@ struct LibraryView: View {
     private var list: some View {
         List(selection: Binding(get: { viewModel.selection },
                                 set: { id in Task { await viewModel.select(id) } })) {
-            ForEach(viewModel.notes) { note in
-                LibraryRow(note: note, viewModel: viewModel)
-                    .tag(note.id)
+            if let meeting = viewModel.inProgress {
+                LibraryInProgressRowView(row: meeting)
+            }
+            ForEach(viewModel.sections) { section in
+                Section(section.title) {
+                    ForEach(section.rows) { row in
+                        LibraryRowView(row: row, viewModel: viewModel)
+                            .tag(row.id)
+                    }
+                }
             }
         }
         .listStyle(.inset)
@@ -108,15 +120,40 @@ struct LibraryView: View {
     }
 }
 
-/// One list row: title (or its rename field), date line, preview line.
-private struct LibraryRow: View {
-    let note: NoteSummary
+/// The meeting being recorded or transcribed, above the notes (#42). Not
+/// selectable.
+private struct LibraryInProgressRowView: View {
+    let row: LibraryInProgressRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(row.title).font(Brand.Typography.headline).foregroundStyle(Brand.Palette.ink).lineLimit(1)
+            HStack(spacing: 6) {
+                if let progress = row.progress {
+                    ProgressView(value: progress).frame(width: 60)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+                Text(row.detail).font(Brand.Typography.caption).foregroundStyle(Brand.Palette.inkSecondary)
+            }
+        }
+        .padding(.vertical, 3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(row.accessibilityLabel)
+    }
+}
+
+/// One list row: title (or its rename field), time · day · duration · app,
+/// preview line.
+private struct LibraryRowView: View {
+    let row: LibraryNoteRow
     @ObservedObject var viewModel: LibraryViewModel
     @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            if viewModel.renamingID == note.id {
+            if viewModel.renamingID == row.id {
                 TextField("Title", text: $viewModel.renameDraft)
                     .textFieldStyle(.roundedBorder)
                     .focused($focused)
@@ -124,16 +161,17 @@ private struct LibraryRow: View {
                     .onSubmit { Task { await viewModel.commitRename() } }
                     .onExitCommand { viewModel.cancelRename() }
                     .onChange(of: focused) { _, now in
-                        if !now, viewModel.renamingID == note.id { Task { await viewModel.commitRename() } }
+                        if !now, viewModel.renamingID == row.id { Task { await viewModel.commitRename() } }
                     }
                     .accessibilityLabel("Note title")
             } else {
-                Text(note.title).font(Brand.Typography.headline).foregroundStyle(Brand.Palette.ink).lineLimit(1)
+                Text(row.title).font(Brand.Typography.headline).foregroundStyle(Brand.Palette.ink).lineLimit(1)
             }
-            Text(NoteRowText.subtitle(note)).font(Brand.Typography.caption)
+            Text([row.time, row.day, row.duration, row.app].compactMap { $0 }.joined(separator: " · "))
+                .font(Brand.Typography.caption)
                 .foregroundStyle(Brand.Palette.inkSecondary).lineLimit(1)
-            if !note.preview.isEmpty {
-                Text(NoteRowText.preview(note.preview)).font(Brand.Typography.caption)
+            if !row.preview.isEmpty {
+                Text(row.preview).font(Brand.Typography.caption)
                     .foregroundStyle(Brand.Palette.inkSecondary).lineLimit(1)
             }
         }
@@ -141,40 +179,110 @@ private struct LibraryRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .contextMenu {
-            Button("Rename") { Task { await viewModel.select(note.id); viewModel.beginRename(note.id) } }
-            Button("Show in Finder") { viewModel.reveal(note.id) }
-            Button("Open in Default App") { viewModel.openExternally(note.id) }
+            Button("Rename") { Task { await viewModel.select(row.id); viewModel.beginRename(row.id) } }
+            Button("Copy Transcript") { Task { await viewModel.select(row.id); viewModel.copyTranscript() } }
+            Button("Show in Finder") { viewModel.reveal(row.id) }
+            Button("Open in Default App") { viewModel.openExternally(row.id) }
             Divider()
-            Button("Delete…", role: .destructive) { viewModel.requestDelete(note.id) }
+            Button("Delete…", role: .destructive) { viewModel.requestDelete(row.id) }
         }
-        .accessibilityElement(children: viewModel.renamingID == note.id ? .contain : .combine)
+        .modifier(RowAccessibility(renaming: viewModel.renamingID == row.id, label: row.accessibilityLabel))
     }
 }
 
-/// The selected note: its title and facts over the rendered Markdown.
+/// A row reads as one element with its full label; while renaming, its
+/// field is reachable instead.
+private struct RowAccessibility: ViewModifier {
+    let renaming: Bool
+    let label: String
+
+    func body(content: Content) -> some View {
+        if renaming {
+            content.accessibilityElement(children: .contain)
+        } else {
+            content.accessibilityElement(children: .combine).accessibilityLabel(label)
+        }
+    }
+}
+
+/// The selected note (#42): a header (title, date, duration, app) with
+/// Copy Transcript and Show in Finder, any notices, then the body: Me/Them
+/// turns and Markdown blocks (`NoteReading`).
 struct LibraryDetailView: View {
-    let note: Note?
-    let listState: LibraryListState
+    @ObservedObject var viewModel: LibraryViewModel
 
     var body: some View {
-        if let note {
+        if let reading = viewModel.reading, let id = viewModel.selection {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(note.summary.title).font(Brand.Typography.title).foregroundStyle(Brand.Palette.ink)
-                        .textSelection(.enabled)
-                    Text(NoteRowText.subtitle(note.summary)).font(Brand.Typography.caption)
-                        .foregroundStyle(Brand.Palette.inkSecondary)
+                    header(reading.header, id: id)
                     Divider().padding(.vertical, 4)
-                    MarkdownBodyView(markdown: note.body)
+                    ForEach(Array(reading.notices.enumerated()), id: \.offset) { _, notice in
+                        Text(notice).font(Brand.Typography.caption).foregroundStyle(Brand.Palette.inkSecondary)
+                            .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    }
+                    ForEach(Array(reading.items.enumerated()), id: \.offset) { _, item in
+                        switch item {
+                        case .turn(let turn): TurnView(turn: turn)
+                        case .block(let block): MarkdownBlockView(block: block)
+                        }
+                    }
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
-            Text(listState == .notes ? "Select a note" : "")
+            Text(viewModel.listState == .notes ? "Select a note" : "")
                 .font(Brand.Typography.body).foregroundStyle(Brand.Palette.inkSecondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private func header(_ header: NoteReading.Header, id: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(header.title).font(Brand.Typography.title).foregroundStyle(Brand.Palette.ink)
+                .textSelection(.enabled)
+            Text([header.dateText, header.duration, header.app].compactMap { $0 }.joined(separator: " · "))
+                .font(Brand.Typography.caption).foregroundStyle(Brand.Palette.inkSecondary)
+            HStack(spacing: 8) {
+                Button(viewModel.transcriptCopied ? "Copied" : "Copy Transcript") { viewModel.copyTranscript() }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                    .disabled(!viewModel.canCopyTranscript)
+                Button("Show in Finder") { viewModel.reveal(id) }
+            }
+            .controlSize(.small)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(header.accessibilityLabel)
+    }
+}
+
+/// One Me/Them turn: the speaker, then what they said.
+private struct TurnView: View {
+    let turn: NoteReading.Turn
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(turn.speakerLabel).font(Brand.Typography.caption.weight(.semibold))
+                    .foregroundStyle(turn.speaker == .me ? Brand.Palette.accent : Brand.Palette.inkSecondary)
+                if let time = turn.timestampText {
+                    Text(time).font(Brand.Typography.caption).foregroundStyle(Brand.Palette.inkSecondary)
+                }
+            }
+            MarkdownInline.text(turn.text).font(Brand.Typography.body).textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(turn.accessibilityLabel)
+    }
+}
+
+/// Inline Markdown (bold, links, code) as `Text`; plain text if it won't parse.
+enum MarkdownInline {
+    static func text(_ text: String) -> Text {
+        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        return Text((try? AttributedString(markdown: text, options: options)) ?? AttributedString(text))
     }
 }
 
@@ -185,16 +293,20 @@ struct MarkdownBodyView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(MarkdownBlock.parse(markdown).enumerated()), id: \.offset) { _, block in
-                view(for: block)
+                MarkdownBlockView(block: block)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
 
-    private func inline(_ text: String) -> Text {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return Text((try? AttributedString(markdown: text, options: options)) ?? AttributedString(text))
-    }
+/// One Markdown block as readable, selectable SwiftUI text.
+struct MarkdownBlockView: View {
+    let block: MarkdownBlock
+
+    var body: some View { view(for: block) }
+
+    private func inline(_ text: String) -> Text { MarkdownInline.text(text) }
 
     @ViewBuilder private func view(for block: MarkdownBlock) -> some View {
         switch block {

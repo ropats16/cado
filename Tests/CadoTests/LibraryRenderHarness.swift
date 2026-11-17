@@ -17,6 +17,8 @@ final class LibraryRenderHarness: XCTestCase {
         var query = ""
         var select: String?
         var renaming = false
+        /// A meeting under way (#42): the in-progress row.
+        var meeting: MeetingStatus?
     }
 
     private let scenes = [
@@ -26,6 +28,8 @@ final class LibraryRenderHarness: XCTestCase {
         Scene(name: "empty", notes: false),
         Scene(name: "no-results", query: "zzzz"),
         Scene(name: "search", query: "budget", select: "Weekly sync"),
+        Scene(name: "meeting-transcribing", meeting: .transcribing(app: "Zoom", done: 3, total: 8)),
+        Scene(name: "meeting-recording-empty", notes: false, meeting: .recording(app: "Zoom", startedAt: 0, lost: [])),
     ]
 
     override func setUpWithError() throws {
@@ -44,6 +48,7 @@ final class LibraryRenderHarness: XCTestCase {
             if scene.notes { try seed(library) }
             let vm = LibraryViewModel(library: library)
             await vm.reload()
+            if let meeting = scene.meeting { vm.meetingStatusChanged(meeting) }
             if let title = scene.select, let id = vm.notes.first(where: { $0.title == title })?.id {
                 await vm.select(id)
                 if scene.renaming { vm.beginRename(id) }
@@ -63,6 +68,10 @@ final class LibraryRenderHarness: XCTestCase {
         try library.create(NoteDraft(
             title: "Weekly sync", date: now.addingTimeInterval(-3600), kind: "meeting", duration: 1830,
             body: """
+            Recorded from Zoom (Them) and your microphone (Me).
+
+            > Recording stopped at the 2-hour limit.
+
             ## Summary
             Agreed to ship the **Library window** next week. Budget is *unchanged*.
 
