@@ -185,6 +185,10 @@ A third permission, **Screen & System Audio Recording**, is only for
 [meeting notes](#meeting-notes): macOS asks for it the first time you click
 **Record Meeting**. Dictation never needs it.
 
+A fourth, **Calendars**, is optional and only asked for if you switch on
+[calendar meeting titles](#calendar-meeting-titles) (Settings › Meetings, or the
+optional Calendar step in onboarding). Cado never asks for it otherwise.
+
 > ⚠️ **If you just granted Accessibility but it still says "Not granted,"** see
 > [Troubleshooting](#troubleshooting) below — there's a quick one-time reset.
 
@@ -351,6 +355,32 @@ and says why).
   "Others" can also pick up sound those apps play during the meeting. Every
   other app is recorded on its own (Chrome never includes Chrome Canary, Edge
   never Edge Beta); for a clean "Others", use a meeting app or another browser.
+
+### Calendar meeting titles
+
+Optional, **off by default**. Settings › Meetings › **Name meetings from my
+calendar** (or the optional Calendar step in onboarding).
+
+- **Turning it on** is what makes macOS ask to let Cado see your calendar
+  (Calendars, full access: macOS has no read-only option). If you say no, the
+  switch stays off and says how to allow it later in System Settings › Privacy &
+  Security › Calendars; Cado never asks at launch or without you switching it on.
+- **How it works:** when you click **Record Meeting**, Cado looks for the
+  calendar event in progress then, or starting within 5 minutes. All-day,
+  declined and cancelled events are ignored; an event with other people invited
+  or a video link (Zoom, Meet, Teams, Webex…) wins over a plain block; then the
+  one that starts closest to now. The note is named after that event (the file
+  name too: `2026-11-17 Weekly sync.md`; characters filenames can't hold, like
+  `/` and `:`, are replaced, and a clash gets ` 2`) and gets two extra lines of
+  front matter: `event` (the event's title) and `attendees` (the other people's
+  display names, up to 20). **Email addresses are never saved**, and you're left
+  out. Other Markdown apps ignore the extra lines; older notes read as before.
+- **No match, off, or not allowed:** the note is named "Meeting with Zoom —
+  date time" as always.
+- **Recovered meetings** keep the name: it's decided when the recording starts
+  and saved with the recording.
+- **Private:** your calendar is read on this Mac only. Titles and names aren't
+  sent anywhere, and aren't given to the summary.
 
 ### Summaries
 
@@ -595,6 +625,11 @@ be transcribed. It never leaves your Mac.
 Meeting [summaries](#summaries) are written by Apple Intelligence's on-device
 model: the transcript never leaves your Mac.
 
+[Calendar meeting titles](#calendar-meeting-titles) are off until you switch them
+on. Then Cado reads your calendar on this Mac to find the event a meeting
+belongs to, and keeps only its title and the invitees' names in that meeting's
+note. Nothing from your calendar is sent anywhere.
+
 ---
 
 ## Network activity
@@ -612,7 +647,8 @@ file.
 | `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Send anonymous usage count** (onboarding, or Settings › General) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. Only sent by a build with a TelemetryDeck app ID; Cado 0.1.0 has none, so this switch sends nothing yet. | Yes, **off by default** |
 
 Meeting summaries (Apple Intelligence's on-device model) contact nothing:
-macOS downloads and updates that model itself, not Cado.
+macOS downloads and updates that model itself, not Cado. Calendar meeting
+titles contact nothing either: Cado reads your calendar through macOS, on this Mac.
 
 Downloads from `huggingface.co` are mostly redirected to Hugging Face's CDN
 (`*.hf.co`, e.g. `us.aws.cdn.hf.co`; the host varies by region). The speech

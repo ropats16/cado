@@ -144,11 +144,12 @@ final class UserFacingCopyTests: XCTestCase {
                     let inputs = ReadinessInputs(accessibility: ax, microphone: mic,
                                                  engine: EngineReadiness(status: status, modelPath: "/m", download: nil),
                                                  hotkeyTap: .installed)
-                    for notifications in [NotificationPermission.notDetermined, .denied, .unavailable, .authorized, nil] {
+                    for (notifications, calendar) in zip([NotificationPermission.notDetermined, .denied, .unavailable, .authorized, nil],
+                                                         [CalendarAccess.notDetermined, .denied, .restricted, .granted, .unavailable]) {
                         let content = OnboardingContent(
                             inputs: inputs,
                             model: OnboardingModelFacts(options: [option], selected: nil, downloads: [:], partial: []),
-                            notifications: notifications,
+                            notifications: notifications, calendar: calendar,
                             hold: .controlShift, toggle: .controlOptionSpace, cancelKeyCode: KeyBinding.escapeKeyCode)
                         for step in content.steps {
                             let texts = [step.title, step.detail, step.note, step.primary?.title, step.secondary?.title]
@@ -158,6 +159,14 @@ final class UserFacingCopyTests: XCTestCase {
                     }
                 }
             }
+        }
+    }
+
+    /// The calendar card (#38): plain words in every state.
+    func testTheCalendarCardIsPlain() {
+        UserFacingCopy.assertPlain(CalendarSettingsCopy.title)
+        for access in [CalendarAccess.notDetermined, .granted, .denied, .restricted, .unavailable] {
+            UserFacingCopy.assertPlain(CalendarSettingsCopy.note(access))
         }
     }
 

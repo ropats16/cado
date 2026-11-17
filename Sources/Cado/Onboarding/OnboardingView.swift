@@ -257,7 +257,7 @@ private struct StepHero: View {
                 mascot(Self.idle)
             case .ready:
                 mascot(step.state == .done ? Self.done : Self.idle)
-            case .microphone, .accessibility, .model, .notifications:
+            case .microphone, .accessibility, .model, .notifications, .calendar:
                 symbol
             }
         }
@@ -276,6 +276,7 @@ private struct StepHero: View {
         case .microphone: name = "mic.fill"
         case .accessibility: name = "accessibility"
         case .notifications: name = "bell.fill"
+        case .calendar: name = "calendar"
         default: name = "waveform"
         }
         return Image(systemName: name)

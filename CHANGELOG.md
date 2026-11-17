@@ -15,6 +15,8 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - A hand-made WhisperKit model folder with a damaged tokenizer file (in any place WhisperKit looks) is refused instead of making Cado download a replacement.
 
 ### Added
+- Name meetings from your calendar (optional, off by default): Settings › Meetings › Name meetings from my calendar. A meeting that starts around a calendar event is named after it, and the note lists the other people's names (never their email addresses). Turning it on is what asks macOS for Calendar access; if you say no, Settings says how to allow it later. Without a match, it's named after the app and time as before. Your calendar never leaves your Mac.
+- Onboarding has an optional Calendar step for the same switch.
 - Right-click the mascot for Hide Mascot and Settings…; VoiceOver reads it as a button and can press it.
 - Meeting summaries on macOS 26 with Apple Intelligence: after a meeting note is saved, Apple Intelligence adds a Summary (key points, decisions, action items) above the transcript, written on your Mac. Long meetings are summarized in parts and combined. The note is saved first and is complete without a summary.
 - Library: a meeting's summary shows in a card above the transcript, with Regenerate Summary (or Summarize for a note without one). A new summary replaces the old one; the rest of the note is kept.

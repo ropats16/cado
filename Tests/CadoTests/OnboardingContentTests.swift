@@ -47,8 +47,8 @@ final class OnboardingContentTests: XCTestCase {
     // MARK: - Order
 
     func testStepsAreInFlowOrder() {
-        XCTAssertEqual(allSet.steps.map(\.id), [.welcome, .microphone, .accessibility, .model, .notifications, .ready])
-        XCTAssertEqual(OnboardingStepID.allCases, [.welcome, .microphone, .accessibility, .model, .notifications, .ready])
+        XCTAssertEqual(allSet.steps.map(\.id), [.welcome, .microphone, .accessibility, .model, .notifications, .calendar, .ready])
+        XCTAssertEqual(OnboardingStepID.allCases, [.welcome, .microphone, .accessibility, .model, .notifications, .calendar, .ready])
         XCTAssertLessThan(OnboardingStepID.microphone, .accessibility, "The one-click mic dialog first")
     }
 
