@@ -40,7 +40,7 @@ struct SettingsView: View {
                                    set: { viewModel.setMascotAlwaysVisible($0) }
                                ))
                     }
-                    StatusLine(text: "The mascot stays on screen. Click it to start or stop dictating; drag it anywhere.")
+                    StatusLine(text: "The mascot stays on screen. Click it to start or stop dictating, right-click it to start or stop a meeting; drag it anywhere.")
                         .padding(.bottom, 8)
                     CardDivider()
                     SettingsRow("Show the mascot in screen shares") {
@@ -98,6 +98,8 @@ struct SettingsView: View {
                         .frame(maxWidth: Self.pickerWidth, alignment: .trailing)
                     }
                 }
+
+                meetingsSection   // SettingsView+Meetings.swift (#32)
 
                 // MARK: Notes (#28)
                 SettingsSection(title: "Notes", systemImage: "folder.fill") {
@@ -172,6 +174,8 @@ struct SettingsView: View {
                         onRecord: { recorder.startCapture(for: .toggle, vm: viewModel) },
                         onReset:  { viewModel.resetHotkey(.toggle) }
                     )
+                    CardDivider()
+                    meetingHotkeyRow   // SettingsView+Meetings.swift (#32)
                     if let warning = viewModel.hotkeyWarning {
                         StatusLine(text: warning, tone: .problem).padding(.bottom, 8)
                     }
@@ -392,7 +396,7 @@ private struct ModelDownloadRow: View {
 
 /// A single row in the Hotkeys section: shows the current binding, a Record
 /// button to start live capture, and a Reset-to-default fallback button.
-private struct HotkeyRow: View {
+struct HotkeyRow: View {
     let label: String
     let description: String
     let isCapturing: Bool

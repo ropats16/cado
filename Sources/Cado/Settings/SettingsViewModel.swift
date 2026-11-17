@@ -8,7 +8,7 @@ struct MaxDictationChoice: Hashable {
 }
 
 /// Which hotkey binding is being edited or captured.
-enum HotkeyTarget { case hold, toggle }
+enum HotkeyTarget { case hold, toggle, meeting }
 
 /// View-model for the settings window. `@MainActor` so `@Published` mutations
 /// are always on the main thread and SwiftUI bindings update correctly.
@@ -335,6 +335,8 @@ final class SettingsViewModel: ObservableObject {
             case .toggle:
                 configStore.update { $0.toggle = binding }
                 toggleBinding = binding
+            case .meeting:
+                setMeetingHotkey(binding)   // SettingsViewModel+Meetings.swift
             }
             isCapturing = false
             reloadHotkeys()
@@ -371,6 +373,8 @@ final class SettingsViewModel: ObservableObject {
             let binding = KeyBinding.controlOptionSpace
             configStore.update { $0.toggle = binding }
             toggleBinding = binding
+        case .meeting:
+            setMeetingHotkey(.controlOptionM)
         }
         isCapturing = false
         reloadHotkeys()
