@@ -507,6 +507,54 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(listedWhenRowWent, [true])
     }
 
+    // MARK: rows off the main thread (#46)
+
+    func testRowsAreBuiltOffTheMainThreadAndMatchTheList() async throws {
+        final class Seen: @unchecked Sendable {
+            private let lock = NSLock()
+            private var threads: [Bool] = []
+            func add(_ onMain: Bool) { lock.lock(); threads.append(onMain); lock.unlock() }
+            var all: [Bool] { lock.lock(); defer { lock.unlock() }; return threads }
+        }
+        let seen = Seen()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let clock = t0 + 3600
+        vm = LibraryViewModel(library: library, opener: opener, pasteboard: pasteboard,
+                              now: { clock }, calendar: calendar,
+                              group: { notes, now, calendar in
+                                  seen.add(Thread.isMainThread)
+                                  return LibrarySections.group(notes, now: now, calendar: calendar)
+                              })
+        try add("Alpha")
+        try add("Beta", at: 60)
+        await vm.reload()
+        XCTAssertEqual(vm.sections.flatMap(\.rows).map(\.id), vm.notes.map(\.id))
+        XCTAssertEqual(seen.all, [false], "built once, not on main")
+    }
+
+    func testSectionsRegroupedAtMidnightAreAlsoBuiltOffMain() async throws {
+        final class Seen: @unchecked Sendable {
+            private let lock = NSLock()
+            private var threads: [Bool] = []
+            func add(_ onMain: Bool) { lock.lock(); threads.append(onMain); lock.unlock() }
+            var all: [Bool] { lock.lock(); defer { lock.unlock() }; return threads }
+        }
+        let seen = Seen()
+        let center = NotificationCenter()
+        vm = LibraryViewModel(library: library, opener: opener, pasteboard: pasteboard,
+                              now: { self.t0 + 3600 }, notifications: center,
+                              group: { notes, now, calendar in
+                                  seen.add(Thread.isMainThread)
+                                  return LibrarySections.group(notes, now: now, calendar: calendar)
+                              })
+        try add("Alpha")
+        await vm.reload()
+        center.post(name: .NSCalendarDayChanged, object: nil)
+        await vm.settled()
+        XCTAssertEqual(seen.all, [false, false])
+    }
+
     // MARK: sections over time (#42)
 
     func testSectionsRegroupAtMidnightAndOnATimeZoneChange() async throws {

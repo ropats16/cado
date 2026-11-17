@@ -124,6 +124,20 @@ final class NotesLibrary {
     private let sync: (URL) throws -> Void
     private let fileManager = FileManager.default
 
+    /// Parsed summaries by file path, valid while the file's modification date
+    /// and size are unchanged (#46): `list()` (the Library, "Open Last Meeting
+    /// Note" on every menu open) re-reads only files that changed, not the whole
+    /// folder. The watcher also drops it (`startWatching`) as a second guard
+    /// against an edit that kept both. Previews only: bodies are never cached.
+    private struct Stamp: Equatable {
+        let modified: Date
+        let size: Int
+    }
+    private let cacheLock = NSLock()
+    private var cache: [String: (stamp: Stamp, summary: NoteSummary)] = [:]
+    /// How many note files `list()` has had to read and parse (tests).
+    private(set) var filesParsed = 0
+
     init(folder: @escaping () -> URL,
          trasher: NoteTrashing = SystemTrasher(),
          watcher: FolderWatching = FSEventsFolderWatcher(),
@@ -174,7 +188,45 @@ final class NotesLibrary {
 
     /// Newest first (by note date, then filename).
     func list() -> [NoteSummary] {
-        loadAll().map(\.summary)
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]
+        let urls = (try? fileManager.contentsOfDirectory(
+            at: folder(), includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles])) ?? []
+        cacheLock.lock()
+        let known = cache
+        cacheLock.unlock()
+        var kept: [String: (stamp: Stamp, summary: NoteSummary)] = [:]
+        var summaries: [NoteSummary] = []
+        var parsed = 0
+        for url in urls where url.pathExtension.lowercased() == "md" {
+            let values = try? url.resourceValues(forKeys: keys)
+            if values?.isDirectory != false { continue }
+            // Taken before the read: a change after it shows as a different stamp next time.
+            // A symlink's own stamp says nothing about its target's, so those are never cached.
+            let stamp = values?.isSymbolicLink == false
+                ? values?.contentModificationDate.flatMap { date in values?.fileSize.map { Stamp(modified: date, size: $0) } }
+                : nil
+            if let stamp, let hit = known[url.path], hit.stamp == stamp {
+                kept[url.path] = hit
+                summaries.append(hit.summary)
+                continue
+            }
+            guard let note = load(url) else { continue }
+            parsed += 1
+            if let stamp { kept[url.path] = (stamp, note.summary) }
+            summaries.append(note.summary)
+        }
+        cacheLock.lock()
+        cache = kept
+        filesParsed += parsed
+        cacheLock.unlock()
+        return summaries.sorted(by: Self.newestFirst)
+    }
+
+    /// Forgets every cached summary (the next `list()` re-reads all files).
+    func invalidateCache() {
+        cacheLock.lock()
+        cache = [:]
+        cacheLock.unlock()
     }
 
     /// Notes whose title or body contains every word of `query`, ignoring case
@@ -253,7 +305,10 @@ final class NotesLibrary {
     /// Calls `onChange` (main queue) when anything in the folder changes on
     /// disk, whoever did it. Re-call after the folder setting changes.
     func startWatching(onChange: @escaping () -> Void) {
-        watcher.start(folder: folder(), onChange: onChange)
+        watcher.start(folder: folder()) { [weak self] in
+            self?.invalidateCache()
+            onChange()
+        }
     }
 
     func stopWatching() { watcher.stop() }
@@ -272,11 +327,12 @@ final class NotesLibrary {
         return urls
             .filter { $0.pathExtension.lowercased() == "md" }
             .compactMap { load($0) }
-            .sorted {
-                $0.summary.date != $1.summary.date
-                    ? $0.summary.date > $1.summary.date
-                    : $0.summary.id.localizedStandardCompare($1.summary.id) == .orderedAscending
-            }
+            .sorted { Self.newestFirst($0.summary, $1.summary) }
+    }
+
+    /// Newest note date first, then filename.
+    private static func newestFirst(_ a: NoteSummary, _ b: NoteSummary) -> Bool {
+        a.date != b.date ? a.date > b.date : a.id.localizedStandardCompare(b.id) == .orderedAscending
     }
 
     private func load(_ url: URL) -> Note? {

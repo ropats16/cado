@@ -407,6 +407,75 @@ final class NotesLibraryTests: XCTestCase {
         XCTAssertEqual(lib.list(), [])
     }
 
+    // MARK: listing cache (#46)
+
+    func testAnUnchangedFolderIsNotReparsedOnTheNextList() throws {
+        let lib = makeLibrary()
+        for n in 0..<50 { try lib.create(draft("Note \(n)", at: TimeInterval(n))) }
+        let first = lib.list()
+        let afterFirst = lib.filesParsed
+        XCTAssertEqual(first.count, 50)
+        XCTAssertEqual(lib.list(), first)
+        XCTAssertNotNil(lib.latestNote(kind: NoteKind.meeting))
+        XCTAssertEqual(lib.filesParsed, afterFirst, "no file was read again")
+    }
+
+    func testOnlyAChangedFileIsReparsed() throws {
+        let lib = makeLibrary()
+        try write("A.md", "---\ntitle: A\ndate: 2027-01-15T09:00:00Z\n---\nbody a")
+        try write("B.md", "---\ntitle: B\ndate: 2027-01-15T08:00:00Z\n---\nbody b")
+        _ = lib.list()
+        let before = lib.filesParsed
+        try write("B.md", "---\ntitle: B edited\ndate: 2027-01-15T08:00:00Z\n---\nbody b, longer")
+        XCTAssertEqual(lib.list().map(\.title), ["A", "B edited"])
+        XCTAssertEqual(lib.filesParsed, before + 1)
+    }
+
+    func testANewAndADeletedFileShowUpWithoutTheWatcher() throws {
+        let lib = makeLibrary()
+        try write("A.md", "---\ntitle: A\ndate: 2027-01-15T09:00:00Z\n---\n")
+        XCTAssertEqual(lib.list().map(\.title), ["A"])
+        try write("B.md", "---\ntitle: B\ndate: 2027-01-15T10:00:00Z\n---\n")
+        XCTAssertEqual(lib.list().map(\.title), ["B", "A"])
+        try fm.removeItem(at: dir.appendingPathComponent("A.md"))
+        XCTAssertEqual(lib.list().map(\.title), ["B"])
+    }
+
+    func testAChangeToAFileThatKeptItsDateAndSizeShowsAfterTheWatcherFires() throws {
+        let lib = makeLibrary()
+        lib.startWatching {}
+        let when = t0
+        try write("A.md", "---\ntitle: AAA\ndate: 2027-01-15T09:00:00Z\n---\n", modified: when)
+        XCTAssertEqual(lib.list().map(\.title), ["AAA"])
+        try write("A.md", "---\ntitle: BBB\ndate: 2027-01-15T09:00:00Z\n---\n", modified: when)
+        watcher.fire()
+        XCTAssertEqual(lib.list().map(\.title), ["BBB"])
+    }
+
+    func testASymlinkedNoteIsAlwaysReadFresh() throws {
+        let lib = makeLibrary()
+        let elsewhere = root.appendingPathComponent("elsewhere", isDirectory: true)
+        try write("Target.md", "---\ntitle: One\ndate: 2027-01-15T09:00:00Z\n---\n", in: elsewhere)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: dir.appendingPathComponent("Link.md"),
+                                  withDestinationURL: elsewhere.appendingPathComponent("Target.md"))
+        XCTAssertEqual(lib.list().map(\.title), ["One"])
+        try write("Target.md", "---\ntitle: Two\ndate: 2027-01-15T09:00:00Z\n---\n", in: elsewhere)
+        XCTAssertEqual(lib.list().map(\.title), ["Two"])
+    }
+
+    func testAFolderOfManyNotesIsListedFromTheCacheQuickly() throws {
+        let lib = makeLibrary()
+        for n in 0..<1500 {
+            try write("n\(n).md", "---\ntitle: N\(n)\ndate: 2027-01-15T09:00:00Z\nkind: meeting\n---\n\(String(repeating: "word ", count: 400))")
+        }
+        _ = lib.list()
+        let parsed = lib.filesParsed
+        XCTAssertEqual(parsed, 1500)
+        _ = lib.latestNote(kind: NoteKind.meeting)
+        XCTAssertEqual(lib.filesParsed, parsed, "a menu open reads no note files")
+    }
+
     // MARK: watching
 
     func testWatcherStartsOnFolderAndRelaysChanges() {
