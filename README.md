@@ -374,7 +374,9 @@ and nothing changes.
   one in place; the rest of the note, including anything you added, is kept.
 - **Turn off:** Settings › Meeting Summaries › **Summarize meetings** (on by
   default). Existing summaries stay; you can still summarize a note from the
-  Library.
+  Library. Automatic summaries skip very short meetings (under about 40
+  words). If you edit the transcript while a summary is being written, Cado
+  keeps your edit and doesn't write it.
 - **In other Markdown apps:** the section sits between two hidden comments
   (`<!-- cado:summary -->` … `<!-- /cado:summary -->`) that Obsidian and other
   Markdown apps don't show; they let Cado find and replace it. Edit inside them

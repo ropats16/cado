@@ -28,7 +28,8 @@ final class MeetingSummariesTests: XCTestCase {
         library = NotesLibrary(folder: { [unowned self] in self.dir }, watcher: FakeFolderWatcher(),
                                timeZone: TimeZone(identifier: "UTC")!)
         catalog = FakeSummarizerCatalog()
-        summaries = MeetingSummaries(catalog: catalog, provider: { .onDevice }, automatic: { [unowned self] in self.automatic })
+        summaries = MeetingSummaries(catalog: catalog, provider: { .onDevice }, automatic: { [unowned self] in self.automatic },
+                                    minimumAutomaticWords: 0)
     }
 
     override func tearDownWithError() throws {
@@ -213,13 +214,88 @@ final class MeetingSummariesTests: XCTestCase {
         XCTAssertTrue(catalog.summarizer.calls.isEmpty)
     }
 
+    func testAnEditToTheTranscriptMidSummaryIsNotOverwrittenWithAStaleSummary() async throws {
+        let url = try saveMeeting()
+        let edited = try text(url).replacingOccurrences(of: "Unchanged.", with: "")
+        catalog.summarizer.onSummarize = { _ in
+            try? edited.write(to: url, atomically: true, encoding: .utf8)
+            return MeetingSummary(keyPoints: ["Unchanged."])
+        }
+        summaries.summarize(url)
+        await summaries.settled()
+        XCTAssertEqual(try text(url), edited, "Nothing written over the user's edit")
+        XCTAssertEqual(summaries.state(of: url), .failed("The note changed while it was being summarized. Try again."))
+    }
+
+    func testAnEditOutsideTheTranscriptMidSummaryStillGetsTheSummary() async throws {
+        let url = try saveMeeting()
+        catalog.summarizer.onSummarize = { _ in
+            try? (self.text(url) + "\nMy own line.\n").write(to: url, atomically: true, encoding: .utf8)
+            return MeetingSummary(keyPoints: ["x"])
+        }
+        summaries.summarize(url)
+        await summaries.settled()
+        XCTAssertNil(summaries.state(of: url))
+        XCTAssertTrue(try text(url).contains(SummarySection.startMarker))
+    }
+
+    func testAutomaticRunsSkipShortTranscriptsQuietlyButAskingWorks() async throws {
+        let short = MeetingSummaries(catalog: catalog, provider: { .onDevice }, automatic: { true })
+        let url = try saveMeeting()
+        let before = try text(url)
+        short.noteSaved(url)
+        await short.settled()
+        XCTAssertNil(short.state(of: url), "Too short is not a failure")
+        XCTAssertEqual(try text(url), before)
+        XCTAssertTrue(catalog.summarizer.calls.isEmpty)
+        short.summarize(url)
+        await short.settled()
+        XCTAssertTrue(try text(url).contains(SummarySection.startMarker))
+    }
+
+    func testALongEnoughTranscriptIsSummarizedAutomatically() async throws {
+        let auto = MeetingSummaries(catalog: catalog, provider: { .onDevice }, automatic: { true })
+        let words = Array(repeating: "word", count: 45).joined(separator: " ")
+        let note = MeetingNote(appName: "Zoom", start: start, duration: 60, turns: [.init(speaker: .me, text: words)])
+        let url = try library.save(note.draft(locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!))
+        auto.noteSaved(url)
+        await auto.settled()
+        XCTAssertTrue(try text(url).contains(SummarySection.startMarker))
+    }
+
+    func testAnEmptyTranscriptIsAGentleMessageWhenAskedAndNothingAutomatically() async throws {
+        let auto = MeetingSummaries(catalog: catalog, provider: { .onDevice }, automatic: { true })
+        let note = MeetingNote(appName: "Zoom", start: start, duration: 60, turns: [])
+        let url = try library.save(note.draft(locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!))
+        auto.noteSaved(url)
+        await auto.settled()
+        XCTAssertNil(auto.state(of: url))
+        auto.summarize(url)
+        await auto.settled()
+        guard case .failed(let why)? = auto.state(of: url) else { return XCTFail("no message") }
+        UserFacingCopy.assertPlain(why)
+        XCTAssertTrue(why.contains("nothing"), why)
+    }
+
+    func testAnAbortedRunKeepsTheExistingSummaryAndSaysTryAgain() async throws {
+        let url = try saveMeeting()
+        summaries.summarize(url)
+        await summaries.settled()
+        let summarized = try Data(contentsOf: url)
+        catalog.summarizer.onSummarize = { _ in throw SummarizerError.failed("boom") }
+        summaries.summarize(url)
+        await summaries.settled()
+        XCTAssertEqual(try Data(contentsOf: url), summarized)
+        XCTAssertEqual(summaries.state(of: url), .failed("Couldn't summarize right now. Try again."))
+    }
+
     func testEveryMessageIsPlain() {
         let errors: [Error] = [
             SummarizerError.unavailable(.needsNewerMacOS), SummarizerError.unavailable(.deviceNotEligible),
             SummarizerError.unavailable(.appleIntelligenceOff), SummarizerError.unavailable(.modelNotReady),
             SummarizerError.unsupportedLanguage, SummaryPipelineError.noPassageSummarized(.refused),
             SummaryPipelineError.noPassageSummarized(.failed("x")), SummaryPipelineError.nothingToSummarize,
-            SummaryNoteError.notUTF8, CocoaError(.fileReadNoSuchFile),
+            SummaryNoteError.notUTF8, SummaryNoteError.changed, CocoaError(.fileReadNoSuchFile),
         ]
         for error in errors { UserFacingCopy.assertPlain(MeetingSummaries.describe(error)) }
         UserFacingCopy.assertPlain(SummaryProvider.onDevice.attribution)

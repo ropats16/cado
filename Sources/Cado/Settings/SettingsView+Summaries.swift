@@ -17,5 +17,6 @@ extension SettingsView {
             StatusLine(text: viewModel.summariesNote)
                 .padding(.bottom, 8)
         }
+        .onAppear { viewModel.refreshSummaryAvailability() }
     }
 }

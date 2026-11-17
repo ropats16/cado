@@ -5,17 +5,22 @@ import Foundation
 protocol SummaryNoteFiles: Sendable {
     func turns(of note: URL) throws -> [(speaker: MeetingSpeaker, text: String)]
     /// Puts `section` into the note in place of its Summary section (or
-    /// before its transcript), changing nothing else.
-    func writeSection(_ section: String, into note: URL) throws
+    /// before its transcript), changing nothing else. Throws
+    /// `SummaryNoteError.changed` (writing nothing) if the note's transcript
+    /// is no longer `turns`, the turns that were summarized.
+    func writeSection(_ section: String, into note: URL, summarizing turns: [(speaker: MeetingSpeaker, text: String)]) throws
 }
 
 enum SummaryNoteError: LocalizedError, Equatable {
     case notAMeeting
     case notUTF8
+    /// The transcript was edited while the summary was being written.
+    case changed
 
     var errorDescription: String? {
         switch self {
         case .notAMeeting: return "Only meeting notes are summarized."
+        case .changed: return "The note changed while it was being summarized. Try again."
         case .notUTF8: return "The note isn't saved as UTF-8 text, so Cado won't rewrite it."
         }
     }
@@ -27,7 +32,10 @@ enum SummaryNoteError: LocalizedError, Equatable {
 /// one, never half of either.
 struct DiskSummaryNoteFiles: SummaryNoteFiles {
     func turns(of note: URL) throws -> [(speaker: MeetingSpeaker, text: String)] {
-        let text = try String(contentsOf: note, encoding: .utf8)
+        try Self.turns(in: try String(contentsOf: note, encoding: .utf8), of: note)
+    }
+
+    private static func turns(in text: String, of note: URL) throws -> [(speaker: MeetingSpeaker, text: String)] {
         let parsed = NoteFrontMatter.parse(text)
         guard NoteKind.isMeeting(parsed.value(for: "kind") ?? NoteKind.note) else { throw SummaryNoteError.notAMeeting }
         let summary = NoteSummary(id: note.lastPathComponent, title: "", date: Date(), kind: NoteKind.meeting,
@@ -36,10 +44,15 @@ struct DiskSummaryNoteFiles: SummaryNoteFiles {
             .map { (speaker: $0.speaker, text: $0.text) }
     }
 
-    func writeSection(_ section: String, into note: URL) throws {
+    func writeSection(_ section: String, into note: URL, summarizing turns: [(speaker: MeetingSpeaker, text: String)]) throws {
         let bytes = try Data(contentsOf: note)
         let raw = String(decoding: bytes, as: UTF8.self)
         guard Data(raw.utf8) == bytes else { throw SummaryNoteError.notUTF8 }
+        // Minutes may have passed: a turn deleted meanwhile must not live on in a summary.
+        let now = try Self.turns(in: raw, of: note)
+        guard now.map({ "\($0.speaker)|\($0.text)" }) == turns.map({ "\($0.speaker)|\($0.text)" }) else {
+            throw SummaryNoteError.changed
+        }
         let updated = Data(NoteText.replacingBody(of: raw) { SummarySection.applying(section, to: $0) }.utf8)
         if updated != bytes { try updated.write(to: note, options: .atomic) }
     }
@@ -103,12 +116,19 @@ final class MeetingSummaries: ObservableObject {
     private let provider: () -> SummaryProvider
     private let automatic: () -> Bool
     private let files: SummaryNoteFiles
+    private let minimumAutomaticWords: Int
     private var queue: [URL] = []
+    /// Queued notes that were queued by a save, not asked for.
+    private var automaticNotes: Set<URL> = []
     private var running: Task<Void, Never>?
 
     /// `provider` and `automatic` are read live (Settings).
-    init(catalog: SummarizerCatalog = LiveSummarizerCatalog(), provider: @escaping () -> SummaryProvider,
-         automatic: @escaping () -> Bool, files: SummaryNoteFiles = DiskSummaryNoteFiles()) {
+    /// Automatic runs skip transcripts under `minimumAutomaticWords` words
+    /// (asking still works).
+    init(catalog: SummarizerCatalog, provider: @escaping () -> SummaryProvider,
+         automatic: @escaping () -> Bool, files: SummaryNoteFiles = DiskSummaryNoteFiles(),
+         minimumAutomaticWords: Int = 40) {
+        self.minimumAutomaticWords = minimumAutomaticWords
         self.catalog = catalog
         self.provider = provider
         self.automatic = automatic
@@ -128,20 +148,21 @@ final class MeetingSummaries: ObservableObject {
         guard availability.isAvailable else {
             return Log.info("Summary: not summarizing \(note.lastPathComponent): \(availability)")
         }
-        enqueue(note)
+        enqueue(note, automatic: true)
     }
 
     /// Summarize (again) on request, replacing the note's summary.
-    func summarize(_ note: URL) { enqueue(note) }
+    func summarize(_ note: URL) { enqueue(note, automatic: false) }
 
     /// Resolves once nothing is queued or running (tests).
     func settled() async {
         while let running { await running.value }
     }
 
-    private func enqueue(_ note: URL) {
+    private func enqueue(_ note: URL, automatic: Bool) {
         let key = Self.key(note)
         if let state = states[key], state == .queued || state == .working { return }
+        if automatic { automaticNotes.insert(key) } else { automaticNotes.remove(key) }
         states[key] = .queued
         queue.append(key)
         pump()
@@ -169,9 +190,14 @@ final class MeetingSummaries: ObservableObject {
         let started = Date()
         do {
             let turns = try await Task.detached { try files.turns(of: note) }.value
+            if automaticNotes.remove(note) != nil,
+               turns.reduce(0, { $0 + $1.text.split(whereSeparator: \.isWhitespace).count }) < minimumAutomaticWords {
+                states[note] = nil
+                return Log.info("Summary: \(note.lastPathComponent) is too short to summarize on its own.")
+            }
             let outcome = try await SummaryPipeline(summarizer: summarizer).run(turns)
             let section = SummarySection.markdown(outcome, provider: provider)
-            try await Task.detached { try files.writeSection(section, into: note) }.value
+            try await Task.detached { try files.writeSection(section, into: note, summarizing: turns) }.value
             states[note] = nil
             Log.info("Summary: wrote \(note.lastPathComponent)'s summary (\(outcome.passages) passage(s), "
                 + "\(outcome.skippedPassages) left out) in \(String(format: "%.1f", Date().timeIntervalSince(started))) s.")
@@ -198,11 +224,11 @@ final class MeetingSummaries: ObservableObject {
             return "Summaries aren't available in this meeting's language yet."
         case SummaryPipelineError.noPassageSummarized(.refused), SummarizerError.refused:
             return "The summary couldn't be written: the model declined to summarize this meeting."
-        case SummaryPipelineError.nothingToSummarize: return "There's nothing in this note's transcript to summarize."
+        case SummaryPipelineError.nothingToSummarize: return "There's nothing in this note's transcript to summarize yet."
         case let error as SummaryNoteError: return error.errorDescription ?? "The note couldn't be summarized."
         case let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile:
             return "The note was moved or deleted before it could be summarized."
-        default: return "The summary couldn't be written. Try again later."
+        default: return "Couldn't summarize right now. Try again."
         }
     }
 }

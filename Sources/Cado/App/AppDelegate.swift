@@ -72,7 +72,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     })
     /// Meeting summaries (#34): each saved meeting note is handed on once
     /// saved (`SummarizingNoteStore`); Settings and the Library read it too.
+    /// The one summary-provider catalog, shared by `summaries` and Settings.
+    private lazy var summaryCatalog = ConfiguredSummarizerCatalog(config: { [configStore] in configStore.config })
     @MainActor private lazy var summaries = MeetingSummaries(
+        catalog: summaryCatalog,
         provider: { [configStore] in configStore.config.summaryProviderChoice },
         automatic: { [configStore] in configStore.config.meetingSummaries })
     /// Meeting recording from the menu (#30): mic + one app's audio → a note.
@@ -615,7 +618,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if !configStore.config.dictationHistory { recents.clear() }
                 refreshMenu()
             },
-            updater: updater ?? DisabledUpdater()
+            updater: updater ?? DisabledUpdater(),
+            summaryCatalog: summaryCatalog
         )
         settingsViewModel = vm
         return vm

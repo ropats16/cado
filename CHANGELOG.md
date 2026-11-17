@@ -8,6 +8,7 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - Meeting summaries on macOS 26 with Apple Intelligence: after a meeting note is saved, Apple Intelligence adds a Summary (key points, decisions, action items) above the transcript, written on your Mac. Long meetings are summarized in parts and combined. The note is saved first and is complete without a summary.
 - Library: a meeting's summary shows in a card above the transcript, with Regenerate Summary (or Summarize for a note without one). A new summary replaces the old one; the rest of the note is kept.
 - Settings › Meeting Summaries › Summarize meetings: on by default; where summaries can't run, it says why.
+- Summaries: very short meetings (under about 40 words) aren't summarized automatically (Summarize still works); a note you edit while it's being summarized is left as you edited it; while Apple Intelligence is still getting ready, the Library still offers Summarize and says why.
 
 ## 0.3.0 - 2026-11-17
 

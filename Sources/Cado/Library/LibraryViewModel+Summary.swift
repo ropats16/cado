@@ -11,19 +11,31 @@ struct SummaryPanel: Equatable {
     /// The button shows: the provider can run, the note has a transcript,
     /// nothing is under way.
     var canSummarize: Bool
+    /// Why a summary can't be written yet but may be later (the model is
+    /// still getting ready): shown with Summarize.
+    var notice: String?
 
     var buttonTitle: String { blocks == nil ? "Summarize" : "Regenerate Summary" }
 
     /// nil (nothing shown) for a note that isn't a meeting, or a meeting
     /// with no summary that can't be summarized here (no transcript, or
-    /// summaries can't run on this Mac).
-    static func make(_ reading: NoteReading, state: MeetingSummaries.State?, available: Bool) -> SummaryPanel? {
+    /// summaries can never run on this Mac; "still getting ready" shows the
+    /// card with Summarize and why).
+    static func make(_ reading: NoteReading, state: MeetingSummaries.State?,
+                     availability: SummarizerAvailability) -> SummaryPanel? {
         guard reading.header.isMeeting else { return nil }
+        var available = availability.isAvailable
+        var notice: String?
+        if case .unavailable(let reason) = availability, reason.isTemporary {
+            available = true   // Summarize stays offered: it can run later
+            notice = reason.explanation
+        }
         let working = state == .queued || state == .working
         var problem: String?
         if case .failed(let why)? = state { problem = why }
         let panel = SummaryPanel(blocks: reading.summary, isWorking: working, problem: problem,
-                                 canSummarize: available && reading.hasTranscript && !working)
+                                 canSummarize: available && reading.hasTranscript && !working,
+                                 notice: reading.hasTranscript ? notice : nil)
         guard panel.blocks != nil || working || problem != nil || panel.canSummarize else { return nil }
         return panel
     }
@@ -36,9 +48,9 @@ extension LibraryViewModel {
     var summaryPanel: SummaryPanel? {
         guard let reading else { return nil }
         guard let summaries, let url = detail?.summary.url else {
-            return SummaryPanel.make(reading, state: nil, available: false)
+            return SummaryPanel.make(reading, state: nil, availability: .unavailable(.needsNewerMacOS))
         }
-        return SummaryPanel.make(reading, state: summaries.state(of: url), available: summaries.availability.isAvailable)
+        return SummaryPanel.make(reading, state: summaries.state(of: url), availability: summaries.availability)
     }
 
     /// Summarize / Regenerate Summary: replaces the selected note's

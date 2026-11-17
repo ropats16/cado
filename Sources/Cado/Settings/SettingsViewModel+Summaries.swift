@@ -14,27 +14,28 @@ extension SettingsViewModel {
     /// The chosen provider can run on this Mac now.
     var summariesAvailable: Bool { summaryAvailability.isAvailable }
 
-    var summariesNote: String { SummarySettingsCopy.note(summaryAvailability) }
+    var summariesNote: String {
+        SummarySettingsCopy.note(summaryAvailability, provider: configStore.config.summaryProviderChoice)
+    }
+
+    /// Re-reads availability (Apple Intelligence may have been switched on,
+    /// or finished getting ready, since Settings was last looked at).
+    func refreshSummaryAvailability() { objectWillChange.send() }
 
     private var summaryAvailability: SummarizerAvailability {
-        SummarySettingsCopy.catalog.availability(of: configStore.config.summaryProviderChoice)
+        summaryCatalog.availability(of: configStore.config.summaryProviderChoice)
     }
 }
 
-/// What the Meeting Summaries card says. Pure, apart from `catalog`.
+/// What the Meeting Summaries card says. Pure.
 enum SummarySettingsCopy {
-    /// Where the card reads availability (a seam for tests).
-    static var catalog: SummarizerCatalog = LiveSummarizerCatalog()
-
     static let title = "Summarize meetings"
 
     /// Under the switch: what it does, or why it can't here.
-    static func note(_ availability: SummarizerAvailability) -> String {
+    static func note(_ availability: SummarizerAvailability, provider: SummaryProvider) -> String {
         switch availability {
         case .available:
-            return "After a meeting note is saved, Apple Intelligence adds a summary to it: key points, decisions "
-                + "and action items. It runs on this Mac, so nothing is sent anywhere. You can summarize a note "
-                + "again from the Library."
+            return provider.settingsNote
         case .unavailable(let reason):
             return reason.explanation
         }
