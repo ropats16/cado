@@ -279,20 +279,48 @@ and says why).
   time, the menu shows **Stop Recording — 12:34** and which app is recorded,
   and the mascot stays on screen. Dictation is off until you stop (a hotkey
   press says so).
-- **Stop:** click **Stop Recording**. Cado transcribes on your Mac and saves
-  "Meeting with Zoom — date time" to your notes folder, with the date, the
-  length and the Me/Others conversation. A notification says when it's saved.
+- **Transcribed as you go:** while you talk, Cado transcribes the meeting on
+  your Mac in short passages (a few seconds of speech each, cut at pauses), so
+  most of it is done by the time you stop. Dictation and meetings share one
+  transcription queue, one passage at a time.
+- **Stop:** click **Stop Recording**. Only the last passage or two (what was
+  being said as you stopped) is left to transcribe, so on a Mac that keeps up
+  the note is ready seconds later, however long the meeting was. A Mac that
+  can't keep up (a big model on an older Mac) finishes the rest after you stop;
+  the menu shows "Transcribing Meeting… n of m". Cado saves "Meeting with Zoom
+  — date time" to your notes folder, with the date, the length and the
+  Me/Others conversation. A notification says when it's saved.
 - **First time:** macOS asks to let Cado record system audio. If you don't
   allow it (or it was turned off), the other side records as silence: the
   note says Others may be missing and how to turn it on (System Settings ›
   Privacy & Security › Screen & System Audio Recording).
-- **Limits (for now):** a meeting stops by itself after 2 hours (the note is
-  still written); it's held in memory until it's transcribed, so quitting
-  Cado mid-meeting saves the audio (in Cado's support folder, `Meeting
-  Audio`) and a note saying it wasn't transcribed. Without headphones the
-  mic also hears the other side, so their words can appear under "Me" too.
-  Notes saved before this label changed say "Them"; they still open and show
-  "Others" (the files aren't changed).
+- **The audio:** while a meeting records, its audio is written to Cado's
+  support folder on your Mac (`~/Library/Application Support/Cado/Meetings
+  In Progress`, readable only by your user account), about 230 MB per hour
+  for each side, not kept in memory. Once the note is saved it's deleted.
+  To keep it, turn on **Settings → Notes → Keep meeting audio**: each
+  meeting's audio is then copied as `Me.wav` and `Others.wav` (about 115 MB
+  per hour each) to `~/Library/Application Support/Cado/Meeting Audio/<note
+  title>/`. Whatever the setting, the audio is kept there when part of the
+  meeting couldn't be transcribed, when the note couldn't be saved, or when
+  you quit Cado mid-meeting (then the note says it wasn't fully
+  transcribed); the note says where.
+- **If Cado quits unexpectedly** (a crash, Force Quit, the Mac losing power)
+  during a meeting, the meeting isn't lost: the next time Cado starts and its
+  speech model is ready, it finishes transcribing what was recorded up to
+  that moment and saves the note with a line saying it was recovered, then a
+  notification. Meetings with no speech are just deleted. If one can't be
+  recovered (its audio can't be read, or recovering it failed twice), its
+  audio goes to the `Meeting Audio` folder and a notification says so. While
+  a recovery runs, the menu shows it as transcribing and **Record Meeting**
+  waits until it's done.
+- **Limits:** a meeting stops by itself after 2 hours (the note is still
+  written). If the disk fills up mid-meeting, Cado says so and keeps
+  recording in memory: the note is still written, but that meeting can't be
+  recovered after a crash. Without headphones the mic also hears the other
+  side, so their words can appear under "Me" too. Notes saved before this
+  label changed say "Them"; they still open and show "Others" (the files
+  aren't changed).
 - **Safari:** Safari plays web audio through WebKit's shared media process,
   which every WebKit-based app uses (Mail, and apps with web views) and which
   macOS gives no public way to tell apart. So with Safari as the meeting app,
@@ -496,9 +524,11 @@ Dictated text isn't kept after it's pasted, unless you turn on
 Mac until you turn it off.
 
 Meeting recording only happens when you click **Record Meeting**, and only
-records the meeting app you picked plus your mic. The audio stays in memory
-and is thrown away once the note is written (it's kept on disk only if
-transcription fails or you quit mid-meeting, so the meeting isn't lost).
+records the meeting app you picked plus your mic. While it records, the audio
+is written to a folder on your Mac that only your user account can read, so a
+crash can't lose the meeting, and it's deleted once the note is written. It's
+kept only if you turn on **Keep meeting audio**, or if transcription fails or
+you quit mid-meeting (so the meeting isn't lost). It never leaves your Mac.
 
 ---
 

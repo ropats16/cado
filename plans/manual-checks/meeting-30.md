@@ -101,7 +101,7 @@ Join a call with a second device (phone) as the other participant.
 
 - One meeting holds both streams in memory (~230 MB an hour each) and stops
   itself at 2 hours with a notice; the note is still written. Long meetings
-  and crash safety: #31.
+  and crash safety: #31 (done; see [meeting-31.md](meeting-31.md)).
 - Transcription runs after stop, one chunk at a time on the shared engine;
   a 1-hour meeting takes a few minutes on Apple silicon (not measured).
 - Turn timing: each stream is placed by when it started; tap rebuilds

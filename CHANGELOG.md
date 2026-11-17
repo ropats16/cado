@@ -2,6 +2,17 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
+## Unreleased
+
+### Added
+- Meetings are transcribed while you talk, so the note is ready seconds after you stop, even after an hour-long call (on a Mac that keeps up; a slower one finishes the rest after you stop).
+- If Cado quits unexpectedly during a meeting (a crash, Force Quit, power loss), the next launch finishes the note from what was recorded and says it was recovered.
+- Settings › Notes › Keep meeting audio: off by default, a meeting's audio is deleted once its note is saved; on, it's kept as WAV files in Cado's Meeting Audio folder.
+
+### Changed
+- A meeting's audio is written to disk as it's recorded (in a folder only your account can read) instead of being held in memory.
+- If the disk fills up during a meeting, a notification says so; recording carries on and the note is still written.
+
 ## 0.3.0 - 2026-11-17
 
 ### Added
