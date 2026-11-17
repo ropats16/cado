@@ -59,10 +59,10 @@ final class BrandTests: XCTestCase {
         }
     }
 
-    func testTheBrandFontIsRounded() {
+    func testTheBrandFontUsesNativeSansSerif() {
         let font = Brand.Typography.nsFont(ofSize: 13, weight: .semibold)
         XCTAssertEqual(font.pointSize, 13)
-        XCTAssertTrue(font.fontName.localizedCaseInsensitiveContains("rounded"), font.fontName)
+        XCTAssertEqual(font, NSFont.systemFont(ofSize: 13, weight: .semibold))
     }
 
     // MARK: - Contrast (#44)
@@ -82,8 +82,11 @@ final class BrandTests: XCTestCase {
             let window = solid(Brand.Palette.NS.background, appearance)
             let card = over(Brand.Palette.NS.surface, window, appearance)
             let badge = over(Brand.Palette.NS.accent.withAlphaComponent(Brand.Palette.badgeTintOpacity), card, appearance)
+            let selection = solid(Brand.Palette.NS.selection, appearance)
+            let secondary = solid(Brand.Palette.NS.surfaceSecondary, appearance)
             let text = solid(Brand.Palette.NS.accentText, appearance)
-            for (name, ground) in [("window", window), ("card", card), ("badge", badge)] {
+            for (name, ground) in [("window", window), ("card", card), ("badge", badge),
+                                   ("selection", selection), ("secondary surface", secondary)] {
                 let ratio = contrast(text, ground)
                 print("contrast \(appearance.rawValue) accentText on \(name): \(String(format: "%.2f", ratio)):1")
                 XCTAssertGreaterThanOrEqual(ratio, 4.5, "\(appearance.rawValue) \(name)")

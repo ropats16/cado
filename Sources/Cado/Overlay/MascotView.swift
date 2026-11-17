@@ -217,7 +217,7 @@ private struct LevelRings: View, Animatable {
     var body: some View {
         Canvas { context, size in
             let scale = min(size.width, size.height) / MascotMotion.viewBox.width
-            for ring in MascotMotion.haloRings(level: level) + [MascotMotion.pitRing(level: level)] {
+            for ring in MascotMotion.haloRings(level: level) {
                 let c = MascotMotion.viewPoint(ring.centre, in: size), r = ring.radius * scale
                 context.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
                                with: .color(Brand.Palette.pulse.opacity(ring.opacity)),
@@ -240,14 +240,13 @@ enum MascotArt {
         ($0, rasterise(svg($0)))
     })
 
-    /// A pose's SVG. Listening loses its static `#pulse` halo and `#pit-level`
-    /// ring: `LevelRings` draws live ones in their place.
+    /// Listening loses its static `#pulse` halo: `LevelRings` draws the two
+    /// live outer rings in its place. The pit has no listening ring.
     static func svg(_ pose: Brand.Pose) -> String {
         let source = Brand.Art.svgSources[pose.rawValue]!
         guard pose == .listening else { return source }
         return source
             .replacingOccurrences(of: #"<g id="pulse">.*?</g>"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: #"<circle id="pit-level"[^>]*/>"#, with: "", options: .regularExpression)
     }
 
     private static func rasterise(_ svg: String) -> CGImage {

@@ -13,23 +13,22 @@ enum Brand {
     /// Semantic UI colours. Each adapts to light/dark itself, so use them
     /// as-is. SwiftUI `Color`s here; the same names as `NSColor`s in `NS`.
     enum Palette {
-        /// Apple's bright system green (owner's call, over the duller
-        /// avocado-skin green): tint/accent for controls, links, selection.
+        /// Rich green controls in light mode; fresh mint in dark mode.
         static let accent = Color(nsColor: NS.accent)
-        /// The system window background: Settings looks like a stock Mac
-        /// window (owner's call), with the brand in the accent, type and art.
+        /// Almost-white warmth behind the app's grouped surfaces.
         static let background = Color(nsColor: NS.background)
-        /// A grouped box on `background`, filled like System Settings' own
-        /// (a faint system fill, not a white card): cards, fields.
+        /// Crisp cards and fields on the warm window background.
         static let surface = Color(nsColor: NS.surface)
-        /// The system label colour: primary text.
+        static let surfaceSecondary = Color(nsColor: NS.surfaceSecondary)
+        static let selection = Color(nsColor: NS.selection)
+        /// Deep green-black primary text.
         static let ink = Color(nsColor: NS.ink)
-        /// The system secondary label colour: hints and values.
+        /// Muted green-grey hints and values.
         static let inkSecondary = Color(nsColor: NS.inkSecondary)
-        /// Cheek pink: a soft, friendly highlight (badges, a selected row's fill).
+        /// Cheek pink, reserved for the mascot.
         static let cheek = Color(nsColor: NS.cheek)
         /// The accent as text (links, badges): a deeper green in light mode so
-        /// it passes AA on the light surfaces, where `accent` is about 2:1.
+        /// it passes AA on the light surfaces.
         static let accentText = Color(nsColor: NS.accentText)
         /// Pulse coral: live/recording state, warnings and errors. Deeper in
         /// light mode so it passes as text (≥4.5:1) on the cream surfaces.
@@ -48,13 +47,15 @@ enum Brand {
 
         /// `Palette` as `NSColor`s, for AppKit.
         enum NS {
-            static let accent = NSColor.systemGreen
-            static let background = NSColor.windowBackgroundColor
-            static let surface = NSColor.quaternarySystemFill
-            static let ink = NSColor.labelColor
-            static let inkSecondary = NSColor.secondaryLabelColor
+            static let accent = themed("accent", light: 0x137343, dark: 0x8fe0a4)
+            static let background = themed("background", light: 0xfffef9, dark: 0x0f140e)
+            static let surface = themed("surface", light: 0xffffff, dark: 0x171f15)
+            static let surfaceSecondary = themed("surfaceSecondary", light: 0xf1f5ee, dark: 0x1c251a)
+            static let selection = themed("selection", light: 0xe4f3dc, dark: 0x26371f)
+            static let ink = themed("ink", light: 0x16291e, dark: 0xeef0e4)
+            static let inkSecondary = themed("inkSecondary", light: 0x526157, dark: 0xa6ae9b)
             static let cheek = rgb(0xff8fa3)
-            static let accentText = themed("accentText", light: 0x1f6b1a, dark: 0x6fd75f)
+            static let accentText = themed("accentText", light: 0x10683b, dark: 0x8fe0a4)
             static let pulse = themed("pulse", light: 0xc4392d, dark: 0xff6f61)
         }
 
@@ -72,11 +73,10 @@ enum Brand {
 
     // MARK: - Type
 
-    /// The brand typeface is SF Rounded (the system font's rounded design),
-    /// at the system's text styles so Dynamic Type sizes still apply.
+    /// Clear native sans-serif type at system text styles for accessibility.
     enum Typography {
         /// Window and section titles.
-        static let title = font(.title2, weight: .semibold)
+        static let title = font(.title2, weight: .bold)
         /// Page titles, `.title` bold: the Library's note header and its
         /// empty state. `title` is for smaller, in-page titles.
         static let pageTitle = font(.title, weight: .bold)
@@ -89,13 +89,12 @@ enum Brand {
 
         /// Any other text style or weight, in the brand face.
         static func font(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> Font {
-            .system(style, design: .rounded, weight: weight)
+            .system(style, design: .default, weight: weight)
         }
 
         /// The brand face for AppKit, at a point size.
         static func nsFont(ofSize size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-            let system = NSFont.systemFont(ofSize: size, weight: weight)
-            return system.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? system
+            NSFont.systemFont(ofSize: size, weight: weight)
         }
     }
 

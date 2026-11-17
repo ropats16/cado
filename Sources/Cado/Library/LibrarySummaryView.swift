@@ -95,7 +95,7 @@ struct SummaryCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Brand.Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Brand.Palette.surfaceSecondary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Brand.Palette.outline(contrast)))
     }
 

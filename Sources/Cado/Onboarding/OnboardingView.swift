@@ -4,7 +4,7 @@ import AppKit
 /// The onboarding window (#22): one step at a time — where you are, what
 /// it's for, the step's own buttons — with Back and Continue below. Every
 /// word and button comes from `OnboardingViewModel` (`OnboardingContent`);
-/// this only lays them out, in Settings' cards and system colours.
+/// this only lays them out, in Settings' cards and brand colours.
 struct OnboardingView: View {
     @ObservedObject var viewModel: OnboardingViewModel
 
@@ -217,6 +217,7 @@ struct OnboardingView: View {
 private struct StepDots: View {
     let steps: [OnboardingStep]
     let current: OnboardingStepID
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 8) {
@@ -226,7 +227,7 @@ private struct StepDots: View {
                     .frame(width: step.id == current ? 22 : 8, height: 8)
             }
         }
-        .animation(.easeOut(duration: 0.2), value: current)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: current)
         .accessibilityElement()
         .accessibilityLabel("Step \(current.rawValue + 1) of \(steps.count)")
     }
@@ -267,7 +268,7 @@ private struct StepHero: View {
     private func mascot(_ image: NSImage) -> some View {
         Image(nsImage: image)
             .resizable()
-            .frame(width: 104, height: 104)
+            .frame(width: 116, height: 116)
     }
 
     private var symbol: some View {
@@ -283,7 +284,7 @@ private struct StepHero: View {
             .font(.system(size: 28, weight: .medium))
             .foregroundStyle(Brand.Palette.accent)
             .frame(width: 64, height: 64)
-            .background(Brand.Palette.surface, in: Circle())
+            .background(Brand.Palette.surfaceSecondary, in: Circle())
             .overlay(Circle().strokeBorder(Brand.Palette.outline(contrast)))
             .overlay(alignment: .bottomTrailing) { badge.offset(x: 4, y: 4) }
     }
@@ -346,7 +347,10 @@ private struct ModelOptionRow: View {
                         .foregroundStyle(Brand.Palette.inkSecondary)
                 }
             }
-            .padding(.vertical, 7)
+            .padding(.vertical, 9)
+            .padding(.horizontal, 8)
+            .background(isSelected ? Brand.Palette.selection : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

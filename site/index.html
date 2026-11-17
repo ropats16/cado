@@ -1,254 +1,628 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cado: private dictation and meeting notes for Mac</title>
-<meta name="description" content="Cado is a free, open-source menu-bar app for Mac. Hold a hotkey and talk, or record a meeting. Transcription runs on your Mac and nothing is sent to the cloud.">
-<meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#fbf9ef" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#11160f" media="(prefers-color-scheme: dark)">
-<link rel="canonical" href="https://ropats16.github.io/cado/">
-<link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta property="og:type" content="website">
-<meta property="og:title" content="Cado: private dictation and meeting notes for Mac">
-<meta property="og:description" content="Hold a hotkey and talk, or record a meeting. It all runs on your Mac. Free and open source.">
-<meta property="og:url" content="https://ropats16.github.io/cado/">
-<meta property="og:image" content="https://ropats16.github.io/cado/assets/og.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Cado, a smiling avocado mascot, with the words Private dictation and meeting notes, on your Mac.">
-<meta name="twitter:card" content="summary_large_image">
-<link rel="stylesheet" href="styles.css">
-</head>
-<body>
-<a class="skip" href="#main">Skip to content</a>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cado: private dictation and meeting notes for Mac</title>
+    <meta
+      name="description"
+      content="Cado is a free, open-source menu-bar app for Mac. Hold a hotkey and talk, or record a meeting. Transcription runs on your Mac with optional cloud summaries only if you opt in."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="theme-color"
+      content="#ffffff"
+      media="(prefers-color-scheme: light)"
+    />
+    <meta
+      name="theme-color"
+      content="#0f140e"
+      media="(prefers-color-scheme: dark)"
+    />
+    <link rel="canonical" href="https://ropats16.github.io/cado/" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:title"
+      content="Cado: private dictation and meeting notes for Mac"
+    />
+    <meta
+      property="og:description"
+      content="Hold a hotkey and talk, or record a meeting. Transcription runs on your Mac; cloud summaries are opt-in. Free and open source."
+    />
+    <meta property="og:url" content="https://ropats16.github.io/cado/" />
+    <meta
+      property="og:image"
+      content="https://ropats16.github.io/cado/assets/og.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="Cado, a smiling avocado mascot, with the words Private dictation and meeting notes, on your Mac."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
 
-<header class="top">
-  <div class="wrap bar">
-    <a class="brand" href="#top" aria-label="Cado, back to top">
-      <img src="assets/mascot/avocado-idle.svg" alt="" width="36" height="36">
-      <span>Cado</span>
-    </a>
-    <nav aria-label="Main">
-      <a href="#features">Features</a>
-      <a href="#privacy">Privacy</a>
-      <a href="#reviews" id="nav-reviews" hidden>Reviews</a>
-      <a href="#download">Download</a>
-      <a href="https://github.com/ropats16/cado">GitHub</a>
-    </nav>
-  </div>
-</header>
-
-<main id="main">
-  <section class="hero" id="top" aria-labelledby="h-hero">
-    <div class="wrap hero-grid">
-      <div class="hero-copy">
-        <h1 id="h-hero" data-enter>Private dictation and meeting notes, on your&nbsp;Mac.</h1>
-        <p class="lede" data-enter>Hold a key, talk, and your words appear in any app. Record a meeting and get a Markdown note of who said what. It all runs on your Mac. Nothing goes to the cloud.</p>
-        <div class="actions" data-enter>
-          <a class="btn primary" href="https://github.com/ropats16/cado/releases/latest">Download for Mac</a>
-          <a class="btn" href="#download">Other ways to install</a>
-        </div>
-        <p class="meta" data-enter>Free and open source (MIT). macOS 14 or later. Lives in your menu bar.</p>
+    <header class="top">
+      <div class="wrap nav">
+        <a class="brand" href="#top" aria-label="Cado, back to top"
+          ><img
+            class="mas"
+            style="width: 34px; height: 34px"
+            src="assets/mascot/avocado-idle.svg"
+            alt=""
+            width="120"
+            height="120"
+          />
+          Cado</a
+        >
+        <nav aria-label="Main">
+          <a class="h" href="#how">How it works</a
+          ><a class="h" href="#dictation">Dictation</a
+          ><a class="h" href="#meetings">Meetings</a
+          ><a class="h" href="#privacy">Privacy</a
+          ><a class="h" href="https://github.com/ropats16/cado">GitHub</a
+          ><a class="h" href="#reviews" id="nav-reviews" hidden>Reviews</a
+          ><a class="btn p s" href="#download">Download</a>
+        </nav>
       </div>
-
-      <div class="hero-art" data-enter>
-        <button class="stage" type="button" id="stage" data-pose="idle" aria-label="Try Cado: press and hold to talk, release to finish">
-          <img class="pose" data-p="idle" src="assets/mascot/avocado-idle.svg" alt="" width="420" height="420">
-          <img class="pose" data-p="listening" src="assets/mascot/avocado-listening.svg" alt="" width="420" height="420">
-          <img class="pose" data-p="thinking" src="assets/mascot/avocado-thinking.svg" alt="" width="420" height="420">
-          <img class="pose" data-p="done" src="assets/mascot/avocado-done.svg" alt="" width="420" height="420">
-        </button>
-        <p class="hold-hint" aria-hidden="true">Hold <kbd>⌃</kbd><kbd>⇧</kbd> and talk. Try it on Cado.</p>
-      </div>
-    </div>
-    <div class="wrap">
-      <figure class="shot-frame" data-enter>
-        <picture>
-          <source srcset="assets/screenshot-hero-dark.png" media="(prefers-color-scheme: dark)">
-          <img class="shot" src="assets/screenshot-hero.png" width="1600" height="1104" alt="Cado's Library window: meeting notes grouped by date on the left, and a note's transcript with Me and Others turns on the right.">
-        </picture>
-        <figcaption>The Library, showing a sample meeting note.</figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <section class="sect" id="features" aria-labelledby="h-features">
-    <div class="wrap">
-      <h2 id="h-features">Two jobs, done on your Mac.</h2>
-      <div class="grid">
-        <article class="card span-7">
-          <h3>Dictate anywhere with a hotkey</h3>
-          <p>Hold <kbd>⌃</kbd><kbd>⇧</kbd>, speak, let go. Your words are typed at the cursor, with punctuation, in browsers, native apps, the Terminal and the Claude Code CLI. For longer passages press <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> to start and again to stop. <kbd>Esc</kbd> cancels.</p>
-          <ol class="steps3">
-            <li><img src="assets/mascot/avocado-listening.svg" alt="" width="96" height="96" loading="lazy"><span><b>Hold</b> Cado listens</span></li>
-            <li><img src="assets/mascot/avocado-thinking.svg" alt="" width="96" height="96" loading="lazy"><span><b>Release</b> It transcribes</span></li>
-            <li><img src="assets/mascot/avocado-done.svg" alt="" width="96" height="96" loading="lazy"><span><b>Done</b> Text lands</span></li>
-          </ol>
-        </article>
-        <article class="card span-5">
-          <h3>Meeting notes with Me and Others</h3>
-          <p>Click <b>Record Meeting</b>. Cado records your mic as <span class="chip">Me</span> and only the meeting app (Zoom, Teams, Meet in a browser and more) as <span class="chip them">Others</span>. Stop, and a note with the conversation as Me/Others turns lands in your notes folder.</p>
-          <p class="fine">Meeting notes need macOS 14.2.</p>
-        </article>
-        <article class="card span-4">
-          <h3>Everything on-device</h3>
-          <p>Speech recognition runs on your Mac with whisper.cpp, on the GPU on Apple Silicon. Intel Macs work too, just slower. Cado picks a model that fits your chip and RAM.</p>
-        </article>
-        <article class="card span-4">
-          <h3>Notes are plain Markdown</h3>
-          <p>Meeting notes are ordinary <code>.md</code> files in a folder you choose, <code>~/Documents/Cado</code> by default. Point it at an Obsidian vault and they appear there.</p>
-        </article>
-        <article class="card span-4">
-          <h3>Open source, MIT</h3>
-          <p>Read the code, build it yourself, check exactly what touches the network. No account, no tracking.</p>
-          <p><a href="https://github.com/ropats16/cado">Cado on GitHub</a></p>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <section class="sect alt" id="privacy" aria-labelledby="h-privacy">
-    <div class="wrap">
-      <h2 id="h-privacy">Your voice stays on your Mac.</h2>
-      <div class="two">
-        <div>
-          <h3>Never leaves your Mac</h3>
-          <ul class="ticks">
-            <li>Your audio</li>
-            <li>What you say, as text</li>
-            <li>Your settings</li>
-            <li>Meeting recordings, held in memory and thrown away once the note is written</li>
-          </ul>
-        </div>
-        <div>
-          <h3>What does use the network</h3>
-          <ul class="dots">
-            <li><b>Model downloads</b> from huggingface.co, when you run setup or click Download. Each file is checked against a pinned checksum.</li>
-            <li><b>Update check</b> on GitHub, about once a day. Turn it off in Settings › General.</li>
-            <li><b>Anonymous launch count</b>, off by default. Never audio, text or file names.</li>
-          </ul>
-        </div>
-      </div>
-      <p class="more"><a href="https://github.com/ropats16/cado#network-activity">Read the full network table in the README</a></p>
-    </div>
-  </section>
-
-  <section class="sect" id="reviews" aria-labelledby="h-reviews" hidden>
-    <div class="wrap">
-      <h2 id="h-reviews">What people say</h2>
-      <div class="quotes" id="quotes"></div>
-    </div>
-  </section>
-
-  <section class="sect" id="download" aria-labelledby="h-download">
-    <div class="wrap">
-      <h2 id="h-download">Get Cado.</h2>
-      <div class="two">
-        <article class="card">
-          <h3>Download the DMG</h3>
-          <ol class="num">
-            <li>Download <code>Cado-&lt;version&gt;.dmg</code> from the latest release.</li>
-            <li>Open it and drag Cado to Applications.</li>
-            <li>Open Cado. Look for the avocado in your menu bar.</li>
-          </ol>
-          <p><a class="btn primary" href="https://github.com/ropats16/cado/releases/latest">Download latest release</a></p>
-        </article>
-        <article class="card">
-          <h3>Or use Homebrew</h3>
-          <div class="cmd">
-            <code id="brew">brew install --cask ropats16/tap/cado</code>
-            <button type="button" class="copy" id="copy" hidden>Copy</button>
+    </header>
+    <main id="main">
+      <section class="hero" id="top" aria-labelledby="h-hero">
+        <div class="wrap">
+          <div class="hero-intro">
+            <div class="hero-copy">
+              <h1 id="h-hero">
+                Private dictation and meeting notes, <em>on your&nbsp;Mac.</em>
+              </h1>
+              <p class="lede">
+                Hold a key, talk, and your words appear in any app. Record a
+                meeting and get a Markdown note of who said what. It all runs on
+                your Mac. Nothing goes to the cloud unless you opt in to cloud
+                summaries.
+              </p>
+              <div class="cta">
+                <a
+                  class="btn p"
+                  href="https://github.com/ropats16/cado/releases/latest"
+                  >Download for Mac</a
+                ><a class="btn" href="#how">See how it works</a>
+              </div>
+              <p class="fine">
+                Free and open source (MIT). macOS 14 or later. Lives in your
+                menu bar.
+              </p>
+            </div>
+            <div class="hero-mascot">
+              <div
+                class="mascot-cycle"
+                data-state="idle"
+                role="img"
+                aria-label="Cado avocado mascot resting, listening, thinking and celebrating"
+              >
+                <img
+                  class="mas mascot-pose"
+                  data-pose="idle"
+                  src="assets/mascot/avocado-idle.svg"
+                  alt=""
+                  width="120"
+                  height="120"
+                /><img
+                  class="mas mascot-pose"
+                  data-pose="listening"
+                  src="assets/mascot/avocado-listening.svg"
+                  alt=""
+                  width="120"
+                  height="120"
+                /><img
+                  class="mas mascot-pose"
+                  data-pose="thinking"
+                  src="assets/mascot/avocado-thinking.svg"
+                  alt=""
+                  width="120"
+                  height="120"
+                /><img
+                  class="mas mascot-pose"
+                  data-pose="done"
+                  src="assets/mascot/avocado-done.svg"
+                  alt=""
+                  width="120"
+                  height="120"
+                />
+              </div>
+            </div>
           </div>
-          <p class="fine">If Homebrew says the tap is untrusted, run <code>brew trust ropats16/tap</code> first.</p>
-          <h3 class="sub">Requirements</h3>
-          <ul class="dots">
-            <li>macOS 14 or later (macOS 14.2 for meeting notes)</li>
-            <li>Apple Silicon or Intel</li>
-            <li>About 1 GB free for the default model, less on smaller Macs</li>
-          </ul>
-        </article>
+          <div class="stage">
+            <figure class="shot-frame">
+              <picture>
+                <source
+                  srcset="assets/screenshot-hero-dark.png"
+                  media="(prefers-color-scheme: dark)"
+                />
+                <img
+                  class="shot"
+                  src="assets/screenshot-hero.png"
+                  width="1600"
+                  height="1104"
+                  alt="Cado's Library window: meeting notes grouped by date on the left, and a note's transcript with Me and Others turns on the right."
+                />
+              </picture>
+              <figcaption>
+                The Library, showing a sample meeting note.
+              </figcaption>
+            </figure>
+          </div>
+          <div class="fadeout"></div>
+        </div>
+      </section>
+
+      <div class="wrap">
+        <div class="facts">
+          <div>
+            <svg
+              class="point-icon"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="4" y="3" width="16" height="12" rx="2" />
+              <path d="M2 19h20M9 15v4m6-4v4" /></svg
+            ><b>On-device</b><span>Speech is transcribed on your Mac.</span>
+          </div>
+          <div>
+            <svg
+              class="point-icon"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6z" />
+              <path d="m8 12 3 3 5-6" /></svg
+            ><b>No account</b><span>Nothing to sign up for or sign in to.</span>
+          </div>
+          <div>
+            <svg
+              class="point-icon"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path
+                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+              />
+              <path d="M14 2v6h6M8 13h8m-8 4h6" /></svg
+            ><b>Plain Markdown</b
+            ><span>Notes are .md files in a folder you pick.</span>
+          </div>
+          <div>
+            <svg
+              class="point-icon"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-14-2 16" /></svg
+            ><b>Open source</b
+            ><span>MIT licensed. Read exactly what it does.</span>
+          </div>
+        </div>
       </div>
 
-      <h3 class="perm-h">First launch: what Cado asks for</h3>
-      <p class="perm-lede">Cado opens a short setup window that walks you through these and offers a speech model for your Mac.</p>
-      <div class="perms">
-        <div><b>Microphone</b><p>So it can hear you. macOS asks the first time you dictate. Click Allow.</p></div>
-        <div><b>Accessibility</b><p>So the hotkey works and Cado can type into other apps. Turn Cado on in System Settings › Privacy &amp; Security › Accessibility.</p></div>
-        <div><b>Screen &amp; System Audio Recording</b><p>Only for meeting notes. macOS asks the first time you click Record Meeting. Dictation never needs it.</p></div>
+      <section class="s" id="how">
+        <div class="wrap">
+          <div class="head">
+            <p class="eyebrow">How it works</p>
+            <h2>Talk. Let go. It's written.</h2>
+            <p>
+              Cado sits in the menu bar and stays out of the way until you ask
+              for it.
+            </p>
+          </div>
+          <ol class="steps">
+            <li>
+              <img
+                class="mas"
+                style="width: 72px; height: 72px"
+                src="assets/mascot/avocado-listening.svg"
+                alt=""
+                width="120"
+                height="120"
+              />
+              <span class="n">01</span>
+              <h3>Hold to talk</h3>
+              <p>
+                Hold <kbd>⌃</kbd><kbd>⇧</kbd> in any app. Cado listens while you
+                speak.
+              </p>
+            </li>
+            <li>
+              <img
+                class="mas"
+                style="width: 72px; height: 72px"
+                src="assets/mascot/avocado-thinking.svg"
+                alt=""
+                width="120"
+                height="120"
+              />
+              <span class="n">02</span>
+              <h3>Let go</h3>
+              <p>
+                Your speech is transcribed on your Mac, using a model picked for
+                your hardware.
+              </p>
+            </li>
+            <li>
+              <img
+                class="mas"
+                style="width: 72px; height: 72px"
+                src="assets/mascot/avocado-done.svg"
+                alt=""
+                width="120"
+                height="120"
+              />
+              <span class="n">03</span>
+              <h3>Text lands</h3>
+              <p>
+                Words appear at the cursor, with punctuation, and your clipboard
+                is put back.
+              </p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="s" id="dictation" style="padding-top: 0">
+        <div class="wrap split">
+          <div class="copy">
+            <p class="eyebrow">Dictation</p>
+            <h2>Type with your voice, anywhere you can type.</h2>
+            <p>
+              Browsers, native apps, the Terminal and the Claude Code CLI. Press
+              <kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd> to start and again to
+              stop for longer passages. <kbd>Esc</kbd> cancels.
+            </p>
+            <ul class="list">
+              <li><b>Hold-to-talk</b>Hold, speak, release.</li>
+              <li><b>Toggle mode</b>Hands free for long thoughts.</li>
+              <li><b>Your model</b>Picked for your chip and RAM.</li>
+            </ul>
+          </div>
+          <div
+            class="demo"
+            role="img"
+            aria-label="Illustration of dictation inserting text into a note"
+          >
+            <div class="field">
+              <small>Notes — Cursor here</small>Let's move the launch to the
+              fourteenth, and I'll send the revised copy to design this
+              afternoon.<span class="caret"></span>
+            </div>
+            <div class="overlay">
+              <div class="pill">
+                <img
+                  class="mas"
+                  style="width: 40px; height: 40px"
+                  src="assets/mascot/avocado-listening.svg"
+                  alt=""
+                  width="120"
+                  height="120"
+                />
+                <div class="wave">
+                  <i style="height: 8px"></i><i style="height: 14px"></i
+                  ><i style="height: 10px"></i><i style="height: 18px"></i
+                  ><i style="height: 12px"></i><i style="height: 16px"></i
+                  ><i style="height: 7px"></i>
+                </div>
+                Listening
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="s" id="meetings" style="padding-top: 0">
+        <div class="wrap split rev">
+          <div
+            class="demo"
+            role="img"
+            aria-label="Illustration of a meeting note and Cado asking before recording"
+            style="padding-bottom: clamp(90px, 10vw, 110px)"
+          >
+            <div class="win" style="box-shadow: none">
+              <div class="det" style="padding: 20px 22px">
+                <h4 style="font-size: 1.25rem">Launch sync</h4>
+                <p class="sub" style="margin-bottom: 12px">Today · 24 min</p>
+                <div class="turn">
+                  <div class="who me">Me<span class="ts">00:12</span></div>
+                  <p>Do we hold the date or move it?</p>
+                </div>
+                <div class="turn">
+                  <div class="who ot">Others<span class="ts">00:18</span></div>
+                  <p>I'd move it. Two beta folks got stuck in setup.</p>
+                </div>
+                <div class="turn" style="margin: 0">
+                  <div class="who me">Me<span class="ts">00:26</span></div>
+                  <p>Okay. I'll send the copy to design today.</p>
+                </div>
+              </div>
+            </div>
+            <div class="prompt">
+              <div class="hd">
+                <img
+                  class="mas"
+                  style="width: 34px; height: 34px"
+                  src="assets/mascot/avocado-idle.svg"
+                  alt=""
+                  width="120"
+                  height="120"
+                />
+                <b style="margin: 0">Record this meeting?</b>
+              </div>
+              <p>Zoom looks like it's in a call.</p>
+              <div class="bt">
+                <span class="y">Record</span><span>Not now</span>
+              </div>
+            </div>
+          </div>
+          <div class="copy">
+            <p class="eyebrow">Meetings</p>
+            <h2>Notes that say who said what.</h2>
+            <p>
+              Cado records your mic as <span class="chip">Me</span> and only the
+              meeting app, such as Zoom, Teams or Meet in a browser, as
+              <span class="chip o">Others</span>. Stop, and a Markdown note
+              lands in your notes folder.
+            </p>
+            <p class="fine">Meeting notes require macOS 14.2 or later.</p>
+            <ul class="list">
+              <li>
+                <b>Ask first</b>Cado offers to record when a meeting starts. It
+                never starts by itself.
+              </li>
+              <li>
+                <b>Summaries</b>Key points, decisions and action items, written
+                on your Mac with Apple Intelligence on macOS 26.
+              </li>
+              <li>
+                <b>Your folder</b>Point it at an Obsidian vault and notes appear
+                there.
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="s band" id="privacy">
+        <div class="wrap">
+          <div class="head">
+            <p class="eyebrow">Private by design</p>
+            <h2>Your voice stays on your Mac.</h2>
+            <p>
+              On-device by default. No Cado account. Here is exactly when the
+              app uses the network.
+            </p>
+          </div>
+          <div class="cols">
+            <div class="no">
+              <h3>Stays on your Mac by default</h3>
+              <ul>
+                <li>
+                  <b>Your audio</b>Meeting audio is held in memory and discarded
+                  once the note is written.
+                </li>
+                <li>
+                  <b>What you say, as text</b>Transcripts stay in your notes
+                  folder unless you choose cloud summaries.
+                </li>
+                <li><b>Your settings</b></li>
+              </ul>
+            </div>
+            <div class="net">
+              <h3>What does use the network</h3>
+              <ul>
+                <li>
+                  <b>Model downloads</b>From Hugging Face during setup or when
+                  you click Download. Files are checked against a pinned
+                  checksum. Apple Speech models are managed by macOS.
+                </li>
+                <li>
+                  <b>Update check</b>On GitHub, about once a day. Turn it off in
+                  Settings.
+                </li>
+                <li>
+                  <b>Anonymous launch count</b>Off by default. Never audio, text
+                  or file names.
+                </li>
+                <li>
+                  <b>Cloud summaries, only if you opt in</b>Choosing OpenRouter
+                  and confirming sends meeting text to OpenRouter and your
+                  chosen model provider. Never audio. Apple Intelligence stays
+                  the default.
+                </li>
+              </ul>
+            </div>
+          </div>
+          <p class="more">
+            <a href="https://github.com/ropats16/cado#network-activity"
+              >Read the full network table in the README</a
+            >
+          </p>
+        </div>
+      </section>
+
+      <section class="s" id="reviews" aria-labelledby="h-reviews" hidden>
+        <div class="wrap">
+          <h2 id="h-reviews">What people say</h2>
+          <div class="quotes" id="quotes"></div>
+        </div>
+      </section>
+      <section class="s" id="download">
+        <div class="wrap">
+          <div class="dl">
+            <img
+              class="mas"
+              style="width: 200px; height: 200px"
+              src="assets/mascot/avocado-done.svg"
+              alt=""
+              width="120"
+              height="120"
+            />
+            <div>
+              <h2>Get Cado.</h2>
+              <p>
+                Free and open source. Open the DMG, drag Cado to Applications,
+                and look for the avocado in your menu bar.
+              </p>
+              <div class="cta" style="justify-content: flex-start; margin: 0">
+                <a
+                  class="btn p"
+                  href="https://github.com/ropats16/cado/releases/latest"
+                  >Download latest release</a
+                ><a class="btn" href="https://github.com/ropats16/cado"
+                  >View on GitHub</a
+                >
+              </div>
+              <div class="cmd">
+                <code id="brew">brew install --cask ropats16/tap/cado</code
+                ><button
+                  class="btn s"
+                  id="copy"
+                  type="button"
+                  hidden
+                  aria-live="polite"
+                >
+                  Copy
+                </button>
+              </div>
+              <p class="fine" style="margin-top: 14px">
+                If Homebrew says the tap is untrusted, run
+                <code>brew trust ropats16/tap</code> first.
+              </p>
+              <p class="fine" style="margin-top: 14px">
+                macOS 14 or later (14.2 for meeting notes). Apple Silicon or
+                Intel. About 1 GB free for the default model.
+              </p>
+            </div>
+          </div>
+          <h3 class="perm-heading">First launch: what Cado asks for</h3>
+          <p class="perm-lede">
+            A short setup window walks you through permissions and offers a
+            speech model for your Mac.
+          </p>
+          <div class="perms">
+            <div>
+              <svg
+                class="point-icon"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="9" y="2" width="6" height="12" rx="3" />
+                <path d="M5 10v2a7 7 0 0 0 14 0v-2m-7 9v3m-4 0h8" /></svg
+              ><b>Microphone</b>
+              <p>So it can hear you. macOS asks the first time you dictate.</p>
+            </div>
+            <div>
+              <svg
+                class="point-icon"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="4" r="2" />
+                <path d="M4 9h16m-8-2v7m0 0-5 8m5-8 5 8" /></svg
+              ><b>Accessibility</b>
+              <p>
+                So the hotkey works and Cado can type into other apps. Turn Cado
+                on in System Settings › Privacy &amp; Security › Accessibility.
+              </p>
+            </div>
+            <div>
+              <svg
+                class="point-icon"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <rect x="2" y="3" width="15" height="12" rx="2" />
+                <path d="M5 20h9m-5-5v5m11-9v7m0-7 3-1" />
+                <circle cx="18" cy="19" r="2" /></svg
+              ><b>Screen &amp; System Audio Recording</b>
+              <p>
+                macOS asks the first time you record a meeting. Dictation never
+                needs it.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="wrap">
+        <p>Cado is MIT licensed.</p>
+        <p>
+          <a href="https://github.com/ropats16/cado">GitHub</a
+          ><a href="https://github.com/ropats16/cado#readme">README</a
+          ><a href="https://github.com/ropats16/cado/releases">Releases</a
+          ><a
+            href="https://github.com/ropats16/cado/blob/main/ACKNOWLEDGEMENTS.md"
+            >Acknowledgements</a
+          >
+        </p>
       </div>
-    </div>
-  </section>
-</main>
+    </footer>
 
-<footer class="foot">
-  <div class="wrap foot-row">
-    <p>Cado is MIT licensed.</p>
-    <p>
-      <a href="https://github.com/ropats16/cado">GitHub</a>
-      <a href="https://github.com/ropats16/cado#readme">README</a>
-      <a href="https://github.com/ropats16/cado/releases">Releases</a>
-      <a href="https://github.com/ropats16/cado/blob/main/ACKNOWLEDGEMENTS.md">Acknowledgements</a>
-    </p>
-  </div>
-</footer>
-
-<!-- Reviews: real quotes only, with permission. Entries: {"text": "...", "name": "...", "link": "https://..."} (link optional). The section stays hidden while this list is empty. See site/README.md. -->
-<script type="application/json" id="quotes-data">[]</script>
-<script>
-(function () {
-  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  // Hero mascot: plays once on load, replays when you press and hold it.
-  var stage = document.getElementById('stage'), timers = [], held = false;
-  function pose(p) { stage.setAttribute('data-pose', p); }
-  function later(fn, ms) { timers.push(setTimeout(fn, ms)); }
-  function clear() { timers.forEach(clearTimeout); timers = []; }
-  function finish(wait) {
-    clear(); pose('thinking');
-    later(function () { pose('done'); later(function () { pose('idle'); }, 1500); }, wait);
-  }
-  function down() { if (held) return; held = true; clear(); pose('listening'); }
-  function up() { if (!held) return; held = false; finish(900); }
-  stage.addEventListener('pointerdown', down);
-  addEventListener('pointerup', up);
-  stage.addEventListener('pointercancel', up);
-  stage.addEventListener('keydown', function (e) { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); down(); } });
-  stage.addEventListener('keyup', function (e) { if (e.key === ' ' || e.key === 'Enter') up(); });
-  stage.addEventListener('blur', up);
-  if (!reduce) { later(function () { pose('listening'); later(function () { finish(800); }, 1800); }, 1200); }
-
-  // Copy button for the brew command.
-  var copy = document.getElementById('copy');
-  if (copy && navigator.clipboard) {
-    copy.hidden = false;
-    copy.addEventListener('click', function () {
-      navigator.clipboard.writeText(document.getElementById('brew').textContent).then(function () {
-        copy.textContent = 'Copied';
-        setTimeout(function () { copy.textContent = 'Copy'; }, 1800);
-      }, function () {});
-    });
-  }
-
-  // Reviews: shown only when the list has entries.
-  var list = [];
-  try { list = JSON.parse(document.getElementById('quotes-data').textContent) || []; } catch (e) {}
-  if (list.length) {
-    var box = document.getElementById('quotes');
-    list.forEach(function (q) {
-      var f = document.createElement('figure'), b = document.createElement('blockquote'), c = document.createElement('figcaption');
-      b.textContent = q.text; c.textContent = q.name || '';
-      if (q.link && /^https:\/\//.test(q.link)) {
-        var a = document.createElement('a'); a.href = q.link; a.textContent = ' (source)'; c.appendChild(a);
-      }
-      f.appendChild(b); f.appendChild(c); box.appendChild(f);
-    });
-    document.getElementById('reviews').hidden = false;
-    document.getElementById('nav-reviews').hidden = false;
-  }
-})();
-</script>
-</body>
+    <!-- Real quotes only, with permission. See site/README.md. -->
+    <script type="application/json" id="quotes-data">
+      []
+    </script>
+    <script src="script.js" defer></script>
+  </body>
 </html>

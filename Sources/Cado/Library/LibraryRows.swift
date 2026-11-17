@@ -77,8 +77,15 @@ struct LibraryRowView: View {
                     .foregroundStyle(Brand.Palette.inkSecondary).lineLimit(1)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 7)
+        .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) {
+            if viewModel.selection == row.id {
+                RoundedRectangle(cornerRadius: 2).fill(Brand.Palette.accent)
+                    .frame(width: 3).padding(.vertical, 8)
+            }
+        }
         .contentShape(Rectangle())
         .contextMenu {
             Button("Rename") { Task { await viewModel.select(row.id); viewModel.beginRename(row.id) } }

@@ -51,23 +51,16 @@ final class MascotMotionTests: XCTestCase {
         XCTAssertEqual(MascotMotion.bodyScale(level: 9), full)
     }
 
-    func testPitRingSitsOnThePitAndFollowsLevel() {
-        let quiet = MascotMotion.pitRing(level: 0), loud = MascotMotion.pitRing(level: 1)
-        XCTAssertEqual(quiet.centre, MascotMotion.pitCentre)
-        XCTAssertGreaterThan(quiet.opacity, 0, "still visible at silence: reads as listening")
-        XCTAssertGreaterThan(loud.radius, quiet.radius)
-        XCTAssertGreaterThan(loud.opacity, quiet.opacity)
-        XCTAssertLessThanOrEqual(loud.opacity, 1)
-        XCTAssertEqual(MascotMotion.pitRing(level: 3), loud)
-    }
-
-    /// At full level the pit ring still clears the face above and the pit
-    /// itself (art r 16.5 + 1.5 outline) inside.
-    func testPitRingClearsFaceAndPitAtFullLevel() {
-        for level: Float in [0, 1] {
-            let ring = MascotMotion.pitRing(level: level)
-            XCTAssertGreaterThanOrEqual(ring.centre.y - ring.radius - ring.lineWidth / 2, MascotMotion.faceBottom, "\(level)")
-            XCTAssertGreaterThanOrEqual(ring.radius - ring.lineWidth / 2, 18 - 0.01, "\(level)")
+    func testListeningHasOnlyTwoOuterRingsWithALighterOuterHalo() {
+        XCTAssertFalse(Brand.Art.svgSources["listening"]!.contains("pit-level"))
+        for level: Float in [0, 0.2, 1] {
+            let rings = MascotMotion.haloRings(level: level)
+            XCTAssertEqual(rings.count, 2)
+            XCTAssertEqual(rings[0].centre, MascotMotion.haloCentre)
+            XCTAssertEqual(rings[1].centre, MascotMotion.haloCentre)
+            XCTAssertGreaterThan(rings[1].radius - rings[0].radius, 7)
+            XCTAssertLessThan(rings[1].opacity, rings[0].opacity)
+            XCTAssertLessThan(rings[1].lineWidth, rings[0].lineWidth)
         }
     }
 

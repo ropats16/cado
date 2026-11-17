@@ -18,10 +18,6 @@ enum MascotMotion {
     /// Where the feet touch the ground: squash, breathing and wobble pivot here
     /// so the mascot stays planted.
     static let feet = CGPoint(x: 60, y: 124)
-    /// Lowest point of any face feature (the listening "o" mouth). The pit ring
-    /// must stay below it.
-    static let faceBottom: CGFloat = 60.4
-
     /// `point` (art units) in a view of `size` that shows the art aspect-fit
     /// and centred, like `Image.resizable().scaledToFit()`.
     static func viewPoint(_ point: CGPoint, in size: CGSize) -> CGPoint {
@@ -80,20 +76,12 @@ enum MascotMotion {
         var opacity: Double
     }
 
-    /// The level ring round the pit (replaces the art's static `#pit-level`).
-    /// Faint but present at silence so the pose still reads as listening. It
-    /// only grows a little: the face sits just above and the skin band below.
-    static func pitRing(level: Float) -> Ring {
-        let l = CGFloat(response(level: level))
-        return Ring(centre: pitCentre, radius: 19.5 + 2 * l, lineWidth: 3 + 1 * l, opacity: 0.45 + 0.55 * Double(l))
-    }
-
     /// The two halo rings round the body (replace the art's static `#pulse`),
     /// swelling and brightening with the voice: the cue that reads at a glance.
     static func haloRings(level: Float) -> [Ring] {
         let l = CGFloat(response(level: level)), d = Double(l)
         return [Ring(centre: haloCentre, radius: 53 + 6 * l, lineWidth: 3.5, opacity: 0.2 + 0.7 * d),
-                Ring(centre: haloCentre, radius: 60 + 6 * l, lineWidth: 3, opacity: 0.08 + 0.52 * d)]
+                Ring(centre: haloCentre, radius: 62 + 5 * l, lineWidth: 2.5, opacity: 0.06 + 0.34 * d)]
     }
 
     // MARK: - Loops
