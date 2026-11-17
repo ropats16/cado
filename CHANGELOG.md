@@ -2,7 +2,17 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
-## 0.4.0 (unreleased)
+## 0.5.0 - 2026-11-17
+
+### Changed
+- A brighter, cleaner Cado: stronger native typography, white surfaces, richer greens, and refined Settings, Library, and setup screens in light and dark mode.
+- Meeting notes open in a summary-first Library with a Summary / Transcript switch, a compact sidebar, and clearer meeting details. Notes without an available summary still open directly to their transcript; ordinary Markdown notes keep their normal reading view.
+- The listening avocado has two soft outer sound rings, without the red ring around its center.
+- The website follows the approved design, with a larger animated mascot, raised green buttons, three step cards, and clearer permission guidance. Its app preview shows the released Library interface.
+
+Meeting summaries introduced in 0.4.0 remain available through on-device Apple Intelligence on supported Macs, or opt-in OpenRouter. Existing notes, settings, and downloaded speech models are preserved.
+
+## 0.4.0 - 2026-11-17
 
 ### Added
 - "Record this meeting?": when a meeting app (Zoom, Teams, Slack, Webex, Discord, FaceTime, or a browser for Meet and other web calls) starts using the microphone, Cado asks, with Record and Not Now. It asks in a notification, in the menu (the menu bar shows "Record?") and with the mascot, so it works with notifications off too. Cado never records by itself. Needs macOS 14.4 or later; turn it off in Settings › Meetings.

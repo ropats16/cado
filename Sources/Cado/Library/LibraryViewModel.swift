@@ -21,6 +21,11 @@ protocol PasteboardWriting {
 
 extension SystemClipboard: PasteboardWriting {}
 
+/// The selected note’s reading mode.
+enum LibraryDetailTab: String, CaseIterable {
+    case summary = "Summary", transcript = "Transcript"
+}
+
 /// What the list column shows.
 enum LibraryListState: Equatable {
     case loading, empty, noResults, notes
@@ -48,9 +53,17 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var detail: Note? {
         didSet {
             reading = detail.map { NoteReading($0, calendar: calendar) }
-            if detail?.id != oldValue?.id { transcriptCopied = false }
+            if detail?.id != oldValue?.id {
+                transcriptCopied = false
+                selectedDetailTab = .summary
+            }
         }
     }
+    @Published var selectedDetailTab: LibraryDetailTab = .summary
+    var showsDetailTabs: Bool { summaryPanel != nil }
+    /// Unsupported summaries and ordinary Markdown always retain their readable body.
+    var detailTab: LibraryDetailTab { showsDetailTabs ? selectedDetailTab : .transcript }
+
     /// The selected note as the detail pane reads it.
     @Published private(set) var reading: NoteReading?
     /// Set by `copyTranscript()` for a brief "Copied" confirmation: cleared
@@ -67,7 +80,16 @@ final class LibraryViewModel: ObservableObject {
     /// Set while the delete confirmation is up.
     @Published private(set) var pendingDelete: NoteSummary?
     /// Meeting summaries (#34; `LibraryViewModel+Summary.swift`), set by the app.
-    var summaries: MeetingSummaries?
+    @Published var summaries: MeetingSummaries? {
+        didSet {
+            // The whole detail pane needs this, including the transcript
+            // fallback where no SummarySlot is mounted yet.
+            summaryChanges = summaries?.objectWillChange.sink { [weak self] in
+                self?.objectWillChange.send()
+            }
+        }
+    }
+    private var summaryChanges: AnyCancellable?
 
     private let library: NotesLibrary
     private let opener: NoteOpening

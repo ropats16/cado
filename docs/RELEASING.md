@@ -59,18 +59,18 @@ Semantic versioning, `MAJOR.MINOR.PATCH`:
 - **MAJOR** (x.0.0): breaking changes (a note or config format older data can't be read from, a raised macOS minimum). 1.0.0 = first release called stable.
 
 The version exists only as the `VERSION` given to `make release` and the
-`v<version>` tag; the build number is the git commit count. The next release is
-**0.4.0**. Although the latest published release is 0.2.0, 0.3.0 was already
-prepared as a milestone; the meeting detection, calendar, language, summary and
-recovery features added since it warrant the next minor version. Preserve the
-0.3.0 notes as that milestone's history. A following release that only enables
-signed-feed enforcement is **0.4.1**. Before each release add a section to
-`CHANGELOG.md` (newest first, user-facing wording); it is the release's notes.
+`v<version>` tag; the build number is the git commit count. The current release
+is **0.5.0**, a minor release for the refreshed app UI and website. 0.4.0
+introduced meeting summaries and published the first signed update feed.
+Signed-feed enforcement remains a separate change (PR #54); do not include it
+until its upgrade and tampered-feed checks are complete. Before each release
+add a section to `CHANGELOG.md` (newest first, user-facing wording); it is the
+release's notes.
 
 ## Release
 
 ```sh
-make release VERSION=0.4.0
+make release VERSION=0.5.0
 ```
 
 Stages: preflight (fails early naming any missing variable, identity or notary
@@ -86,14 +86,14 @@ context:primary-signature`, mounted app + Applications link check) > appcast.
 A successful run ends with:
 
 ```
-✓ Release 0.4.0 (build <commit count>)
-  DMG:    .../dist/Cado-0.4.0.dmg
+✓ Release 0.5.0 (build <commit count>)
+  DMG:    .../dist/Cado-0.5.0.dmg
   sha256: <64 hex chars>
 
-To publish (creates tag v0.4.0 at HEAD; ...):
-  gh release create v0.4.0 '.../dist/Cado-0.4.0.dmg' '.../dist/appcast.xml' --repo ropats16/cado \
-    --target <HEAD sha> --title 'Cado 0.4.0' --generate-notes --draft
-  gh release edit v0.4.0 --repo ropats16/cado --draft=false
+To publish (creates tag v0.5.0 at HEAD; ...):
+  gh release create v0.5.0 '.../dist/Cado-0.5.0.dmg' '.../dist/appcast.xml' --repo ropats16/cado \
+    --target <HEAD sha> --title 'Cado 0.5.0' --generate-notes --draft
+  gh release edit v0.5.0 --repo ropats16/cado --draft=false
 ```
 
 ### Appcast (Sparkle feed)
@@ -138,12 +138,11 @@ keychain): `python3 -m unittest discover -s scripts/tests`.
 `Resources/Info.plist` yet: an app that requires a signed feed rejects an
 unsigned one, so it must only ship after a signed feed is live.
 
-Verified on 2026-11-17 for #49: the public latest feed is still v0.2.0 and
-`verify_update_signature.swift --feed` rejects it with “no embedded signature”.
-Its SHA-256 is `cad46ee8a8af1dc99476af98d26e22e1e44e7475916fea41e48f3c7b89608e0b`.
-The prepared 0.4.0 release is the bootstrap release (N); do not enable either
-flag in it. Publish and verify its signed feed first, then enable **both** flags
-for 0.4.1 (N+1), assuming that release contains fixes/hardening only.
+The 0.4.0 bootstrap release (N) published the first signed feed. The 0.5.0
+UI release continues signing feeds and archives, without enabling either
+requirement flag. PR #54 tracks enforcement separately. Verify the published
+feed and the upgrade/rejection cases below before shipping enforcement in a
+subsequent release; choose its version according to its full scope.
 
 1. Release N: run `make release` with this code, publish. The feed at
    `releases/latest/download/appcast.xml` is now signed (apps in the field ignore
@@ -220,7 +219,7 @@ valid key (`UpdaterAvailability`).
 - **Pinned dependencies:** `Package.resolved` is committed and the release resolves and builds with `--force-resolved-versions`, so a DMG holds exactly the reviewed revisions of FluidAudio, WhisperKit and Sparkle, never a newer upstream release within `Package.swift`'s ranges (#27). To update one: `swift package update <name>`, review the upstream diff, commit `Package.resolved`.
 - **Clean tree:** the DMG is built from the working tree but `gh release create --target` tags HEAD, so a real release refuses uncommitted changes (tracked files, or untracked ones under `Sources`, `Resources`, `scripts`, `Package.swift`/`.resolved`, `Makefile`). A rehearsal lists them as a warning and goes on.
 - **Rehearsal** (no Apple credentials needed, any signing identity or `-`; result is *not* distributable):
-  `SKIP_NOTARIZE=1 CADO_SIGN_IDENTITY="-" make release VERSION=0.4.0`
+  `SKIP_NOTARIZE=1 CADO_SIGN_IDENTITY="-" make release VERSION=0.5.0`
   It runs the appcast stage too (signing with the keychain key) and prints, but
   never runs, the publish command. With `-` the app doesn't launch: under the
   Hardened Runtime, library validation rejects an ad-hoc Sparkle.framework
