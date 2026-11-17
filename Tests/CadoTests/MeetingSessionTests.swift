@@ -1528,6 +1528,8 @@ final class DurableSpoolHandle: MeetingSpoolHandle {
     let inner: InMemorySpoolHandle
     var refuses: (SpoolEvent) -> Bool = { _ in false }
     var canMark = true, canMove = true
+    /// Renames to the marks this picks fail (nothing changes).
+    var renameFails: (Set<SpoolFolderMark>) -> Bool = { _ in false }
     private(set) var journalFailed = false
     private(set) var marks: [SpoolFolderMark] = []
     private(set) var folderMarks: Set<SpoolFolderMark> = []
@@ -1575,6 +1577,7 @@ final class DurableSpoolHandle: MeetingSpoolHandle {
     func setMarks(_ new: Set<SpoolFolderMark>) -> Bool {
         guard hasFolder, canMark else { return false }
         guard new != folderMarks else { return true }   // the same name: nothing renamed
+        if renameFails(new) { return false }
         marks += SpoolFolderMark.order.filter { new.contains($0) && !folderMarks.contains($0) }
         folderMarks = new
         journalFailed = false   // its files reopened at the new name
@@ -2587,6 +2590,87 @@ extension MeetingSessionTests {
         XCTAssertEqual(next.status, .recovering(app: "Zoom", done: 1, total: 3))
         XCTAssertEqual(h.folderMarks, [.tried])
         XCTAssertEqual(h.events, before, "No result ahead of its attempt's start")
+    }
+
+    /// The renames dropping `.tried` fail while `blocked()`; how many did.
+    private func dropsOfTriedFail(_ h: DurableSpoolHandle, while blocked: @escaping () -> Bool) -> () -> Int {
+        var failed = 0
+        h.renameFails = { new in
+            guard !new.contains(.tried), blocked() else { return false }
+            failed += 1
+            return true
+        }
+        return { failed }
+    }
+
+    /// The start that was only in the name is journaled, but the rename
+    /// that drops `.tried` fails: tried again on the next write, so a crash
+    /// later doesn't replay the mark as an empty second attempt.
+    func testATriedMarkARenameCouldntDropGoesOnTheNextWrite() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides)
+        h.reopen(refusing: { $0 == .recoveryStarted && !h.folderMarks.contains(.tried) })
+        spool.left = [try XCTUnwrap(h.leftover)]
+        var once = true
+        let failed = dropsOfTriedFail(h, while: { defer { once = false }; return once })
+        makeSession().recoverLeftovers()
+        XCTAssertEqual(failed(), 1, "Its start was journaled; that rename failed")
+        engine.finishNext()                       // a later write at least
+        XCTAssertEqual(h.events.filter { $0 == .recoveryStarted }.count, 1)
+        XCTAssertEqual(h.folderMarks, [], "Tried again, and dropped")
+        let plan = RecoveryPlan(events: h.events + SpoolFolderMark.events(for: h.folderMarks), sampleCounts: h.audio().counts)
+        XCTAssertEqual(plan.stalledAttempts, 0, "One attempt, and it got further")
+    }
+
+    /// The same up to a clean quit: the mark goes at the pause.
+    func testATriedMarkARenameCouldntDropGoesAtThePause() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides)
+        h.reopen(refusing: { $0 == .recoveryStarted && !h.folderMarks.contains(.tried) })
+        spool.left = [try XCTUnwrap(h.leftover)]
+        var blocked = true
+        let failed = dropsOfTriedFail(h, while: { blocked })
+        let next = makeSession()
+        next.recoverLeftovers()
+        XCTAssertGreaterThan(failed(), 0)
+        XCTAssertEqual(h.folderMarks, [.tried])
+        blocked = false
+        next.quit {}
+        XCTAssertEqual(h.events.last, .recoveryPaused)
+        XCTAssertEqual(h.folderMarks, [], "Dropped at the pause")
+        let plan = RecoveryPlan(events: h.events + SpoolFolderMark.events(for: h.folderMarks), sampleCounts: h.audio().counts)
+        XCTAssertEqual(plan.stalledAttempts, 0)
+    }
+
+    /// Held while its start is only in the name; the journal and a rename
+    /// both fail at the hold, so `.tried` stays. Resumed with room, the new
+    /// attempt's start is journaled once and the old mark goes: no empty
+    /// attempt ahead of it, none replayed after it.
+    func testAResumedAttemptJournaledAtOnceDropsAnOldTriedMark() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides)
+        h.reopen(refusing: { _ in true })         // the disk is full
+        spool.left = [try XCTUnwrap(h.leftover)]
+        session = makeSession()
+        session.recoverLeftovers()
+        XCTAssertEqual(h.folderMarks, [.tried])
+        XCTAssertFalse(h.events.contains(.recoveryStarted))
+        var blocked = true
+        let failed = dropsOfTriedFail(h, while: { blocked })
+        startBoth()                               // held; its passage is in the engine
+        engine.finishNext()                       // nothing journaled; the mark can't go
+        XCTAssertGreaterThan(failed(), 0)
+        XCTAssertEqual(h.folderMarks, [.tried])
+        h.reopen()                                // room again
+        blocked = false
+        var atSave: (events: [SpoolEvent], marks: Set<SpoolFolderMark>)?
+        notes.onSave = { atSave = atSave ?? (h.events, h.folderMarks) }
+        session.stop()
+        recorder.me.finish(audio(10, []))
+        recorder.them.finish(audio(10, []))       // nothing said: the recovery goes on
+        engine.finishAll()
+        let at = try XCTUnwrap(atSave)
+        XCTAssertEqual(at.marks, [])
+        XCTAssertEqual(at.events.filter { $0 == .recoveryStarted }.count, 1, "Its start, once")
+        XCTAssertEqual(RecoveryPlan(events: at.events, sampleCounts: h.audio().counts).stalledAttempts, 0)
+        XCTAssertTrue(h.inner.isDiscarded)
     }
 
     /// The meeting's "is safe" notice was said already: waiting says nothing more.

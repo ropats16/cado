@@ -468,6 +468,8 @@ final class MeetingSession {
 
     /// A clean quit (or hold) during a recovery doesn't count against it
     /// (`.recoveryPaused`); with the journal full, the attempt's mark goes.
+    /// Journaled, a `.tried` a failed rename left goes too (the start is in
+    /// the journal: the mark would be read as a second, empty attempt).
     /// `forLiveMeeting` (a hold): the pause's flush to the disk runs in the
     /// background (`recordFlushingLater`), so the meeting being recorded is
     /// never held up by it.
@@ -481,8 +483,8 @@ final class MeetingSession {
     /// back, no settled point moved), and it takes two for a give-up, which
     /// still writes the note and keeps the audio.
     private func journalPause(_ spool: MeetingSpoolHandle, forLiveMeeting: Bool = false) {
-        let journaled = forLiveMeeting ? spool.recordFlushingLater(.recoveryPaused) : spool.record(.recoveryPaused)
-        if !journaled { endAttemptMark(spool) }
+        _ = forLiveMeeting ? spool.recordFlushingLater(.recoveryPaused) : spool.record(.recoveryPaused)
+        endAttemptMark(spool)   // either way
     }
 
     /// Recovers the meetings earlier runs left unfinished (crashed, killed,
