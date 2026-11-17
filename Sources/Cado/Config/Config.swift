@@ -64,6 +64,13 @@ struct Config: Codable {
     /// Keep a meeting's audio after its note is saved (#31). Off (the default):
     /// the audio is deleted once the note is saved.
     var keepMeetingAudio: Bool
+    /// Add a summary to each meeting note after it's saved (#34). On by
+    /// default; does nothing where `summaryProvider` can't run (before
+    /// macOS 26, Apple Intelligence off).
+    var meetingSummaries: Bool
+    /// Who writes summaries: a `SummaryProvider` raw value. Kept as written;
+    /// read it through `summaryProviderChoice`.
+    var summaryProvider: String
 
     static var defaults: Config {
         Config(
@@ -89,7 +96,9 @@ struct Config: Codable {
             notesFolder: "",
             notesFolderBookmark: nil,
             dictationHistory: false,
-            keepMeetingAudio: false
+            keepMeetingAudio: false,
+            meetingSummaries: true,
+            summaryProvider: SummaryProvider.onDevice.rawValue
         )
     }
 
@@ -102,7 +111,8 @@ struct Config: Codable {
          mascotPositions: [String: MascotPosition] = [:], onboardingDone: Bool = false,
          usagePing: Bool = false,
          notesFolder: String = "", notesFolderBookmark: String? = nil,
-         dictationHistory: Bool = false, keepMeetingAudio: Bool = false) {
+         dictationHistory: Bool = false, keepMeetingAudio: Bool = false,
+         meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -128,6 +138,8 @@ struct Config: Codable {
         self.notesFolderBookmark = notesFolderBookmark
         self.dictationHistory = dictationHistory
         self.keepMeetingAudio = keepMeetingAudio
+        self.meetingSummaries = meetingSummaries
+        self.summaryProvider = summaryProvider
     }
 
     init(from decoder: Decoder) throws {
@@ -163,11 +175,17 @@ struct Config: Codable {
         notesFolderBookmark = try c.decodeIfPresent(String.self, forKey: .notesFolderBookmark)
         dictationHistory = try c.decodeIfPresent(Bool.self, forKey: .dictationHistory) ?? d.dictationHistory
         keepMeetingAudio = try c.decodeIfPresent(Bool.self, forKey: .keepMeetingAudio) ?? d.keepMeetingAudio
+        meetingSummaries = try c.decodeIfPresent(Bool.self, forKey: .meetingSummaries) ?? d.meetingSummaries
+        summaryProvider = try c.decodeIfPresent(String.self, forKey: .summaryProvider) ?? d.summaryProvider
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this
     /// build doesn't know (it runs whisper; see `ConfigValidator`).
     var engineChoice: EngineChoice? { EngineChoice(id: engine) }
+
+    /// `summaryProvider` parsed; one this build doesn't know (a newer
+    /// version's) means on-device, the one that sends nothing anywhere.
+    var summaryProviderChoice: SummaryProvider { SummaryProvider(rawValue: summaryProvider) ?? .onDevice }
 
     /// `engine`'s model pick: `model` for whisper, else its `engineModels`
     /// entry (Automatic if unset).

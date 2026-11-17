@@ -36,6 +36,9 @@ enum MarkdownBlock: Equatable {
             }
             if trimmed.hasPrefix("```") { flush(); code = []; continue }
             if trimmed.isEmpty { flush(); continue }
+            // A line that is only an HTML comment shows nowhere in Markdown
+            // apps (the Summary section's markers, #34): not here either.
+            if trimmed.hasPrefix("<!--"), trimmed.hasSuffix("-->") { flush(); continue }
 
             if trimmed.hasPrefix(">") {
                 if !paragraph.isEmpty { flush() }

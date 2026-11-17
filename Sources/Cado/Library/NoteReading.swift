@@ -53,8 +53,12 @@ struct NoteReading: Equatable {
     /// A meeting's caveats ("Recording stopped at the 2-hour limit."), one
     /// per line of the quote that opens its body (under the intro line).
     let notices: [String]
-    /// The body in order.
+    /// The body in order (the transcript, for a meeting).
     let items: [Item]
+    /// A meeting's Summary section (#34, `SummarySection`) as Markdown
+    /// blocks, without its "Summary" and "Transcript" headings (the reading
+    /// view shows its own); nil when the note has none.
+    let summary: [MarkdownBlock]?
     /// The body as written, for a fallback.
     let markdown: String
 
@@ -76,7 +80,14 @@ struct NoteReading: Equatable {
     init(_ note: Note, calendar: Calendar) {
         let summary = note.summary
         let isMeeting = NoteKind.isMeeting(summary.kind)
-        var blocks = MarkdownBlock.parse(note.body)
+        let section: (summary: String?, rest: String) = isMeeting ? SummarySection.split(note.body) : (nil, note.body)
+        var blocks = MarkdownBlock.parse(section.rest)
+        self.summary = section.summary.map { markdown in
+            MarkdownBlock.parse(markdown).filter {
+                $0 != .heading(level: 2, text: SummarySection.heading)
+                    && $0 != .heading(level: 2, text: SummarySection.transcriptHeading)
+            }
+        }
 
         var app: String?
         if isMeeting, case .paragraph(let first)? = blocks.first,
