@@ -73,11 +73,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Meeting summaries (#34): each saved meeting note is handed on once
     /// saved (`SummarizingNoteStore`); Settings and the Library read it too.
     /// The one summary-provider catalog, shared by `summaries` and Settings.
-    private lazy var summaryCatalog = ConfiguredSummarizerCatalog(config: { [configStore] in configStore.config })
+    private let openRouterSetup = OpenRouterSetup()
+    private lazy var summaryCatalog = ConfiguredSummarizerCatalog(config: { [configStore] in configStore.config },
+                                                                  openRouter: openRouterSetup)
     @MainActor private lazy var summaries = MeetingSummaries(
         catalog: summaryCatalog,
         provider: { [configStore] in configStore.config.summaryProviderChoice },
-        automatic: { [configStore] in configStore.config.meetingSummaries })
+        automatic: { [configStore] in configStore.config.meetingSummaries },
+        model: { [configStore] in OpenRouterModels.effective(configStore.config.openRouterModel) })
     /// Meeting recording from the menu (#30): mic + one app's audio → a note.
     private lazy var meetings = MeetingController(
         engine: engine, activity: activity,
@@ -86,7 +89,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.summaries.noteSaved(url) }
         },
         systemAudio: { [permissions] in permissions.systemAudio },
-        keepAudio: { [configStore] in configStore.config.keepMeetingAudio })
+        keepAudio: { [configStore] in configStore.config.keepMeetingAudio },
+        meetingLanguage: { [configStore] in configStore.config.resolvedMeetingLanguage },
+        meetingModel: { [weak self] language in self?.meetingModel(for: language) ?? .dictation },
+        options: EngineOptions(threads: configStore.config.threads),
+        maxSeconds: { [configStore] in MeetingLimit.seconds(minutes: configStore.config.maxMeetingMinutes) },
+        consent: MeetingConsent(wasShown: { [configStore] in configStore.config.meetingConsentShown },
+                                markShown: { [configStore] in configStore.update { $0.meetingConsentShown = true } },
+                                ask: MeetingConsentAlert.ask),
+        calendarNaming: calendarNaming)
+    private lazy var calendarNaming = MeetingCalendarNaming(
+        isEnabled: { [configStore] in configStore.config.nameMeetingsFromCalendar }, calendar: calendar)
+    /// The one calendar (#38): read only when the user opted in; asked only from Settings or onboarding.
+    private let calendar: CalendarPort = EventKitCalendar()
+    /// Meeting detection, the meeting hotkey and the mascot's meeting clicks (#32).
+    private lazy var meetingAssistant = MeetingAssistant(
+        meetings: meetings, feed: CoreAudioMicUsers(), notices: NotificationMeetingPrompts(),
+        enabled: { [configStore] in configStore.config.meetingDetection && CoreAudioMicUsers.isSupported },
+        dictating: { [activity] in activity.activity == .dictating || activity.activity == .transcribing })
     private let termination = TerminationGate()
     /// Set once the first `.ready` asked the meetings to recover leftovers.
     private var askedMeetingRecovery = false
@@ -127,7 +147,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Before launch finishes, so a click that launched the app is delivered.
     func applicationWillFinishLaunching(_ notification: Notification) {
         notificationClicks.onRoute = { [weak self] route in self?.open(route) }
+        notificationClicks.onMeetingAnswer = { [weak self] in self?.meetingAssistant.answer($0.prompt, yes: $0.yes) }
         Notifier.handleClicks(with: notificationClicks)
+        NotificationMeetingPrompts.registerCategories()
+        NotificationMeetingPrompts.removeAll()   // left by an earlier launch: their calls are gone
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -146,10 +169,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startEngine()
         overlay = makeOverlay()
         dictation = makeDictationSession()
+        startMeetingAssistant()
         // Start before deciding on onboarding: the first poll reads the real
         // permissions (until then the monitor assumes none).
         monitor.start()
         startOnboardingOrPrompt()
+        calendarNaming.warmUp()   // off main; only if on and already allowed
         // Off the main thread, last: a slow or failing request can't touch launch.
         let ping = launchPing, optedIn = configStore.config.usagePing
         Task.detached(priority: .utility) { await ping.sendLaunch(enabled: optedIn) }
@@ -158,9 +183,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Returning from System Settings: show a permission change at once.
     func applicationDidBecomeActive(_ notification: Notification) {
         MainActor.assumeIsolated {
+            settingsViewModel?.refreshCalendarAccess()   // allowed or taken away in System Settings
             guard isOnboardingVisible else { return }
             monitor.recheck()
             onboardingModel?.recheckNotifications()   // switched on in System Settings
+            onboardingModel?.recheckCalendar()
         }
     }
 
@@ -178,6 +205,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         monitor.stop()
         hotkeys?.stop()
+        meetingAssistant.withdrawAll()
+        NotificationMeetingPrompts.removeAll()
     }
 
     // MARK: - Status menu
@@ -203,6 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.meeting.onOpenSystemAudioSettings = { [weak self] in self?.permissions.openSystemAudioSettings() }
         meetings.render = { [weak self] in self?.menu.renderMeeting($0) }
         meetings.onStatusChange = { [weak self] in self?.meetingStatusChanged($0) }
+        meetings.onAnswer = { [weak self] in self?.meetingAssistant.answer($0, yes: $1) }
         // Re-read permissions on open: a mic change while Accessibility is
         // denied leaves the status alone but changes a row.
         menu.onWillOpen = { [weak self] in
@@ -235,6 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                       historyEnabled: config.dictationHistory,
                                       update: MainActor.assumeIsolated { updater.flatMap(UpdateMenuRow.init) },
                                       lastMeetingNote: lastMeetingNote))
+        meetingAssistant.refresh()   // detection switched in Settings
         // Hotkeys rebound, models downloaded or the language changed.
         MainActor.assumeIsolated {
             if isOnboardingVisible { onboardingModel?.refresh() }
@@ -342,6 +373,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 notifications: Notifier.permission,
                 setUsagePing: { [weak self] on in
                     MainActor.assumeIsolated { self?.sharedSettingsViewModel().setUsagePing(on) }
+                },
+                calendar: calendar,
+                setCalendarNaming: { [weak self] on in
+                    MainActor.assumeIsolated { self?.sharedSettingsViewModel().setNameMeetingsFromCalendar(on) }
                 })
             let controller = OnboardingWindowController(viewModel: model)
             controller.onClose = { [weak self] in self?.onboardingClosed() }
@@ -455,6 +490,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             && EngineRegistry.shared.available(in: .current, language: config.language).contains(.appleSpeech)
     }
 
+    /// The model for a meeting decoded in `language` (#47): the dictation
+    /// model when it fits, else the meeting's own (`MeetingModel.choose`).
+    private func meetingModel(for language: String?) -> MeetingModel.Choice {
+        MeetingModel.choose(language: language, dictation: engine.model, config: configStore.config,
+                            presentFilenames: ModelSelection.presentFilenames(), facts: engineFacts)
+    }
+
     private func idleUnloadAfter() -> TimeInterval? {
         ModelSelection.idleUnloadAfter(keepWarm: configStore.config.keepModelWarm,
                                        idleMinutes: configStore.config.modelIdleMinutes,
@@ -538,7 +580,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func makeOverlay() -> MascotOverlay {
         let placement = MascotPlacement(store: ConfigMascotPositionStore(configStore), displays: OverlayDisplay.current)
         let panel = MascotOverlayPanel(placement: placement)
-        // Right-click menu (#45): Hide turns "Always show the mascot" off.
+        // Right-click menu (#45): Record Meeting / Stop Recording (#32, via
+        // MascotOverlay), Hide (turns "Always show the mascot" off), Settings….
         panel.onHide = { [weak self] in
             MainActor.assumeIsolated { self?.sharedSettingsViewModel().setMascotAlwaysVisible(false) }
         }
@@ -548,7 +591,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              onToggleDictation: { [weak self] in
                                  self?.appleSpeechWatch.check()
                                  self?.dictation?.handle(.toggle)
-                             })
+                             },
+                             onRecordMeeting: { [weak self] in self?.meetingAssistant.recordAsked() },
+                             onToggleMeeting: { [weak self] in self?.meetingAssistant.toggle() },
+                             canStartMeeting: { [weak self] in self?.meetingAssistant.canToggle ?? false })
+    }
+
+    /// Detection (#32): polls while on, asks in a notification, the menu and
+    /// the mascot; re-decides as soon as a dictation or meeting changes.
+    private func startMeetingAssistant() {
+        meetingAssistant.onAskingChanged = { [weak self] in self?.overlay?.setAsking($0) }
+        meetingAssistant.onChoose = { [weak self] in self?.menu.open() }
+        meetingAssistant.onExplain = { Notifier.notify(title: $0, body: $1) }
+        activity.observe { [weak self] signal in
+            if case .activity = signal { self?.meetingAssistant.refresh() }
+        }
+        meetingAssistant.start()
     }
 
     /// (Re)installs the hotkey tap from the current config and reports the
@@ -558,11 +616,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys?.stop()
         hotkeys = nil
         let config = configStore.config
-        let manager = HotkeyManager(hold: config.hold, toggle: config.toggle, cancelKeyCode: config.cancelKeyCode)
+        let manager = HotkeyManager(hold: config.hold, toggle: config.toggle, cancelKeyCode: config.cancelKeyCode,
+                                    meeting: config.meetingHotkey)
         manager.onHoldStart = { [weak self] in self?.appleSpeechWatch.check(); self?.dictation?.handle(.holdDown) }
         manager.onHoldStop = { [weak self] in self?.dictation?.handle(.holdUp) }
         manager.onTogglePress = { [weak self] in self?.appleSpeechWatch.check(); self?.dictation?.handle(.toggle) }
         manager.onCancel = { [weak self] in self?.dictation?.handle(.cancel) }
+        manager.onMeetingPress = { [weak self] in self?.meetingAssistant.toggle() }
         let started = manager.start()
         if started { hotkeys = manager }
         monitor.hotkeyTapChanged(started ? .installed : .failed)
@@ -625,8 +685,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 refreshMenu()
             },
             updater: updater ?? DisabledUpdater(),
-            summaryCatalog: summaryCatalog
+            summaryCatalog: summaryCatalog,
+            openRouter: openRouterSetup,
+            calendar: calendar
         )
+        // The Meeting Language card says when the meeting model didn't load (#47).
+        vm.meetingModelFailure = { [weak self] in self?.meetings.router?.failure(for: $0) }
+        meetings.router?.onChange = { [weak vm] in MainActor.assumeIsolated { vm?.meetingModelChanged() } }
         settingsViewModel = vm
         return vm
     }
@@ -665,6 +730,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func meetingStatusChanged(_ status: MeetingStatus) {
         MainActor.assumeIsolated { libraryViewModel?.meetingStatusChanged(status) }
         if status == .idle { refreshLastMeetingNote() }
+        meetingAssistant.refresh()
     }
 
     /// Re-reads the newest meeting note off main; re-renders the menu if it

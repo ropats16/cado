@@ -61,6 +61,8 @@ struct RecoveryPlan: Equatable {
     /// Passages already done (transcribed or failed).
     var done = 0
     var capReached = false
+    /// A passage ran on a model that can't write the meeting's language (#47).
+    var ranOnFallbackModel = false
     /// The stop's time, else the longest side's audio on disk.
     var duration: TimeInterval = 0
     var stalledAttempts = 0
@@ -72,6 +74,9 @@ struct RecoveryPlan: Equatable {
     /// can't tell otherwise from events and sample counts alone.
     var transcriptionComplete = false
     var concluded: Concluded?
+    /// The calendar event the meeting was named after (#38), if one was
+    /// journaled (`.calendarEvent`; the last wins).
+    var event: MatchedEvent?
 
     /// Recovery already gave up on this meeting (`.recoveryGaveUp`). The
     /// decision sticks: a later launch finishes the give-up (saves the note
@@ -127,7 +132,9 @@ struct RecoveryPlan: Equatable {
                 }
             case let .transcribed(speaker, range, offset, segments):
                 guard result(speaker, range) else { continue }
-                pieces += segments.map { .init(speaker: speaker, start: offset + $0.start, text: $0.text) }
+                pieces += segments.map {
+                    .init(speaker: speaker, start: offset + $0.start, text: $0.text, end: $0.end.map { offset + $0 })
+                }
             case let .failed(speaker, range, reason):
                 guard result(speaker, range) else { continue }
                 failures.append(reason)
@@ -163,6 +170,10 @@ struct RecoveryPlan: Equatable {
             case .recoveryGaveUp:
                 gaveUp = true
             case .toldUser: break   // `MeetingSession` reads it itself
+            case .ranOnFallbackModel:
+                ranOnFallbackModel = true
+            case let .calendarEvent(found):
+                self.event = found
             }
         }
         closeAttempt()
@@ -210,21 +221,19 @@ extension RecoveryPlan {
 
     /// Whether `text`, a note found by the meeting's id, is the whole note,
     /// not what a save that died or threw left of it: front matter, the
-    /// intro line, every journaled passage in order, a final newline. A
-    /// note with more than the journal (a journal that stopped taking
-    /// events) passes; one cut short doesn't.
+    /// intro line, every journaled passage the note shows, in its order
+    /// (`MeetingTranscript.shown`: the speaker-bleed filter's, so a Me
+    /// passage it left out isn't missed), a final newline. A Summary section
+    /// (added after the save) doesn't count towards it. A note with more
+    /// than the journal (a journal that stopped taking events) passes; one
+    /// cut short doesn't.
     func isWholeNote(_ text: String) -> Bool {
         let parsed = NoteFrontMatter.parse(text)
         guard parsed.hasBlock, parsed.body.hasSuffix("\n"), MeetingNote.recordedApp(inBody: parsed.body) != nil
         else { return false }
-        let flat = Self.collapsed(parsed.body)
+        let flat = Self.collapsed(SummarySection.split(parsed.body).rest)
         var from = flat.startIndex
-        let ordered = pieces.enumerated().sorted { a, b in   // `MeetingTranscript.turns`' order
-            if a.element.start != b.element.start { return a.element.start < b.element.start }
-            if a.element.speaker != b.element.speaker { return a.element.speaker == .me }
-            return a.offset < b.offset
-        }
-        for (_, piece) in ordered {
+        for piece in MeetingTranscript.shown(pieces) {
             let words = Self.collapsed(piece.text)
             guard !words.isEmpty else { continue }
             guard let found = flat.range(of: words, range: from..<flat.endIndex) else { return false }

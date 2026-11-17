@@ -28,22 +28,6 @@ final class LiveMeetingRecorder: MeetingRecorder {
     }
 }
 
-/// The shared transcription engine; hands the transcript back on main.
-final class EngineMeetingAdapter: MeetingEngine {
-    private let engine: TranscriptionEngine
-
-    init(_ engine: TranscriptionEngine) { self.engine = engine }
-
-    func prewarm() { engine.prewarm() }
-    func endPrewarm() { engine.endPrewarm() }
-
-    func transcribe(_ samples: [Float], completion: @escaping (Result<Transcript, Error>) -> Void) {
-        engine.transcribe(samples) { result in
-            DispatchQueue.main.async { completion(result) }
-        }
-    }
-}
-
 extension NotesLibrary: MeetingNoteStore {
     func save(_ draft: NoteDraft) throws -> URL { try create(draft).summary.url }
     func existingNotes(id: String, since: Date) -> [URL] { notes(withID: id, changedSince: since) }

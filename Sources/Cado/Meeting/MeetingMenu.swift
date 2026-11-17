@@ -63,6 +63,8 @@ struct MeetingMenuContent: Equatable {
     enum Action: Equatable {
         case start(MeetingApp)
         case stop
+        /// An answer to "Record this meeting?" / "Stop recording?" (#32).
+        case answer(MeetingDetector.Prompt, yes: Bool)
     }
 
     /// A submenu row: clickable when it has an action, else a label.
@@ -84,6 +86,14 @@ struct MeetingMenuContent: Equatable {
     var isRecording: Bool
     /// Elapsed time while recording, for the menu bar ("12:34").
     var elapsed: String?
+    /// The menu bar's text by the avocado: the elapsed time, and "Record?"
+    /// or "Stop?" while one is asked (#32).
+    var barTitle: String?
+    /// The other answer to what's asked: "Not Now" or "Keep Recording" (#32).
+    var promptRow: Row?
+    /// A second detail line while Cado asks (#32), since `detail` holds the
+    /// question: the system-audio issue, or a side that stopped recording.
+    var note: String?
 
     var isEnabled: Bool { action != nil || choices != nil }
 
@@ -93,14 +103,43 @@ struct MeetingMenuContent: Equatable {
 
     /// `systemAudio`: the readiness module's issue for the meeting menu
     /// (`SystemAudioReadiness.issue(for:lastMeetingThemSilent:)`), shown
-    /// while idle.
-    init(status: MeetingStatus, choice: MeetingAppChoice, now: TimeInterval, systemAudio: SystemAudioIssue? = nil) {
+    /// while idle. `prompt`: what `MeetingDetector` asks (#32).
+    init(status: MeetingStatus, choice: MeetingAppChoice, now: TimeInterval, systemAudio: SystemAudioIssue? = nil,
+         prompt: MeetingDetector.Prompt? = nil) {
         isRecording = false
         elapsed = nil
         action = nil
         choices = nil
         detail = nil
         systemAudioSettings = nil
+        barTitle = nil
+        promptRow = nil
+        note = nil
+        defer { barTitle = Self.barTitle(elapsed: elapsed, prompt: promptRow == nil ? nil : prompt) }
+        switch (status, prompt) {
+        case (.idle, .record(let app, _)?):
+            title = "Record Meeting (\(app.name))"
+            action = .start(app)
+            detail = MeetingPromptCopy.recordBody(app.name)
+            promptRow = Row(title: MeetingPromptCopy.notNow, action: .answer(prompt!, yes: false))
+            if choice != .unsupported, let systemAudio, systemAudio != .unsupportedOS {
+                note = systemAudio.menuLine
+                if systemAudio == .heardOnlySilence { systemAudioSettings = Self.systemAudioSettingsTitle }
+            }
+            return
+        case (.recording(let recorded, let startedAt, let lost), .stop(let app, _)?):
+            let time = MeetingNote.clock(now - startedAt)
+            title = "Stop Recording — \(time)"
+            action = .stop
+            isRecording = true
+            elapsed = time
+            detail = MeetingPromptCopy.stopBody(app.name)
+            promptRow = Row(title: MeetingPromptCopy.keepRecording, action: .answer(prompt!, yes: false))
+            note = Self.stoppedLine(app: recorded, lost: lost)
+            return
+        default:
+            break
+        }
         switch status {
         case .recording(let app, let startedAt, let lost):
             let time = MeetingNote.clock(now - startedAt)
@@ -108,12 +147,7 @@ struct MeetingMenuContent: Equatable {
             action = .stop
             isRecording = true
             elapsed = time
-            switch (lost.contains(.me), lost.contains(.them)) {
-            case (false, false): detail = "Recording \(app) and your microphone"
-            case (false, true): detail = "\(app)'s audio stopped — recording your microphone only"
-            case (true, false): detail = "Microphone stopped — recording \(app) only"
-            case (true, true): detail = "Recording stopped"
-            }
+            detail = Self.stoppedLine(app: app, lost: lost) ?? "Recording \(app) and your microphone"
         case .transcribing(let app, let done, let total):
             title = total > 0 ? "Transcribing Meeting… \(done) of \(total)" : "Finishing Meeting…"
             detail = "Meeting with \(app)"
@@ -148,6 +182,16 @@ struct MeetingMenuContent: Equatable {
                 + others.map { Row(title: $0.name, action: .start(MeetingApp($0))) }
         case .nothing:
             detail = "No meeting app is running"
+        }
+    }
+
+    /// What stopped recording; nil when both sides record.
+    private static func stoppedLine(app: String, lost: Set<MeetingSpeaker>) -> String? {
+        switch (lost.contains(.me), lost.contains(.them)) {
+        case (false, false): return nil
+        case (false, true): return "\(app)'s audio stopped — recording your microphone only"
+        case (true, false): return "Microphone stopped — recording \(app) only"
+        case (true, true): return "Recording stopped"
         }
     }
 }

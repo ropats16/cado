@@ -82,6 +82,9 @@ extension SettingsView {
                 .pickerWidth()
                 .disabled(!viewModel.isLanguageSelectable)
             }
+            if let warning = viewModel.dictationLanguageWarning {   // #47
+                StatusLine(text: warning, tone: .problem).padding(.bottom, 8)
+            }
 
             // Apple Speech: the OS-managed model for the language.
             if let state = viewModel.speechAssetLabel {

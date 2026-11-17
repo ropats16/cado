@@ -23,15 +23,22 @@ struct NoteDraft: Equatable {
     /// A meeting's stable id (its spool's UUID), written as `id` in the front
     /// matter (#48) so a later launch can tell the note is there already.
     var id: String?
+    /// The calendar event a meeting was named after (#38): its title and the
+    /// other people's names (never emails). Written as `event` and
+    /// `attendees` front-matter keys; nil/empty writes nothing.
+    var event: String?
+    var attendees: [String]
 
     init(title: String, date: Date, kind: String = NoteKind.note, duration: TimeInterval? = nil, body: String,
-         id: String? = nil) {
+         id: String? = nil, event: String? = nil, attendees: [String] = []) {
         self.title = title
         self.date = date
         self.kind = kind
         self.duration = duration
         self.body = body
         self.id = id
+        self.event = event
+        self.attendees = attendees
     }
 }
 
@@ -192,7 +199,8 @@ final class NotesLibrary {
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         removeStaleTemporaries(in: dir)
         let text = NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind,
-                                          duration: draft.duration, body: draft.body, id: draft.id)
+                                          duration: draft.duration, body: draft.body, id: draft.id,
+                                          event: draft.event, attendees: draft.attendees)
         let data = Data(text.utf8)
         let temp = dir.appendingPathComponent(Self.temporaryPrefix + UUID().uuidString + Self.temporarySuffix)
         do {
@@ -218,7 +226,8 @@ final class NotesLibrary {
             // The file is in place now: nothing below may throw, or the
             // caller would save the meeting a second time.
             do { try sync(dir) } catch {
-                Log.error("Couldn't flush \(dir.lastPathComponent) to disk: \(error.localizedDescription)")
+                Log.error("Couldn't flush the new note's folder to disk "
+                          + "(\((error as NSError).domain) \((error as NSError).code))")   // no name: it can be the event title (#38)
             }
             return Self.parse(url: url, data: data, modified: draft.date)
         }
@@ -244,7 +253,8 @@ final class NotesLibrary {
                   let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true,
                   let modified = values.contentModificationDate, modified < cutoff else { continue }
             do { try fileManager.removeItem(at: url) } catch {
-                Log.info("Couldn't remove a leftover temporary note file: \(error.localizedDescription)")
+                Log.info("Couldn't remove a leftover temporary note file "
+                         + "(\((error as NSError).domain) \((error as NSError).code))")   // no path (#38)
             }
         }
     }

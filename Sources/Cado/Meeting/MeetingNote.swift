@@ -23,12 +23,14 @@ enum MeetingSpeaker: String, Equatable, CaseIterable {
 
 /// The meeting's transcript as turns. Pure.
 enum MeetingTranscript {
-    /// Some transcribed text and when it started, in seconds from the
-    /// meeting's start.
+    /// Some transcribed text and when it started (and ended, when known),
+    /// in seconds from the meeting's start.
     struct Piece: Equatable {
         let speaker: MeetingSpeaker
         let start: TimeInterval
         let text: String
+        /// Nil for a piece from an older spool journal, which didn't keep it.
+        var end: TimeInterval? = nil
     }
 
     struct Turn: Equatable {
@@ -38,15 +40,11 @@ enum MeetingTranscript {
 
     /// Both sides interleaved by start time (Me first on a tie), consecutive
     /// pieces of one speaker merged into one turn; empty pieces dropped,
-    /// whitespace collapsed.
+    /// whitespace collapsed. Me pieces that only repeat Others (the mic
+    /// hearing the speakers) are left out first (`SpeakerBleedFilter`).
     static func turns(_ pieces: [Piece]) -> [Turn] {
-        let ordered = pieces.enumerated().sorted { a, b in
-            if a.element.start != b.element.start { return a.element.start < b.element.start }
-            if a.element.speaker != b.element.speaker { return a.element.speaker == .me }
-            return a.offset < b.offset
-        }
         var turns: [Turn] = []
-        for (_, piece) in ordered {
+        for piece in shown(pieces) {
             let text = piece.text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
             guard !text.isEmpty else { continue }
             if let last = turns.last, last.speaker == piece.speaker {
@@ -56,6 +54,18 @@ enum MeetingTranscript {
             }
         }
         return turns
+    }
+
+    /// The pieces a note shows, in its order (`turns` merges them): Me
+    /// pieces that only repeat Others left out (`SpeakerBleedFilter`), then
+    /// by start time, Me first on a tie, else as given. Also what a found
+    /// note is checked against (`RecoveryPlan.isWholeNote`, #48).
+    static func shown(_ pieces: [Piece]) -> [Piece] {
+        SpeakerBleedFilter.filtered(pieces).enumerated().sorted { a, b in
+            if a.element.start != b.element.start { return a.element.start < b.element.start }
+            if a.element.speaker != b.element.speaker { return a.element.speaker == .me }
+            return a.offset < b.offset
+        }.map(\.element)
     }
 }
 
@@ -84,6 +94,10 @@ struct MeetingNote: Equatable {
         /// when all of it is on disk: copied there, or still in the spool for
         /// the next launch to copy (the words cover both).
         case audioKept(URL)
+        /// Some passages ran on the dictation model, which can't write the
+        /// meeting's `language` ("auto" or a code), because the meeting's
+        /// own model couldn't be used (#47).
+        case ranOnFallbackModel(language: String)
     }
 
     var appName: String
@@ -91,6 +105,8 @@ struct MeetingNote: Equatable {
     var duration: TimeInterval
     var turns: [MeetingTranscript.Turn]
     var caveats: [Caveat] = []
+    /// The calendar event the meeting was named after (#38), if any.
+    var event: MatchedEvent? = nil
 
     /// "Meeting with Zoom — 16 Nov 2026 at 14:32" (the locale's medium date
     /// and short time).
@@ -104,9 +120,17 @@ struct MeetingNote: Equatable {
         return "Meeting with \(appName) — \(formatter.string(from: start))"
     }
 
+    /// The event's title when the meeting matched one (#38), else the
+    /// app-and-time title.
+    static func title(appName: String, start: Date, event: MatchedEvent?, locale: Locale = .current,
+                      timeZone: TimeZone = .current) -> String {
+        event?.title ?? title(appName: appName, start: start, locale: locale, timeZone: timeZone)
+    }
+
     func draft(locale: Locale = .current, timeZone: TimeZone = .current) -> NoteDraft {
-        NoteDraft(title: Self.title(appName: appName, start: start, locale: locale, timeZone: timeZone),
-                  date: start, kind: NoteKind.meeting, duration: duration, body: body)
+        NoteDraft(title: Self.title(appName: appName, start: start, event: event, locale: locale, timeZone: timeZone),
+                  date: start, kind: NoteKind.meeting, duration: duration, body: body,
+                  event: event?.title, attendees: event?.attendees ?? [])
     }
 
     var body: String {
@@ -184,6 +208,12 @@ struct MeetingNote: Equatable {
         case .audioKept(let url):
             return "The meeting's audio is kept in `\(url.path)`. If it isn't there yet, "
                 + "Cado copies it to its Meeting Audio folder the next time it starts."
+        case .ranOnFallbackModel(let language):
+            let cannot = language == ModelSpec.autoDetect
+                ? "it doesn't detect the language, so passages in another language may be wrong"
+                : "it doesn't understand \(EngineRegistry.languageName(language)), so those passages may be wrong"
+            return "Some of this meeting was transcribed with the dictation model because the meeting's own model "
+                + "couldn't be used; \(cannot)."
         }
     }
 

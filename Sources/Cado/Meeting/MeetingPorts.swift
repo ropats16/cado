@@ -34,7 +34,7 @@ protocol MeetingRecorder: AnyObject {
 }
 
 /// The shared transcription engine (one serial job queue for dictation and
-/// meetings).
+/// meetings), or a meeting model of its own (`MeetingModelRouter`, #47).
 protocol MeetingEngine: AnyObject {
     /// Jobs are coming: reload an idle-unloaded model now.
     func prewarm()
@@ -42,6 +42,52 @@ protocol MeetingEngine: AnyObject {
     func endPrewarm()
     /// `completion` on main.
     func transcribe(_ samples: [Float], completion: @escaping (Result<Transcript, Error>) -> Void)
+    /// `prewarm()` for a meeting decoded in `language` (its spool's
+    /// `SpooledMeeting.language`; nil = a meeting from before #47).
+    func prewarm(language: String?)
+    /// `transcribe(_:completion:)` for a meeting decoded in `language`.
+    func transcribe(_ samples: [Float], language: String?, completion: @escaping (Result<Transcript, Error>) -> Void)
+    /// One passage of a meeting (#47): `passage` says which meeting, its
+    /// language and a short passage's hint; the result says how it ran.
+    func transcribe(_ samples: [Float], passage: MeetingPassageJob,
+                    completion: @escaping (Result<MeetingPassage, Error>) -> Void)
+}
+
+/// One passage of a meeting, for `MeetingEngine.transcribe(_:passage:completion:)`.
+struct MeetingPassageJob: Equatable {
+    /// The meeting's spool id: a new one is a new meeting, which tries a
+    /// meeting model that failed in an earlier one again.
+    var meeting: UUID?
+    /// The language the meeting is decoded in (its spool's; nil = from before #47).
+    var language: String?
+    /// Under Auto-detect, a short passage's language: the one its side last
+    /// detected on a longer passage, decoded in instead of detecting again
+    /// (`PassageLanguage`). nil: detect.
+    var hint: String? = nil
+}
+
+/// A meeting passage's transcript and how it ran.
+struct MeetingPassage: Equatable {
+    var transcript: Transcript
+    /// It ran on the dictation model because the meeting's own couldn't
+    /// (not downloaded, didn't load), and that model can't write the
+    /// meeting's (non-English) language: the note says so.
+    var onFallbackModel = false
+    /// The transcript's language was detected by the model (decoded under
+    /// auto-detect), not given to it: only then is it worth remembering.
+    var detected = true
+}
+
+extension MeetingEngine {
+    /// One engine for every language (the shared one, test fakes).
+    func prewarm(language: String?) { prewarm() }
+    func transcribe(_ samples: [Float], language: String?, completion: @escaping (Result<Transcript, Error>) -> Void) {
+        transcribe(samples, completion: completion)
+    }
+    func transcribe(_ samples: [Float], passage: MeetingPassageJob,
+                    completion: @escaping (Result<MeetingPassage, Error>) -> Void) {
+        transcribe(samples, language: passage.language) { completion($0.map { MeetingPassage(transcript: $0) }) }
+    }
 }
 
 /// Writes a meeting note into the notes library; returns its file.

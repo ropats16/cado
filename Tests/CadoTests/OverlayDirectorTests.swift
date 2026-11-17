@@ -410,6 +410,19 @@ final class OverlayDirectorTests: XCTestCase {
         XCTAssertEqual(toggles, 0, "meeting: not a dictation")
     }
 
+    func testClickJustAfterTheQuestionIsWithdrawnDoesNotStartDictation() {
+        wireClicks()
+        director.alwaysVisible = true
+        director.asking = true
+        director.asking = false
+        clock.advance(by: 0.5)
+        director.clicked()
+        XCTAssertEqual(toggles, 0, "aimed at the question")
+        clock.advance(by: 0.6)
+        director.clicked()
+        XCTAssertEqual(toggles, 1, "grace over")
+    }
+
     func testClickWithNothingWiredIsHarmless() {
         director.alwaysVisible = true
         panel.calls = []

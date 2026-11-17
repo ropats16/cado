@@ -8,7 +8,7 @@ struct MaxDictationChoice: Hashable {
 }
 
 /// Which hotkey binding is being edited or captured.
-enum HotkeyTarget { case hold, toggle }
+enum HotkeyTarget { case hold, toggle, meeting }
 
 /// View-model for the settings window. `@MainActor` so `@Published` mutations
 /// are always on the main thread and SwiftUI bindings update correctly.
@@ -68,6 +68,14 @@ final class SettingsViewModel: ObservableObject {
     let updater: AppUpdater
     /// Which summary providers can run here (#34); the app's one catalog.
     let summaryCatalog: SummarizerCatalog
+    /// Why a meeting model isn't used now (`MeetingModelRouter.failure(for:)`); set by the app (#47).
+    var meetingModelFailure: (ModelSpec) -> String? = { _ in nil }
+    /// OpenRouter's key store and transport (#35; SettingsViewModel+Summaries.swift).
+    let openRouter: OpenRouterSetup
+    /// State of the OpenRouter card: the consent step, the model list, the key field.
+    @Published var openRouterState = OpenRouterCardState()
+    /// The calendar behind "Name meetings from my calendar" (#38; SettingsViewModel+Calendar.swift).
+    let calendar: CalendarPort
 
     // MARK: - Published display state
 
@@ -122,8 +130,10 @@ final class SettingsViewModel: ObservableObject {
     /// Current toggle binding — reflects the persisted config value.
     @Published private(set) var toggleBinding: KeyBinding
     /// Non-nil when `ConfigValidator` finds a hotkey problem after a change:
-    /// its plain summary and the fix.
+    /// its plain summary and the fix. Shown in the Dictation tab.
     @Published private(set) var hotkeyWarning: String?
+    /// The same for the meeting hotkey, in the Meetings tab (#32).
+    @Published private(set) var meetingHotkeyWarning: String?
     /// True while a live key-capture session is in progress (global tap is suspended).
     @Published private(set) var isCapturing: Bool = false
 
@@ -160,7 +170,11 @@ final class SettingsViewModel: ObservableObject {
          revealFolder: @escaping (URL) -> Void = SettingsViewModel.revealInFinder,
          onDictationHistoryChange: @escaping () -> Void = {},
          updater: AppUpdater = DisabledUpdater(),
-         summaryCatalog: SummarizerCatalog = LiveSummarizerCatalog()) {
+         summaryCatalog: SummarizerCatalog = LiveSummarizerCatalog(),
+         openRouter: OpenRouterSetup = .inert,
+         calendar: CalendarPort = UnavailableCalendar()) {
+        self.openRouter = openRouter
+        self.calendar = calendar
         self.updater = updater
         self.summaryCatalog = summaryCatalog
         self.configStore = configStore
@@ -339,6 +353,8 @@ final class SettingsViewModel: ObservableObject {
             case .toggle:
                 configStore.update { $0.toggle = binding }
                 toggleBinding = binding
+            case .meeting:
+                setMeetingHotkey(binding)   // SettingsViewModel+Meetings.swift
             }
             isCapturing = false
             reloadHotkeys()
@@ -375,6 +391,8 @@ final class SettingsViewModel: ObservableObject {
             let binding = KeyBinding.controlOptionSpace
             configStore.update { $0.toggle = binding }
             toggleBinding = binding
+        case .meeting:
+            setMeetingHotkey(.controlOptionM)
         }
         isCapturing = false
         reloadHotkeys()
@@ -390,10 +408,15 @@ final class SettingsViewModel: ObservableObject {
 
     // MARK: - Private helpers
 
-    /// Surfaces the first hotkey issue in plain words, with what to do here.
+    /// Surfaces each tab's first hotkey issue in plain words, with what to
+    /// do here; a clash between tabs shows in both.
     private func updateHotkeyWarning() {
         let issues = ConfigValidator.validate(configStore.config)
-        hotkeyWarning = issues.first { $0.topic == .hotkeys }
-            .map { "\($0.summary) Click Change… to choose a different shortcut, or Reset to Default." }
+        func warning(_ tab: SettingsTab) -> String? {
+            issues.first { $0.topic == .hotkeys && $0.tabs.contains(tab) }
+                .map { "\($0.summary) Click Change… to choose a different shortcut, or Reset to Default." }
+        }
+        hotkeyWarning = warning(.dictation)
+        meetingHotkeyWarning = warning(.meetings)
     }
 }

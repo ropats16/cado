@@ -420,6 +420,29 @@ final class EngineModelLifecycleTests: XCTestCase {
         await waitUntil("unloaded after the job") { factory.resident == 0 }
     }
 
+    func testHoldsAreCountedAndOneJobReleasesOnlyItsOwn() async throws {
+        let engine = makeEngine(modelFile("ggml-a"), idleUnloadAfter: 0.05)
+        engine.load()
+        _ = try await engine.transcribe([0.1])
+
+        engine.prewarm()   // a dictation
+        engine.prewarm()   // another holder
+        engine.endPrewarm()
+        await runJob(engine, releasesHold: false)   // a job that isn't a holder's
+        let freedBefore = factory.freed.count
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(factory.freed.count, freedBefore, "One hold left, so never unloaded")
+
+        engine.endPrewarm()
+        await waitUntil("unloaded once the last hold ended") { factory.resident == 0 }
+    }
+
+    private func runJob(_ engine: TranscriptionEngine, releasesHold: Bool) async {
+        await withCheckedContinuation { continuation in
+            engine.run([0.1], language: nil, releasesHold: releasesHold) { _, _ in continuation.resume() }
+        }
+    }
+
     func testEndPrewarmLetsTheIdleClockRunAgain() async throws {
         let engine = makeEngine(modelFile("ggml-a"), idleUnloadAfter: 0.05)
         engine.load()

@@ -4,7 +4,7 @@ import CoreGraphics
 /// Global hotkey monitoring via a `CGEventTap` (requires Accessibility): a thin
 /// adapter that decodes tap events into `KeyEvent`s, feeds them to
 /// `HotkeyEdges` (where all binding rules live), and fans the resulting actions
-/// out to the callbacks — hold start/stop, toggle press, cancel.
+/// out to the callbacks — hold start/stop, toggle press, cancel, meeting press.
 ///
 /// The tap runs on its own thread and run loop, so a stalled main thread (model
 /// load, a slow paste) can't delay or drop key edges, nor get the tap disabled
@@ -33,14 +33,18 @@ final class HotkeyManager {
     var onCancel: (() -> Void)? {
         get { delivery.onCancel } set { delivery.onCancel = newValue }
     }
+    /// The meeting hotkey was pressed (#32).
+    var onMeetingPress: (() -> Void)? {
+        get { delivery.onMeetingPress } set { delivery.onMeetingPress = newValue }
+    }
 
     /// Fresh edge state, copied into each tap.
     private let edges: HotkeyEdges
     private let delivery = HotkeyDelivery()
     private var tap: EventTapThread?
 
-    init(hold: KeyBinding, toggle: KeyBinding, cancelKeyCode: Int) {
-        edges = HotkeyEdges(hold: hold, toggle: toggle, cancelKeyCode: cancelKeyCode)
+    init(hold: KeyBinding, toggle: KeyBinding, cancelKeyCode: Int, meeting: KeyBinding? = nil) {
+        edges = HotkeyEdges(hold: hold, toggle: toggle, cancelKeyCode: cancelKeyCode, meeting: meeting)
     }
 
     deinit { stop() }
@@ -85,6 +89,7 @@ final class HotkeyDelivery {
     var onHoldStop: (() -> Void)?
     var onTogglePress: (() -> Void)?
     var onCancel: (() -> Void)?
+    var onMeetingPress: (() -> Void)?
 
     /// The tap generation whose actions are live.
     private(set) var generation = 0
@@ -100,6 +105,7 @@ final class HotkeyDelivery {
             case .holdStop: onHoldStop?()
             case .togglePress: onTogglePress?()
             case .cancel: onCancel?()
+            case .meetingPress: onMeetingPress?()
             }
         }
     }

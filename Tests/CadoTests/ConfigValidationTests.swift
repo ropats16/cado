@@ -76,7 +76,7 @@ final class ConfigValidationTests: XCTestCase {
                        "Hold to talk uses the cancel key, so pressing it may cancel instead.")
 
         config = .defaults
-        config.toggle = KeyBinding(keyCode: -1, modifiers: ["controll", "shift"])
+        config.toggle = KeyBinding(keyCode: -1, modifiers: ["controll", "command"])
         XCTAssertEqual(warnings(config).first?.summary,
                        "Toggle to talk includes a key Cado doesn't recognize (“controll”), so it's ignored.")
     }
@@ -195,5 +195,80 @@ final class ConfigValidationTests: XCTestCase {
         var config = Config.defaults
         config.maxRecordingSeconds = -5
         XCTAssertTrue(ConfigValidator.validate(config).isEmpty, "Treated as no limit")
+    }
+
+    // MARK: - Language codes (#47)
+
+    func testBadMeetingLanguageWarnsOnMeetingsTab() {
+        for bad in ["hindi", "en-US", "xx", "h1"] {
+            var config = Config.defaults
+            config.meetingLanguage = bad
+            let found = warnings(config)
+            XCTAssertEqual(found.map(\.topic), [.meetingLanguage], bad)
+            XCTAssertTrue(found.first?.summary.contains("Meetings tab") ?? false, bad)
+        }
+    }
+
+    func testBadDictationLanguageWarnsOnSpeechModelTab() {
+        for bad in ["hindi", "en-US", "EN"] {
+            var config = Config.defaults
+            config.language = bad
+            let found = warnings(config)
+            XCTAssertEqual(found.map(\.topic), [.dictationLanguage], bad)
+            XCTAssertTrue(found.first?.summary.contains("Speech Model tab") ?? false, bad)
+        }
+    }
+
+    func testKnownLanguagesDontWarn() {
+        for code in ["en", "hi", "auto", "", "ja", "sv", "haw"] {
+            var config = Config.defaults
+            config.language = code
+            config.meetingLanguage = code
+            XCTAssertTrue(warnings(config).isEmpty, code)
+        }
+        var config = Config.defaults
+        config.meetingLanguage = "same"
+        XCTAssertTrue(warnings(config).isEmpty)
+        config.meetingLanguage = "HI"   // meetings lower-case it
+        XCTAssertTrue(warnings(config).isEmpty)
+    }
+
+    func testSameIsNotADictationLanguage() {
+        var config = Config.defaults
+        config.language = "same"
+        XCTAssertEqual(warnings(config).map(\.topic), [.dictationLanguage])
+    }
+    // MARK: - Overlaps and meeting length (#32)
+
+    func testMeetingOverlappingHoldIsWarning() {
+        var config = Config.defaults
+        config.meetingHotkey = KeyBinding(keyCode: 46, modifiers: ["control", "shift"])
+        XCTAssertTrue(errors(config).isEmpty)
+        XCTAssertEqual(warnings(config).count, 1)
+        XCTAssertEqual(warnings(config).first?.tabs, [.meetings, .dictation])
+    }
+
+    func testMeetingSupersetOfToggleOnSameKeyIsWarning() {
+        var config = Config.defaults
+        config.toggle = KeyBinding(keyCode: 46, modifiers: ["control"])
+        XCTAssertEqual(warnings(config).count, 1, "⌃⌥M also holds ⌃M")
+    }
+
+    func testHoldOverlappingToggleIsWarning() {
+        var config = Config.defaults
+        config.toggle = KeyBinding(keyCode: 49, modifiers: ["control", "shift"])
+        XCTAssertEqual(warnings(config).count, 1, "hold ⌃⇧ is held on the way to ⌃⇧Space")
+    }
+
+    func testMeetingLengthOutOfRangeWarns() {
+        var config = Config.defaults
+        config.maxMeetingMinutes = 2000
+        XCTAssertEqual(warnings(config).count, 1)
+        config.maxMeetingMinutes = 0.5
+        XCTAssertEqual(warnings(config).count, 1)
+        config.maxMeetingMinutes = 0
+        XCTAssertTrue(warnings(config).isEmpty, "Off")
+        config.maxMeetingMinutes = 1440
+        XCTAssertTrue(warnings(config).isEmpty)
     }
 }

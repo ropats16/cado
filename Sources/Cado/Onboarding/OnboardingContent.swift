@@ -4,14 +4,15 @@ import Foundation
 /// Accessibility: its one-click system dialog is the easier start, while
 /// Accessibility sends the user to System Settings. Notifications (#44) are
 /// optional: asked here rather than at the first banner, which is often an
-/// error, and never part of being set up.
+/// error, and never part of being set up. Calendar (#38) is optional the same
+/// way, and only asks macOS when the user opts in.
 enum OnboardingStepID: Int, CaseIterable, Comparable {
-    case welcome, microphone, accessibility, model, notifications, ready
+    case welcome, microphone, accessibility, model, notifications, calendar, ready
 
     static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 
     /// Not part of being set up; a reopen doesn't land on it.
-    var isOptional: Bool { self == .notifications }
+    var isOptional: Bool { self == .notifications || self == .calendar }
 }
 
 enum OnboardingStepState: Equatable {
@@ -41,6 +42,10 @@ enum OnboardingAction: Equatable {
     case requestNotifications
     /// System Settings › Notifications, to turn them back on.
     case openNotificationSettings
+    /// Switch calendar naming on, asking macOS for Calendar access if needed (#38).
+    case enableCalendar
+    /// System Settings › Privacy & Security › Calendars.
+    case openCalendarSettings
     /// Back to a step (Ready's list of what's still needed).
     case goTo(OnboardingStepID)
     /// Close onboarding and remember it's done.
@@ -94,12 +99,13 @@ struct OnboardingContent: Equatable {
 
     /// `notifications`: nil until it's been read (it's asynchronous).
     init(inputs: ReadinessInputs, model: OnboardingModelFacts, notifications: NotificationPermission?,
+         calendar: CalendarAccess? = nil, calendarOn: Bool = false,
          hold: KeyBinding, toggle: KeyBinding, cancelKeyCode: Int) {
         let setup = [Self.microphone(inputs.microphone),
                      Self.accessibility(inputs.accessibility, tap: inputs.hotkeyTap),
                      Self.model(inputs.engine, model)]
         let ready = Self.ready(setup, hold: hold, toggle: toggle, cancelKeyCode: cancelKeyCode)
-        steps = [Self.welcome] + setup + [Self.notifications(notifications), ready]
+        steps = [Self.welcome] + setup + [Self.notifications(notifications), Self.calendar(calendar, on: calendarOn), ready]
         isSetUp = ready.state == .done
     }
 
@@ -255,6 +261,37 @@ struct OnboardingContent: Equatable {
             step.detail = "This copy of Cado can't show notifications."
         case nil:
             step.state = .settling   // read in a moment; nothing to stop on
+        }
+        return step
+    }
+
+    /// Calendar meeting titles (#38): optional; only the button asks macOS.
+    private static func calendar(_ access: CalendarAccess?, on: Bool) -> OnboardingStep {
+        var step = OnboardingStep(
+            id: .calendar, state: .todo, title: "Calendar",
+            detail: "Cado can name a meeting note after the calendar event it matches, and list who was invited. "
+                + "It only reads your calendar on this Mac. This step is optional, and you can change it in Settings.")
+        switch access {
+        case .notDetermined?, .granted?:
+            if access == .granted, on {
+                step.state = .done
+                step.detail = "Meeting notes are named after the matching calendar event."
+            } else {
+                step.primary = OnboardingButton(title: "Use My Calendar", action: .enableCalendar)
+            }
+        case .denied?:
+            step.state = .declined
+            step.detail = "Cado isn't allowed to see your calendar. You can allow it in System Settings › "
+                + "Privacy & Security › Calendars."
+            step.primary = OnboardingButton(title: "Open System Settings", action: .openCalendarSettings)
+        case .restricted?:
+            step.state = .declined
+            step.detail = "This Mac doesn't let Cado see calendars."
+        case .unavailable?:
+            step.state = .declined
+            step.detail = "This copy of Cado can't see your calendar."
+        case nil:
+            step.state = .settling
         }
         return step
     }

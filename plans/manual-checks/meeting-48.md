@@ -99,6 +99,13 @@ Do that twice.
 4. [ ] Again, but quit Cado from the menu while the new meeting records:
        relaunch; both meetings are finished (the new one says Cado was quit),
        one note each.
+5. [ ] Again with the meeting hotkey (⌃⌥M) and with the mascot's Record
+       Meeting, on a call: each starts recording the same way (no "Meeting not
+       started" notice). Before the first meeting recording ever, the consent
+       reminder shows first; Cancel leaves the recovery going.
+6. [ ] With Settings › Meetings › Name meetings from my calendar on, during an
+       event: the held recovery's note keeps its own name (app and time, or
+       its own event), the new note is named after the event.
 
 ## A note saved just before Cado stopped
 
@@ -107,8 +114,11 @@ the note file is written in `MeetingSession.complete`, kill Cado there.
 
 - [ ] Relaunch: no second note; a "Meeting note saved" notice for the existing
       note; `Meetings In Progress` is empty afterwards.
+- [ ] Same with a meeting named from the calendar: no second note, and the
+      notice names the event.
 - [ ] Open a meeting note in a text editor: its front matter has
-      `id: "<long id>"` after `duration`. Open it in Obsidian: nothing odd.
+      `id: "<long id>"` after `duration` (before `event`/`attendees` when named
+      from the calendar). Open it in Obsidian: nothing odd.
       Older notes without the line still list and open in the Library.
 
 ## A full disk (use a small disk image as the home folder's volume)

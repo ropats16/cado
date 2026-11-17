@@ -12,26 +12,31 @@ struct KeyEvent: Equatable {
     var isAutorepeat = false
 }
 
-/// What the hold, toggle and cancel bindings mean for the dictation flow.
-enum HotkeyAction: Equatable { case holdStart, holdStop, togglePress, cancel }
+/// What the hold, toggle and cancel bindings mean for the dictation flow, and
+/// the meeting binding for meetings (#32).
+enum HotkeyAction: Equatable { case holdStart, holdStop, togglePress, cancel, meetingPress }
 
 /// Press/release edge state for the configured bindings. Hold fires on both
-/// edges, toggle on the press edge only (once per physical press, whatever the
-/// autorepeat), cancel on a fresh key-down of `cancelKeyCode`.
+/// edges, toggle and meeting on the press edge only (once per physical press,
+/// whatever the autorepeat), cancel on a fresh key-down of `cancelKeyCode`.
 ///
 /// Not thread-safe: owned by whichever thread feeds it (the tap thread).
 struct HotkeyEdges {
     let hold: KeyBinding
     let toggle: KeyBinding
     let cancelKeyCode: Int
+    /// Starts or stops a meeting; nil = none.
+    let meeting: KeyBinding?
 
     private var holdActive = false
     private var toggleActive = false
+    private var meetingActive = false
 
-    init(hold: KeyBinding, toggle: KeyBinding, cancelKeyCode: Int) {
+    init(hold: KeyBinding, toggle: KeyBinding, cancelKeyCode: Int, meeting: KeyBinding? = nil) {
         self.hold = hold
         self.toggle = toggle
         self.cancelKeyCode = cancelKeyCode
+        self.meeting = meeting
     }
 
     mutating func handle(_ event: KeyEvent) -> [HotkeyAction] {
@@ -43,6 +48,9 @@ struct HotkeyEdges {
         }
         if Self.edge(&toggleActive, toggle.satisfaction(by: event)) == true {
             actions.append(.togglePress)
+        }
+        if let meeting, Self.edge(&meetingActive, meeting.satisfaction(by: event)) == true {
+            actions.append(.meetingPress)
         }
         // No edge state for cancel: the autorepeat guard prevents repeats.
         if event.kind == .keyDown, event.keyCode == cancelKeyCode, !event.isAutorepeat {
@@ -56,7 +64,7 @@ struct HotkeyEdges {
     /// release may have been lost, so a synthetic `.holdStop` is returned
     /// rather than letting the recording run to the cap.
     mutating func reset() -> [HotkeyAction] {
-        defer { holdActive = false; toggleActive = false }
+        defer { holdActive = false; toggleActive = false; meetingActive = false }
         return holdActive ? [.holdStop] : []
     }
 

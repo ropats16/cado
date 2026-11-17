@@ -93,10 +93,25 @@ struct NoteFrontMatter {
         return v
     }
 
+    /// A YAML double-quoted scalar on one line. Never emits a raw control
+    /// character (YAML forbids them, and one makes tools drop the whole
+    /// block): line breaks and Unicode line/paragraph separators become a
+    /// space, a tab is written as `\t`, any other control character is dropped.
+    /// `unquote` reads back exactly what this writes.
     static func quote(_ s: String) -> String {
-        let flat = s.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
-        let escaped = flat.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-        return "\"\(escaped)\""
+        var out = ""
+        for scalar in s.unicodeScalars {
+            switch scalar {
+            case "\\": out += "\\\\"
+            case "\"": out += "\\\""
+            case "\t": out += "\\t"
+            case "\n", "\r", "\u{2028}", "\u{2029}": out += " "
+            default:
+                if scalar.properties.generalCategory == .control { continue }
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return "\"\(out)\""
     }
 
     // MARK: Dates
@@ -121,11 +136,15 @@ struct NoteFrontMatter {
     // MARK: Writing
 
     /// Text of a new file. `id`: a meeting's stable id (#48), if any.
+    /// `event` and `attendees` (#38) are optional extra keys: only written
+    /// when there is something to say, and ignored by readers that don't know them.
     static func render(title: String, date: Date, kind: String, duration: TimeInterval?, body: String,
-                       id: String? = nil) -> String {
+                       id: String? = nil, event: String? = nil, attendees: [String] = []) -> String {
         var out = "---\ntitle: \(quote(title))\ndate: \(formatDate(date))\nkind: \(quote(kind))\n"
         if let duration { out += "duration: \(Int(duration.rounded()))\n" }
         if let id { out += "id: \(quote(id))\n" }
+        if let event, !event.isEmpty { out += "event: \(quote(event))\n" }
+        if !attendees.isEmpty { out += "attendees: [\(attendees.map(quote).joined(separator: ", "))]\n" }
         return out + "---\n\n" + body
     }
 
