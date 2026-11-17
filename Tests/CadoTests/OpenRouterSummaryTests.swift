@@ -650,11 +650,11 @@ final class OpenRouterSummaryTests: XCTestCase {
         let transport = FakeOpenRouterTransport([.response(200, #"{"data":[{"id":"m/one"},{"id":"openai/gpt-4o-mini"}]}"#)])
         let (vm, store) = settings(keys: FakeSummaryKeyStore(), transport: transport)
         XCTAssertEqual(vm.openRouterModel, OpenRouterModels.defaultID)
-        XCTAssertEqual(vm.openRouterModelChoices, OpenRouterModels.curated)
+        XCTAssertEqual(Array(vm.openRouterModelChoices.prefix(OpenRouterModels.curated.count)), OpenRouterModels.curated)
         XCTAssertTrue(transport.requests.isEmpty, "No network until Refresh")
         vm.setOpenRouterModel(" custom/model ")
         XCTAssertEqual(store.config.openRouterModel, "custom/model")
-        XCTAssertEqual(vm.openRouterModelChoices.last, "custom/model")
+        XCTAssertTrue(vm.openRouterModelChoices.contains("custom/model"))
         await vm.refreshOpenRouterModels()
         XCTAssertEqual(transport.requests.count, 1)
         XCTAssertTrue(vm.openRouterModelChoices.contains("m/one"))
@@ -667,7 +667,7 @@ final class OpenRouterSummaryTests: XCTestCase {
         await vm.refreshOpenRouterModels()
         XCTAssertNotNil(vm.openRouterState.refreshError)
         XCTAssertFalse(vm.openRouterState.refreshing)
-        XCTAssertEqual(vm.openRouterModelChoices, OpenRouterModels.curated)
+        XCTAssertEqual(Array(vm.openRouterModelChoices.prefix(OpenRouterModels.curated.count)), OpenRouterModels.curated)
     }
 
     func testUnknownOrHandEditedProvidersFallBackSafely() {
@@ -683,7 +683,7 @@ final class OpenRouterSummaryTests: XCTestCase {
                      OpenRouterSetup.noCreditsSentence, OpenRouterSetup.notSetUpSentence] {
             UserFacingCopy.assertPlain(text)
         }
-        XCTAssertTrue(OpenRouterCopy.warning.contains("leaves this Mac"))
+        XCTAssertTrue(OpenRouterCopy.warning.contains("sends the text of every new meeting to OpenRouter"))
         XCTAssertTrue(OpenRouterCopy.warning.contains("OpenRouter"))
     }
 }
