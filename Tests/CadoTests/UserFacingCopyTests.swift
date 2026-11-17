@@ -79,13 +79,16 @@ final class UserFacingCopyTests: XCTestCase {
                     let inputs = ReadinessInputs(accessibility: ax, microphone: mic,
                                                  engine: EngineReadiness(status: status, modelPath: "/m", download: nil),
                                                  hotkeyTap: .installed)
-                    let content = OnboardingContent(
-                        inputs: inputs,
-                        model: OnboardingModelFacts(options: [option], selected: nil, downloads: [:], partial: []),
-                        hold: .controlShift, toggle: .controlOptionSpace, cancelKeyCode: KeyBinding.escapeKeyCode)
-                    for step in content.steps {
-                        for text in [step.title, step.detail, step.note, step.primary?.title, step.secondary?.title] {
-                            UserFacingCopy.assertPlain(text)
+                    for notifications in [NotificationPermission.notDetermined, .denied, .unavailable, .authorized, nil] {
+                        let content = OnboardingContent(
+                            inputs: inputs,
+                            model: OnboardingModelFacts(options: [option], selected: nil, downloads: [:], partial: []),
+                            notifications: notifications,
+                            hold: .controlShift, toggle: .controlOptionSpace, cancelKeyCode: KeyBinding.escapeKeyCode)
+                        for step in content.steps {
+                            let texts = [step.title, step.detail, step.note, step.primary?.title, step.secondary?.title]
+                                + step.jumps.map(\.title)
+                            texts.forEach { UserFacingCopy.assertPlain($0) }
                         }
                     }
                 }

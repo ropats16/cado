@@ -45,6 +45,7 @@ final class OnboardingViewModelTests: XCTestCase {
     private var config = Config.defaults
     private var performed: [ReadinessAction] = []
     private var finished = 0
+    private var notifications = FakeNotificationPermission()
 
     override func setUp() async throws {
         control = FakeDownloads()
@@ -52,6 +53,7 @@ final class OnboardingViewModelTests: XCTestCase {
         config = Config.defaults
         performed = []
         finished = 0
+        notifications = FakeNotificationPermission()
     }
 
     private func inputs(accessibility: AccessibilityPermission = .granted,
@@ -67,14 +69,14 @@ final class OnboardingViewModelTests: XCTestCase {
         OnboardingViewModel(config: { [unowned self] in config }, inputs: inputs, downloads: control,
                             options: { [unowned self] in options }, isFirstShow: isFirstShow,
                             perform: { [unowned self] in performed.append($0) },
-                            onFinish: { [unowned self] in finished += 1 })
+                            onFinish: { [unowned self] in finished += 1 }, notifications: notifications)
     }
 
     func testUsagePingChoiceIsOffByDefaultAndReported() {
         var calls: [Bool] = []
         let vm = OnboardingViewModel(config: { .defaults }, inputs: inputs(), downloads: control,
                                      options: { [] }, isFirstShow: true, perform: { _ in },
-                                     onFinish: {}, setUsagePing: { calls.append($0) })
+                                     onFinish: {}, notifications: notifications, setUsagePing: { calls.append($0) })
         XCTAssertFalse(vm.usagePing)
         XCTAssertTrue(calls.isEmpty)
         vm.setUsagePing(true)
@@ -266,6 +268,61 @@ final class OnboardingViewModelTests: XCTestCase {
         config.hold = KeyBinding(keyCode: -1, modifiers: ["option", "shift"])
         vm.refresh()
         XCTAssertTrue(vm.content.step(.ready).detail.contains(config.hold.description))
+    }
+
+    // MARK: - Almost there
+
+    func testAMissingStepsButtonJumpsBackToIt() {
+        let vm = makeVM(inputs(accessibility: .denied, engine: .ready))
+        go(vm, to: .ready)
+        XCTAssertEqual(vm.step.jumps.map(\.action), [.goTo(.accessibility)])
+        vm.perform(.goTo(.accessibility))
+        XCTAssertEqual(vm.current, .accessibility)
+    }
+
+    // MARK: - Notifications
+
+    /// Read through the port on open; asking and System Settings go
+    /// through it too, never the real notification centre.
+    func testNotificationsAreReadAskedAndOpenedThroughThePort() {
+        notifications = FakeNotificationPermission(.notDetermined, answer: .authorized)
+        let vm = makeVM(inputs(engine: .ready))
+        XCTAssertEqual(notifications.reads, 1)
+        XCTAssertEqual(vm.content.step(.notifications).state, .todo)
+        go(vm, to: .notifications)
+
+        vm.perform(.requestNotifications)
+
+        XCTAssertEqual(notifications.requests, 1)
+        XCTAssertEqual(vm.content.step(.notifications).state, .done)
+        XCTAssertEqual(vm.current, .ready, "Answered: the flow moves on")
+
+        vm.perform(.openNotificationSettings)
+        XCTAssertEqual(notifications.settingsOpened, 1)
+        XCTAssertTrue(performed.isEmpty, "Not a readiness action")
+    }
+
+    func testDecliningTheSystemPromptAlsoMovesOn() {
+        notifications = FakeNotificationPermission(.notDetermined, answer: .denied)
+        let vm = makeVM(inputs(engine: .ready))
+        go(vm, to: .notifications)
+        vm.perform(.requestNotifications)
+        XCTAssertEqual(vm.content.step(.notifications).state, .declined)
+        XCTAssertEqual(vm.current, .ready)
+    }
+
+    /// Turned on in System Settings meanwhile: a recheck (the app became
+    /// active again) or a reopen shows it.
+    func testARecheckOrReopenRereadsNotifications() {
+        notifications = FakeNotificationPermission(.denied)
+        let vm = makeVM(inputs(engine: .ready))
+        notifications.status = .authorized
+        vm.recheckNotifications()
+        XCTAssertEqual(vm.content.step(.notifications).state, .done)
+        notifications.status = .notDetermined
+        vm.reopened()
+        XCTAssertEqual(notifications.reads, 3)
+        XCTAssertEqual(vm.current, .notifications, "Never asked: a reopen lands on it")
     }
 
     // MARK: - Helpers

@@ -141,7 +141,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Returning from System Settings: show a permission change at once.
     func applicationDidBecomeActive(_ notification: Notification) {
-        if MainActor.assumeIsolated({ isOnboardingVisible }) { monitor.recheck() }
+        MainActor.assumeIsolated {
+            guard isOnboardingVisible else { return }
+            monitor.recheck()
+            onboardingModel?.recheckNotifications()   // switched on in System Settings
+        }
     }
 
     /// Quitting mid-meeting stops it and keeps it (audio + a note saying so)
@@ -312,6 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 isFirstShow: isFirstShow,
                 perform: { [weak self] in self?.perform($0) },
                 onFinish: { [weak self] in self?.finishOnboarding() },
+                notifications: Notifier.permission,
                 setUsagePing: { [weak self] on in
                     MainActor.assumeIsolated { self?.sharedSettingsViewModel().setUsagePing(on) }
                 })

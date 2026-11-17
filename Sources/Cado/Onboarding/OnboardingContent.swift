@@ -2,9 +2,11 @@ import Foundation
 
 /// The onboarding steps (#22), in flow order. The microphone comes before
 /// Accessibility: its one-click system dialog is the easier start, while
-/// Accessibility sends the user to System Settings.
+/// Accessibility sends the user to System Settings. Notifications (#44) are
+/// optional: asked here rather than at the first banner, which is often an
+/// error, and never part of being set up.
 enum OnboardingStepID: Int, CaseIterable, Comparable {
-    case welcome, microphone, accessibility, model, ready
+    case welcome, microphone, accessibility, model, notifications, ready
 
     static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 }
@@ -19,8 +21,11 @@ enum OnboardingStepState: Equatable {
     case done
     /// Nothing the user can do here (an administrator's restriction).
     case blocked
+    /// An optional step the user (or the build) said no to: nothing left
+    /// to do here, though it can be changed later.
+    case declined
 
-    var isFinished: Bool { self == .done || self == .settling }
+    var isFinished: Bool { self == .done || self == .settling || self == .declined }
 }
 
 /// What a step's button does; the onboarding view model carries it out.
@@ -29,6 +34,12 @@ enum OnboardingAction: Equatable {
     case download(ModelDownloadKey)
     case cancelDownload(ModelDownloadKey)
     case selectModel(ModelDownloadKey)
+    /// The system's notification prompt (`NotificationPermissionPort`).
+    case requestNotifications
+    /// System Settings › Notifications, to turn them back on.
+    case openNotificationSettings
+    /// Back to a step (Ready's list of what's still needed).
+    case goTo(OnboardingStepID)
     /// Close onboarding and remember it's done.
     case finish
 }
@@ -51,6 +62,8 @@ struct OnboardingStep: Equatable {
     var progress: Double?
     /// A short status line: what's happening, or why it failed.
     var note: String?
+    /// Ready, not yet set up: a button per step still needed, back to it.
+    var jumps: [OnboardingButton] = []
 }
 
 /// What the model step knows beyond readiness: the models on offer
@@ -72,16 +85,18 @@ struct OnboardingModelFacts: Equatable {
 struct OnboardingContent: Equatable {
     /// One per `OnboardingStepID`, in order.
     var steps: [OnboardingStep]
-    /// Microphone, Accessibility and the model are finished (settling counts).
+    /// Microphone, Accessibility and the model are finished (settling
+    /// counts). Notifications are optional and don't count.
     var isSetUp: Bool
 
-    init(inputs: ReadinessInputs, model: OnboardingModelFacts, hold: KeyBinding, toggle: KeyBinding,
-         cancelKeyCode: Int) {
+    /// `notifications`: nil until it's been read (it's asynchronous).
+    init(inputs: ReadinessInputs, model: OnboardingModelFacts, notifications: NotificationPermission?,
+         hold: KeyBinding, toggle: KeyBinding, cancelKeyCode: Int) {
         let setup = [Self.microphone(inputs.microphone),
                      Self.accessibility(inputs.accessibility, tap: inputs.hotkeyTap),
                      Self.model(inputs.engine, model)]
         let ready = Self.ready(setup, hold: hold, toggle: toggle, cancelKeyCode: cancelKeyCode)
-        steps = [Self.welcome] + setup + [ready]
+        steps = [Self.welcome] + setup + [Self.notifications(notifications), ready]
         isSetUp = ready.state == .done
     }
 
@@ -213,6 +228,30 @@ struct OnboardingContent: Equatable {
         return step
     }
 
+    private static func notifications(_ permission: NotificationPermission?) -> OnboardingStep {
+        var step = OnboardingStep(
+            id: .notifications, state: .todo, title: "Notifications",
+            detail: "Cado can tell you when a meeting note is saved, an update is ready, or something needs you, "
+                + "like a dictation it copied instead of pasting. This step is optional.")
+        switch permission {
+        case .notDetermined?:
+            step.primary = OnboardingButton(title: "Allow Notifications", action: .requestNotifications)
+        case .authorized?:
+            step.state = .done
+            step.detail = "Cado can tell you when a meeting note is saved or something needs you."
+        case .denied?:
+            step.state = .declined
+            step.detail = "Notifications are off for Cado. You can turn them on in System Settings › Notifications."
+            step.primary = OnboardingButton(title: "Open System Settings", action: .openNotificationSettings)
+        case .unavailable?:
+            step.state = .declined
+            step.detail = "This copy of Cado can't show notifications."
+        case nil:
+            step.state = .settling   // read in a moment; nothing to stop on
+        }
+        return step
+    }
+
     /// How to get `option` now: its download's progress or failure, else
     /// how it's fetched.
     private static func download(_ option: OnboardingModelOption, _ facts: OnboardingModelFacts)
@@ -247,9 +286,10 @@ struct OnboardingContent: Equatable {
         guard unfinished.isEmpty else {
             return OnboardingStep(
                 id: .ready, state: .todo, title: "Almost there",
-                detail: "Still needed: \(unfinished.map(\.title).joined(separator: ", ")).\n"
-                    + "You can finish setting up later from Cado in the menu bar.",
-                primary: OnboardingButton(title: "Finish Later", action: .finish), note: note)
+                detail: "Finish these steps to start dictating, or come back later: "
+                    + "Set Up Cado… in the menu bar reopens this window.",
+                primary: OnboardingButton(title: "Finish Later", action: .finish), note: note,
+                jumps: unfinished.map { OnboardingButton(title: jumpTitle($0), action: .goTo($0.id)) })
         }
         var lines = ["Hold \(hold.description) and speak; release to paste.",
                      "Or press \(toggle.description) to start, and again to stop."]
@@ -258,6 +298,11 @@ struct OnboardingContent: Equatable {
         return OnboardingStep(id: .ready, state: .done, title: "You're ready", detail: lines.joined(separator: "\n"),
                               primary: OnboardingButton(title: "Done", action: .finish), note: note)
     }
+}
+
+/// A step's name as a button (Title Case).
+private func jumpTitle(_ step: OnboardingStep) -> String {
+    step.id == .model ? "Speech Model" : step.title
 }
 
 /// Whether launch opens onboarding.

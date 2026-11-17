@@ -43,7 +43,7 @@ struct OnboardingView: View {
                 .font(Brand.Typography.font(.title, weight: .bold))
                 .foregroundStyle(Brand.Palette.ink)
                 .accessibilityAddTraits(.isHeader)
-            if step.id == .ready {
+            if step.id == .ready, step.state == .done {
                 readyLines(step)
                 usagePingChoice
             } else {
@@ -53,6 +53,8 @@ struct OnboardingView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if !step.jumps.isEmpty { jumps(step) }
+            if step.id == .ready, step.state != .done { usagePingChoice }
             if step.id == .model { modelChoice }
             status(step)
             if step.id != .ready, step.progress == nil { stepButtons(step) }
@@ -76,7 +78,28 @@ struct OnboardingView: View {
         }
     }
 
-    /// Ready's optional, unchecked-by-default launch-count choice (#26).
+    /// Almost there: a row per step still needed, each back to it.
+    private func jumps(_ step: OnboardingStep) -> some View {
+        SettingsCard {
+            ForEach(Array(step.jumps.enumerated()), id: \.offset) { index, jump in
+                if index > 0 { CardDivider() }
+                Button { viewModel.perform(jump.action) } label: {
+                    HStack {
+                        Text(jump.title).foregroundStyle(Brand.Palette.ink)
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(Brand.Palette.inkSecondary)
+                            .accessibilityHidden(true)
+                    }
+                    .settingsRowPadding()
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// Ready's optional, off-by-default usage-count choice (#26).
     private var usagePingChoice: some View {
         VStack(alignment: .leading, spacing: 4) {
             // A switch, as in Settings › Usage Count.
@@ -231,7 +254,7 @@ private struct StepHero: View {
                 mascot(Self.idle)
             case .ready:
                 mascot(step.state == .done ? Self.done : Self.idle)
-            case .microphone, .accessibility, .model:
+            case .microphone, .accessibility, .model, .notifications:
                 symbol
             }
         }
@@ -249,6 +272,7 @@ private struct StepHero: View {
         switch step.id {
         case .microphone: name = "mic.fill"
         case .accessibility: name = "accessibility"
+        case .notifications: name = "bell.fill"
         default: name = "waveform"
         }
         return Image(systemName: name)
@@ -273,7 +297,7 @@ private struct StepHero: View {
                 .font(.system(size: 22))
                 .foregroundStyle(.white, Brand.Palette.pulse)
                 .background(Circle().fill(Brand.Palette.background).padding(-2))
-        case .todo, .waiting, .settling:
+        case .todo, .waiting, .settling, .declined:
             EmptyView()
         }
     }

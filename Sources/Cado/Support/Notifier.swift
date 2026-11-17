@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import UserNotifications
 
 /// What clicking a notification opens (#42), carried in its userInfo.
@@ -31,10 +31,14 @@ enum NotificationRoute: Equatable {
 /// traps in an *unbundled* process — and this project's dev loop runs via `make run` → `swift run`,
 /// where there is no app bundle (`Bundle.main.bundleIdentifier` is nil). So we guard on the bundle
 /// identifier: the installed `.app` posts real banners; the unbundled dev build just logs the text
-/// (which the developer already sees on the console). Authorization is requested lazily on first use
-/// — the system caches the decision, so repeated calls are cheap.
+/// (which the developer already sees on the console). Onboarding asks for permission (#44); for
+/// whoever skipped it or set up before, it's still requested lazily on first use — the system
+/// caches the decision, so repeated calls are cheap and never re-prompt.
 enum Notifier {
-    private static var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
+    fileprivate static var isBundled: Bool { Bundle.main.bundleIdentifier != nil }
+
+    /// Every permission request goes through this port.
+    static let permission: NotificationPermissionPort = SystemNotificationPermission()
 
     /// `route`: what a click on it opens (`NotificationClicks`).
     static func notify(title: String, body: String, route: NotificationRoute? = nil) {
@@ -46,11 +50,7 @@ enum Notifier {
         }
 
         let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound]) { _, error in
-            if let error {
-                Log.error("Notification authorization failed: \(error.localizedDescription)")
-            }
-        }
+        permission.request { _ in }
 
         let content = UNMutableNotificationContent()
         content.title = title
@@ -85,6 +85,45 @@ final class NotificationClicks: NSObject, UNUserNotificationCenterDelegate {
         DispatchQueue.main.async { [weak self] in
             if let route { self?.onRoute?(route) }
             completionHandler()
+        }
+    }
+}
+
+/// The live `NotificationPermissionPort`: `UNUserNotificationCenter`, in
+/// the bundled app only (it traps unbundled, where it says `.unavailable`).
+final class SystemNotificationPermission: NotificationPermissionPort {
+    func current(_ completion: @escaping (NotificationPermission) -> Void) {
+        guard Notifier.isBundled else { return DispatchQueue.main.async { completion(.unavailable) } }
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            let permission = NotificationPermission(settings.authorizationStatus)
+            DispatchQueue.main.async { completion(permission) }
+        }
+    }
+
+    func request(_ completion: @escaping (NotificationPermission) -> Void) {
+        guard Notifier.isBundled else { return DispatchQueue.main.async { completion(.unavailable) } }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { [weak self] _, error in
+            if let error { Log.error("Notification authorization failed: \(error.localizedDescription)") }
+            self?.current(completion)
+        }
+    }
+
+    /// System Settings › Notifications, at Cado's entry.
+    func openSettings() {
+        let id = Bundle.main.bundleIdentifier ?? AppInfo.bundleID
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+}
+
+extension NotificationPermission {
+    init(_ status: UNAuthorizationStatus) {
+        switch status {
+        case .notDetermined: self = .notDetermined
+        case .denied: self = .denied
+        case .authorized, .provisional: self = .authorized
+        @unknown default: self = .denied
         }
     }
 }

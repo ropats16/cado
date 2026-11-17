@@ -28,6 +28,7 @@ final class OnboardingContentTests: XCTestCase {
                          selected: ModelDownloadKey? = nil,
                          downloads: [ModelDownloadKey: ModelDownloadState] = [:],
                          partial: Set<ModelDownloadKey> = [],
+                         notifications: NotificationPermission? = .authorized,
                          hold: KeyBinding = .controlShift,
                          toggle: KeyBinding = .controlOptionSpace,
                          cancelKeyCode: Int = KeyBinding.escapeKeyCode) -> OnboardingContent {
@@ -37,7 +38,8 @@ final class OnboardingContentTests: XCTestCase {
             hotkeyTap: tap)
         let model = OnboardingModelFacts(options: options ?? [Self.turbo, Self.small], selected: selected,
                                          downloads: downloads, partial: partial)
-        return OnboardingContent(inputs: inputs, model: model, hold: hold, toggle: toggle, cancelKeyCode: cancelKeyCode)
+        return OnboardingContent(inputs: inputs, model: model, notifications: notifications, hold: hold, toggle: toggle,
+                                 cancelKeyCode: cancelKeyCode)
     }
 
     private var allSet: OnboardingContent { content() }
@@ -45,8 +47,8 @@ final class OnboardingContentTests: XCTestCase {
     // MARK: - Order
 
     func testStepsAreInFlowOrder() {
-        XCTAssertEqual(allSet.steps.map(\.id), [.welcome, .microphone, .accessibility, .model, .ready])
-        XCTAssertEqual(OnboardingStepID.allCases, [.welcome, .microphone, .accessibility, .model, .ready])
+        XCTAssertEqual(allSet.steps.map(\.id), [.welcome, .microphone, .accessibility, .model, .notifications, .ready])
+        XCTAssertEqual(OnboardingStepID.allCases, [.welcome, .microphone, .accessibility, .model, .notifications, .ready])
         XCTAssertLessThan(OnboardingStepID.microphone, .accessibility, "The one-click mic dialog first")
     }
 
@@ -224,6 +226,61 @@ final class OnboardingContentTests: XCTestCase {
         XCTAssertEqual(content(engine: .missing, options: [installed]).step(.model).state, .settling)
     }
 
+    // MARK: - Notifications (optional)
+
+    /// Asked here, not at the first banner (often an error); honest about
+    /// what they're for, and skippable.
+    func testNotificationsNotYetAskedOffersToAllowThem() {
+        let step = content(notifications: .notDetermined).step(.notifications)
+        XCTAssertEqual(step.title, "Notifications")
+        XCTAssertEqual(step.state, .todo)
+        XCTAssertEqual(step.detail, "Cado can tell you when a meeting note is saved, an update is ready, or something "
+                           + "needs you, like a dictation it copied instead of pasting. This step is optional.")
+        XCTAssertEqual(step.primary, OnboardingButton(title: "Allow Notifications", action: .requestNotifications))
+    }
+
+    func testAllowedNotificationsAreDone() {
+        let step = allSet.step(.notifications)
+        XCTAssertEqual(step.state, .done)
+        XCTAssertNil(step.primary)
+    }
+
+    /// Turned off: a choice, not a failure. It doesn't hold anything up,
+    /// and System Settings is one click away.
+    func testDeniedNotificationsAreDeclinedWithAWayBack() {
+        let step = content(notifications: .denied).step(.notifications)
+        XCTAssertEqual(step.state, .declined)
+        XCTAssertTrue(step.state.isFinished)
+        XCTAssertEqual(step.detail, "Notifications are off for Cado. You can turn them on in System Settings › Notifications.")
+        XCTAssertEqual(step.primary, OnboardingButton(title: "Open System Settings", action: .openNotificationSettings))
+    }
+
+    func testNotificationsNeverHoldUpSetup() {
+        for permission in [NotificationPermission.notDetermined, .denied, .unavailable, nil] {
+            let c = content(notifications: permission)
+            XCTAssertTrue(c.isSetUp, "\(String(describing: permission))")
+            XCTAssertEqual(c.step(.ready).state, .done)
+        }
+    }
+
+    func testUnknownNotificationsAreNotAStepToLandOn() {
+        XCTAssertTrue(content(notifications: nil).step(.notifications).state.isFinished, "Not read yet")
+        XCTAssertTrue(content(notifications: .unavailable).step(.notifications).state.isFinished)
+        XCTAssertEqual(content(notifications: nil).landing(isFirstShow: false), .ready)
+    }
+
+    /// Never asked: the flow visits it after the model, and a reopen lands
+    /// on it; once answered either way, it's passed.
+    func testTheFlowVisitsNotificationsUntilAnswered() {
+        let unasked = content(notifications: .notDetermined)
+        XCTAssertEqual(unasked.next(after: .model), .notifications)
+        XCTAssertEqual(unasked.landing(isFirstShow: false), .notifications)
+        XCTAssertEqual(content(notifications: .denied).next(after: .model), .ready)
+        XCTAssertEqual(OnboardingContent.autoAdvance(current: .notifications, old: unasked, new: allSet), .ready)
+        XCTAssertEqual(OnboardingContent.autoAdvance(current: .notifications, old: unasked,
+                                                     new: content(notifications: .denied)), .ready)
+    }
+
     // MARK: - Ready
 
     func testTheReadyScreenExplainsTheHotkeys() {
@@ -250,10 +307,11 @@ final class OnboardingContentTests: XCTestCase {
         XCTAssertFalse(c.isSetUp)
         let step = c.step(.ready)
         XCTAssertFalse(step.state.isFinished)
-        XCTAssertTrue(step.detail.contains(c.step(.microphone).title), step.detail)
-        XCTAssertTrue(step.detail.contains(c.step(.model).title), step.detail)
-        XCTAssertFalse(step.detail.contains(c.step(.accessibility).title), step.detail)
-        XCTAssertFalse(step.detail.contains("Hold"), step.detail)
+        XCTAssertEqual(step.detail, "Finish these steps to start dictating, or come back later: "
+                           + "Set Up Cado… in the menu bar reopens this window.")
+        XCTAssertEqual(step.jumps, [OnboardingButton(title: "Microphone", action: .goTo(.microphone)),
+                                    OnboardingButton(title: "Speech Model", action: .goTo(.model))],
+                       "Each missing step is a button back to it, in flow order")
         XCTAssertEqual(step.primary, OnboardingButton(title: "Finish Later", action: .finish))
     }
 

@@ -47,6 +47,7 @@ final class OnboardingRenderHarness: XCTestCase {
         var options: [OnboardingModelOption] = [turbo, small, base]
         var downloads: [ModelDownloadKey: ModelDownloadState] = [:]
         var partial: Set<ModelDownloadKey> = []
+        var notifications: NotificationPermission = .authorized
     }
 
     private let scenes: [Scene] = [
@@ -62,8 +63,11 @@ final class OnboardingRenderHarness: XCTestCase {
               downloads: [turbo.key: .failed("Download failed: The Internet connection appears to be offline.")],
               partial: [turbo.key]),
         Scene(name: "4-model-preparing", step: .model, engine: .loading, firstLoad: true),
-        Scene(name: "5-ready", step: .ready, engine: .ready),
-        Scene(name: "5-almost-there", step: .ready, accessibility: .denied),
+        Scene(name: "5-notifications", step: .notifications, engine: .ready, notifications: .notDetermined),
+        Scene(name: "5-notifications-off", step: .notifications, engine: .ready, notifications: .denied),
+        Scene(name: "6-ready", step: .ready, engine: .ready),
+        Scene(name: "6-almost-there", step: .ready, accessibility: .denied),
+        Scene(name: "6-almost-there-all", step: .ready, accessibility: .denied, microphone: .denied),
     ]
 
     override func setUpWithError() throws {
@@ -94,7 +98,7 @@ final class OnboardingRenderHarness: XCTestCase {
             hotkeyTap: scene.tap)
         let vm = OnboardingViewModel(config: { .defaults }, inputs: inputs, downloads: downloads,
                                      options: { scene.options }, isFirstShow: true, perform: { _ in },
-                                     onFinish: {})
+                                     onFinish: {}, notifications: FakeNotificationPermission(scene.notifications))
         while vm.current < scene.step { vm.forward() }
         return vm
     }

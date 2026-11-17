@@ -20,6 +20,9 @@ final class OnboardingViewModel: ObservableObject {
     private let options: () -> [OnboardingModelOption]
     private let performReadiness: (ReadinessAction) -> Void
     private let onFinish: () -> Void
+    /// Read, asked and opened through this (#44); nil until first read.
+    private let notifications: NotificationPermissionPort
+    private var notificationPermission: NotificationPermission?
     private var inputs: ReadinessInputs
     private var facts: OnboardingModelFacts
     private var subscription: AnyCancellable?
@@ -29,7 +32,7 @@ final class OnboardingViewModel: ObservableObject {
     init(config: @escaping () -> Config, inputs: ReadinessInputs, downloads: ModelDownloadControl,
          options: @escaping () -> [OnboardingModelOption], isFirstShow: Bool,
          perform: @escaping (ReadinessAction) -> Void, onFinish: @escaping () -> Void,
-         setUsagePing: @escaping (Bool) -> Void = { _ in }) {
+         notifications: NotificationPermissionPort, setUsagePing: @escaping (Bool) -> Void = { _ in }) {
         self.config = config
         self.usagePing = config().usagePing
         self.onUsagePing = setUsagePing
@@ -37,17 +40,19 @@ final class OnboardingViewModel: ObservableObject {
         self.options = options
         self.performReadiness = perform
         self.onFinish = onFinish
+        self.notifications = notifications
         self.inputs = inputs
         let offered = options()
         facts = OnboardingModelFacts(options: offered, selected: nil, downloads: downloads.modelDownloads,
                                      partial: Self.partial(offered, downloads))
-        let content = Self.content(inputs, facts, config())
+        let content = Self.content(inputs, facts, nil, config())
         self.content = content
         current = content.landing(isFirstShow: isFirstShow)
         subscription = downloads.modelDownloadsPublisher.sink { [weak self] state in
             // Published from the main actor (SettingsViewModel's `@Published`).
             MainActor.assumeIsolated { self?.downloadsChanged(state) }
         }
+        recheckNotifications()
     }
 
     // MARK: - What the view shows
@@ -111,7 +116,15 @@ final class OnboardingViewModel: ObservableObject {
 
     /// The window is shown again: land where setup stands.
     func reopened() {
+        recheckNotifications()
         current = content.landing(isFirstShow: false)
+    }
+
+    /// Re-reads the notification permission (back from System Settings).
+    func recheckNotifications() {
+        notifications.current { [weak self] permission in
+            MainActor.assumeIsolated { self?.notificationsChanged(permission) }   // completions run on main
+        }
     }
 
     // MARK: - Intents
@@ -128,6 +141,14 @@ final class OnboardingViewModel: ObservableObject {
             guard canChooseModel, facts.options.contains(where: { $0.key == key }) else { return }
             facts.selected = key
             rebuild()
+        case .requestNotifications:
+            notifications.request { [weak self] permission in
+                MainActor.assumeIsolated { self?.notificationsChanged(permission) }
+            }
+        case .openNotificationSettings:
+            notifications.openSettings()
+        case .goTo(let id):
+            current = id
         case .finish:
             onFinish()
         }
@@ -170,6 +191,12 @@ final class OnboardingViewModel: ObservableObject {
         }
     }
 
+    private func notificationsChanged(_ permission: NotificationPermission) {
+        guard permission != notificationPermission else { return }
+        notificationPermission = permission
+        rebuild()
+    }
+
     private func reloadFacts() {
         facts.options = options()
         facts.downloads = downloads.modelDownloads
@@ -178,14 +205,14 @@ final class OnboardingViewModel: ObservableObject {
 
     private func rebuild() {
         let old = content
-        content = Self.content(inputs, facts, config())
+        content = Self.content(inputs, facts, notificationPermission, config())
         if let next = OnboardingContent.autoAdvance(current: current, old: old, new: content) { current = next }
     }
 
     private static func content(_ inputs: ReadinessInputs, _ facts: OnboardingModelFacts,
-                                _ config: Config) -> OnboardingContent {
-        OnboardingContent(inputs: inputs, model: facts, hold: config.hold, toggle: config.toggle,
-                          cancelKeyCode: config.cancelKeyCode)
+                                _ notifications: NotificationPermission?, _ config: Config) -> OnboardingContent {
+        OnboardingContent(inputs: inputs, model: facts, notifications: notifications, hold: config.hold,
+                          toggle: config.toggle, cancelKeyCode: config.cancelKeyCode)
     }
 
     private static func partial(_ options: [OnboardingModelOption],
