@@ -39,6 +39,7 @@ enum SpoolEvent: Codable, Equatable {
     case transcribed(MeetingSpeaker, range: Range<Int>, offset: TimeInterval, segments: [SpoolSegment])
     case failed(MeetingSpeaker, range: Range<Int>, reason: String)  // a chunk failed to transcribe
     case stopped(at: TimeInterval, capReached: Bool)                // the user (or the cap) ended recording
+    case recoveryStarted                                            // a later launch began recovering it
 
     private enum Key: String, CodingKey {
         case type, speaker, origin, reason, at, through, from, to, offset, segments, capReached
@@ -70,6 +71,8 @@ enum SpoolEvent: Codable, Equatable {
         case let .stopped(at, capReached):
             try c.encode("stopped", forKey: .type)
             try c.encode(at, forKey: .at); try c.encode(capReached, forKey: .capReached)
+        case .recoveryStarted:
+            try c.encode("recoveryStarted", forKey: .type)
         }
     }
 
@@ -100,6 +103,8 @@ enum SpoolEvent: Codable, Equatable {
                            reason: try c.decode(String.self, forKey: .reason))
         case "stopped":
             self = .stopped(at: try c.decode(TimeInterval.self, forKey: .at), capReached: try c.decode(Bool.self, forKey: .capReached))
+        case "recoveryStarted":
+            self = .recoveryStarted
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "unknown event \(other)")
         }
@@ -233,6 +238,85 @@ final class InMemorySpoolHandle: MeetingSpoolHandle {
         }
     }
     func discard() { audio = [.me: [], .them: []]; events = [] }
+}
+
+// MARK: - Memory fallback
+
+/// A spool that keeps going when its disk spool stops taking audio (disk
+/// full, folder removed): from a side's first refused append, that side's
+/// audio is held in memory instead, so the meeting still transcribes and its
+/// audio can still be kept. Only crash recovery loses what's in memory. Reads
+/// and exports join the two seamlessly. Events still go to the disk spool
+/// (which drops them once it fails).
+final class FallbackSpoolHandle: MeetingSpoolHandle {
+    private let primary: MeetingSpoolHandle
+    /// Per side, once the disk refused: the index the memory part starts at.
+    private var memoryStart: [MeetingSpeaker: Int] = [:]
+    private var memory: [MeetingSpeaker: [Float]] = [:]
+    private var memorySilent: [MeetingSpeaker: Bool] = [:]
+
+    init(_ primary: MeetingSpoolHandle) { self.primary = primary }
+
+    var meeting: SpooledMeeting { primary.meeting }
+    var writeError: Error? { primary.writeError }
+    /// Some audio is in memory, not on disk.
+    var isHoldingAudioInMemory: Bool { !memoryStart.isEmpty }
+
+    func append(_ samples: [Float], for speaker: MeetingSpeaker) {
+        guard !samples.isEmpty else { return }
+        if memoryStart[speaker] == nil {
+            let before = primary.sampleCount(of: speaker)
+            primary.append(samples, for: speaker)
+            let written = primary.sampleCount(of: speaker) - before
+            guard written < samples.count else { return }
+            memoryStart[speaker] = before + written
+            memory[speaker] = []
+            memorySilent[speaker] = true
+            keep(samples[written...], for: speaker)
+        } else {
+            keep(samples[...], for: speaker)
+        }
+    }
+
+    private func keep(_ samples: ArraySlice<Float>, for speaker: MeetingSpeaker) {
+        memory[speaker, default: []].append(contentsOf: samples)
+        if memorySilent[speaker] == true, samples.contains(where: { $0 != 0 }) { memorySilent[speaker] = false }
+    }
+
+    func record(_ event: SpoolEvent) { primary.record(event) }
+
+    func sampleCount(of speaker: MeetingSpeaker) -> Int {
+        guard let start = memoryStart[speaker] else { return primary.sampleCount(of: speaker) }
+        return start + (memory[speaker]?.count ?? 0)
+    }
+
+    func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] {
+        guard let start = memoryStart[speaker], let held = memory[speaker] else { return try primary.samples(range, of: speaker) }
+        let r = range.clamped(toCount: start + held.count)
+        var out: [Float] = []
+        if r.lowerBound < start { out = try primary.samples(r.lowerBound..<min(r.upperBound, start), of: speaker) }
+        if r.upperBound > start { out += held[(max(r.lowerBound, start) - start)..<(r.upperBound - start)] }
+        return out
+    }
+
+    func isSilent(_ speaker: MeetingSpeaker) -> Bool {
+        primary.isSilent(speaker) && memorySilent[speaker] != false
+    }
+
+    func exportAudio(to folder: URL, fileName: (MeetingSpeaker) -> String) throws {
+        guard isHoldingAudioInMemory else { return try primary.exportAudio(to: folder, fileName: fileName) }
+        for speaker in MeetingSpeaker.allCases where sampleCount(of: speaker) > 0 {
+            try SpoolWAV.write(count: sampleCount(of: speaker),
+                               to: folder.appendingPathComponent("\(fileName(speaker)).wav")) { try samples($0, of: speaker) }
+        }
+    }
+
+    func discard() {
+        primary.discard()
+        memoryStart = [:]
+        memory = [:]
+        memorySilent = [:]
+    }
 }
 
 // MARK: - Folder

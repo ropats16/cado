@@ -55,6 +55,7 @@ class MeetingSpoolTests: XCTestCase {
                      segments: [SpoolSegment(start: 0, text: "Hello"), SpoolSegment(start: 3.25, text: "wörld 🌍")]),
         .failed(.me, range: 480_000..<960_000, reason: "boom"),
         .stopped(at: 3600, capReached: true),
+        .recoveryStarted,
     ]
 
     func testEventsRoundTripInOrder() throws {
@@ -263,5 +264,91 @@ final class FolderMeetingSpoolTests: XCTestCase {
         }
         let json = try String(contentsOf: dir.appendingPathComponent("meeting.json"), encoding: .utf8)
         XCTAssertTrue(json.contains("\"version\":1"))
+    }
+}
+
+/// A spool whose disk fills up: takes `room` samples per side, then refuses
+/// appends and reports `writeError`, like the folder spool on a full disk
+/// (what was written stays readable).
+final class FullDiskSpoolHandle: MeetingSpoolHandle {
+    struct DiskFull: LocalizedError { var errorDescription: String? { "No space left on device" } }
+    let inner: InMemorySpoolHandle
+    let room: Int
+    private(set) var writeError: Error?
+    init(_ meeting: SpooledMeeting, room: Int) { inner = InMemorySpoolHandle(meeting); self.room = room }
+    var meeting: SpooledMeeting { inner.meeting }
+    func append(_ samples: [Float], for speaker: MeetingSpeaker) {
+        let free = max(0, room - inner.sampleCount(of: speaker))
+        guard writeError == nil, free >= samples.count else { writeError = writeError ?? DiskFull(); return }
+        inner.append(samples, for: speaker)
+    }
+    func record(_ event: SpoolEvent) { if writeError == nil { inner.record(event) } }
+    func sampleCount(of speaker: MeetingSpeaker) -> Int { inner.sampleCount(of: speaker) }
+    func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] { try inner.samples(range, of: speaker) }
+    func isSilent(_ speaker: MeetingSpeaker) -> Bool { inner.isSilent(speaker) }
+    func exportAudio(to folder: URL, fileName: (MeetingSpeaker) -> String) throws { try inner.exportAudio(to: folder, fileName: fileName) }
+    func discard() { inner.discard() }
+}
+
+/// `FallbackSpoolHandle`: after the disk spool stops taking audio, the rest
+/// of the meeting is held in memory, so nothing recorded is lost.
+final class FallbackSpoolHandleTests: XCTestCase {
+    let meeting = SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "us.zoom.xos", startDate: Date())
+    func ramp(_ n: Int, from: Int = 0) -> [Float] { (from..<from + n).map { Float($0) * 0.001 + 0.0001 } }
+
+    func testAudioAfterAFullDiskIsKeptInMemoryAndReadsBackSeamlessly() throws {
+        let disk = FullDiskSpoolHandle(meeting, room: 1_000)
+        let h = FallbackSpoolHandle(disk)
+        h.append(ramp(600), for: .me)
+        XCTAssertFalse(h.isHoldingAudioInMemory)
+        h.append(ramp(600, from: 600), for: .me)   // doesn't fit
+        h.append(ramp(300, from: 1_200), for: .me)
+        h.append([0, 0], for: .them)
+        XCTAssertNotNil(h.writeError)
+        XCTAssertTrue(h.isHoldingAudioInMemory)
+        XCTAssertEqual(disk.sampleCount(of: .me), 600)
+        XCTAssertEqual(h.sampleCount(of: .me), 1_500)
+        XCTAssertEqual(try h.samples(0..<1_500, of: .me), ramp(1_500))
+        XCTAssertEqual(try h.samples(550..<650, of: .me), Array(ramp(1_500)[550..<650]), "straddles disk and memory")
+        XCTAssertEqual(try h.samples(1_400..<9_999, of: .me), Array(ramp(1_500)[1_400...]))
+        XCTAssertEqual(h.sampleCount(of: .them), 2, "Still fits on disk")
+        XCTAssertTrue(h.isSilent(.them))
+        XCTAssertFalse(h.isSilent(.me))
+    }
+
+    func testSilenceCountsTheMemoryPart() throws {
+        let h = FallbackSpoolHandle(FullDiskSpoolHandle(meeting, room: 2))
+        h.append([0, 0], for: .them)
+        h.append([0, 0, 0], for: .them)
+        XCTAssertTrue(h.isSilent(.them))
+        h.append([0.5], for: .them)
+        XCTAssertFalse(h.isSilent(.them))
+    }
+
+    func testExportIncludesTheMemoryPart() throws {
+        let h = FallbackSpoolHandle(FullDiskSpoolHandle(meeting, room: 70_000))
+        let me = ramp(100_000).map { $0.truncatingRemainder(dividingBy: 0.9) }
+        h.append(Array(me[..<50_000]), for: .me)
+        h.append(Array(me[50_000...]), for: .me)
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("fallback-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: out) }
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        try h.exportAudio(to: out) { $0.rawValue }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: out.path), ["Me.wav"])
+        let file = try AVAudioFile(forReading: out.appendingPathComponent("Me.wav"))
+        XCTAssertEqual(file.length, 100_000)
+        let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 100_000)!
+        try file.read(into: buf)
+        let decoded = Array(UnsafeBufferPointer(start: buf.floatChannelData![0], count: Int(buf.frameLength)))
+        for (x, y) in zip(decoded, me) { XCTAssertEqual(x, y, accuracy: 1.0 / 16_000) }
+    }
+
+    func testDiscardDropsBoth() throws {
+        let disk = FullDiskSpoolHandle(meeting, room: 1)
+        let h = FallbackSpoolHandle(disk)
+        h.append([0.1, 0.2], for: .me)
+        h.discard()
+        XCTAssertEqual(h.sampleCount(of: .me), 0)
+        XCTAssertFalse(h.isHoldingAudioInMemory)
     }
 }
