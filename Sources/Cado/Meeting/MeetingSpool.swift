@@ -423,7 +423,10 @@ enum SpoolWAV {
             guard written == AVAudioFramePosition(count) else {
                 throw SpoolWAVError.incomplete(expected: count, got: Int(written))
             }
-            try Durable.sync(all: [url, url.deletingLastPathComponent()])
+            do { try Durable.sync(all: [url, url.deletingLastPathComponent()]) }
+            catch let error as POSIXError where Durable.isUnsupported(error) {
+                Log.info("The audio folder can't be flushed to disk (\(error.localizedDescription)); kept without")
+            }
         } catch {
             try? FileManager.default.removeItem(at: url)
             throw error

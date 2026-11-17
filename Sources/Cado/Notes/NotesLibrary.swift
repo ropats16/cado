@@ -197,7 +197,7 @@ final class NotesLibrary {
         let temp = dir.appendingPathComponent(Self.temporaryPrefix + UUID().uuidString + Self.temporarySuffix)
         do {
             try writeNew(data, temp)
-            do { try sync(temp) } catch let error as POSIXError where Self.cannotFlush(error) {
+            do { try sync(temp) } catch let error as POSIXError where Durable.isUnsupported(error) {
                 Log.info("The notes folder can't be flushed to disk (\(error.localizedDescription)); saved without")
             }
         } catch {
@@ -249,11 +249,6 @@ final class NotesLibrary {
         }
     }
 
-    /// A flush the volume doesn't support (some network or FAT volumes): not
-    /// a failed write, so the note is saved without it.
-    private static func cannotFlush(_ error: POSIXError) -> Bool {
-        [.ENOTSUP, .EINVAL, .ENOTTY].contains(error.code)
-    }
 
     /// Creates `url` (failing with `EEXIST` if anything is there) and writes
     /// every byte of `data`, or throws. The bytes may still be in the OS's
@@ -624,6 +619,12 @@ enum Durable {
             if fsync(fd) != 0 { first = first ?? posixError(errno) }
         }
         if let first { throw first }
+    }
+
+    /// A flush the volume doesn't support (some network or FAT volumes): not
+    /// a failed write, so what was written stands without it.
+    static func isUnsupported(_ error: POSIXError) -> Bool {
+        [.ENOTSUP, .EINVAL, .ENOTTY].contains(error.code)
     }
 
     static func posixError(_ code: Int32) -> POSIXError { POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
