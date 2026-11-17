@@ -30,6 +30,7 @@ final class LiveMeetingRecorder: MeetingRecorder {
 
 extension NotesLibrary: MeetingNoteStore {
     func save(_ draft: NoteDraft) throws -> URL { try create(draft).summary.url }
+    func existingNotes(id: String, since: Date) -> [URL] { notes(withID: id, changedSince: since) }
 }
 
 /// Keeps a meeting's audio as 16 kHz mono 16-bit WAVs (`Me.wav`,
@@ -76,6 +77,23 @@ final class FolderMeetingArchive: MeetingArchive {
     func writeAudio(_ audio: SpoolAudio, into folder: URL) throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try audio.exportWAVs(to: folder) { $0.rawValue }
+    }
+
+    func writeReadableAudio(_ audio: SpoolAudio, into folder: URL) throws -> [MeetingSpeaker: Int] {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return try audio.exportReadableWAVs(to: folder) { $0.rawValue }
+    }
+
+    /// Directly under `root`, a folder, holding nothing (Finder's
+    /// `.DS_Store` aside).
+    func isFreeFolder(_ folder: URL) -> Bool {
+        guard folder.standardizedFileURL.deletingLastPathComponent().path == root.standardizedFileURL.path else {
+            return false
+        }
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isFolder), isFolder.boolValue,
+              let items = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return false }
+        return items.allSatisfy { $0 == ".DS_Store" }
     }
 
     /// Creates the first free `<name>`, `<name> 2`… (creating the leaf

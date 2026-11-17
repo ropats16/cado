@@ -122,9 +122,13 @@ final class MeetingAssistant {
 
     private var decision: MeetingToggle {
         MeetingToggle.decide(status: meetings.status, prompt: detector.prompt, usingMic: usingMic,
-                             choice: meetings.status == .idle ? meetings.currentChoice() : .nothing,
+                             choice: canStart ? meetings.currentChoice() : .nothing,
                              dictating: dictating())
     }
+
+    /// A start would record now: idle, or recovering (the recovery is held
+    /// for the new meeting, #48).
+    private var canStart: Bool { meetings.status == .idle || meetings.status.isRecovering }
 
     /// A click on the asking mascot: Record.
     func recordAsked() {
@@ -139,7 +143,7 @@ final class MeetingAssistant {
             notices.withdraw(prompt)
             posted = nil
         }
-        if yes, prompt.isRecord, meetings.status == .idle, dictating() {
+        if yes, prompt.isRecord, canStart, dictating() {
             Log.info("Meeting not started (\(prompt.app.name)): a dictation is under way.")
             onExplain?(MeetingToggle.notStarted, MeetingToggle.finishDictating)
             return show(detector.prompt)
@@ -162,8 +166,9 @@ final class MeetingAssistant {
     private var context: MeetingDetector.Context {
         let busy: Bool
         switch meetings.status {
-        case .idle, .recording: busy = dictating()
-        case .transcribing, .recovering: busy = true
+        // A meeting can start during a recovery (#48): only a dictation holds the question then.
+        case .idle, .recording, .recovering: busy = dictating()
+        case .transcribing: busy = true
         }
         return MeetingDetector.Context(enabled: enabled(), recording: meetings.recordingBundleID, busy: busy)
     }

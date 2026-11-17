@@ -179,6 +179,33 @@ final class MeetingAssistantTests: XCTestCase {
         XCTAssertEqual(meetings.prompt, .stop(zoom, call: 1), "a real read still does")
     }
 
+    /// A recovery doesn't hold "Record this meeting?" (#48): a meeting can
+    /// start during one, so the start of a call isn't left unrecorded. A
+    /// dictation still holds it; transcribing a meeting still does.
+    func testARecoveryDoesntHoldTheQuestion() {
+        meetings.status = .recovering(app: "Zoom", done: 0, total: 3)
+        zoomCallStarts()
+        XCTAssertEqual(notices.shown, [.record(zoom, call: 1)])
+        assistant.answer(.record(zoom, call: 1), yes: true)
+        XCTAssertEqual(meetings.actions, [.start(zoom)])
+    }
+
+    func testADictationDuringARecoveryStillHoldsTheQuestion() {
+        meetings.status = .recovering(app: "Zoom", done: 0, total: 3)
+        dictating = true
+        zoomCallStarts()
+        XCTAssertTrue(notices.shown.isEmpty)
+        dictating = false
+        assistant.refresh()
+        XCTAssertEqual(notices.shown, [.record(zoom, call: 1)])
+    }
+
+    func testTranscribingStillHoldsTheQuestion() {
+        meetings.status = .transcribing(app: "Zoom", done: 0, total: 2)
+        zoomCallStarts()
+        XCTAssertTrue(notices.shown.isEmpty)
+    }
+
     func testDictatingHoldsTheQuestion() {
         dictating = true
         zoomCallStarts()

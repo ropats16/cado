@@ -242,6 +242,35 @@ final class MeetingPassageLanguageTests: XCTestCase {
         XCTAssertFalse(notes.saved[0].body.contains(caveat))
     }
 
+    /// #48 with #47: a recovery held for a new meeting while its passage
+    /// runs on the fallback model journals the line after that passage's
+    /// result and before the pause; its note, finished after the new one,
+    /// still says so, and every passage of it is decoded in its own language.
+    func testAHeldRecoverysLastPassageKeepsItsFallbackLine() {
+        let handle = InMemorySpoolHandle(SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "z",
+                                                        startDate: Date(), language: "hi"))
+        handle.append(longThenShort(), for: .me)
+        let leftover = DurableSpoolHandle(handle)
+        spool.left = [LeftoverMeeting(handle: leftover, events: [.sideStarted(.me, origin: 0)])]
+        session.recoverLeftovers()
+        XCTAssertEqual(engine.jobs.count, 1, "The recovery's first passage is in the engine")
+        engine.fallback = true
+        record(longThenShort(), finish: false)   // holds the recovery
+        engine.finishOne()                       // the held passage, on the fallback model
+        let events = leftover.events
+        let transcribed = events.firstIndex { if case .transcribed = $0 { return true } else { return false } }
+        let fallback = events.firstIndex(of: .ranOnFallbackModel)
+        XCTAssertLessThan(try XCTUnwrap(transcribed), try XCTUnwrap(fallback))
+        XCTAssertEqual(events.last, .recoveryPaused, "Then the pause")
+        engine.fallback = false
+        engine.finishAll()
+        XCTAssertEqual(notes.saved.count, 2)
+        XCTAssertFalse(notes.saved[0].body.contains(caveat), "The new meeting's passages were fine")
+        XCTAssertTrue(notes.saved[1].body.contains("doesn't understand Hindi"), notes.saved[1].body)
+        XCTAssertEqual(Set(engine.jobs.filter { $0.meeting == handle.meeting.id }.map(\.language)), ["hi"])
+        XCTAssertEqual(engine.jobs.filter { $0.meeting == handle.meeting.id }.count, 2)
+    }
+
     func testARecoveredMeetingKeepsTheFallbackLine() {
         engine.fallback = false   // this launch's passages are fine
         let handle = InMemorySpoolHandle(SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "z",

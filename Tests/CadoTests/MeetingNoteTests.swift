@@ -271,14 +271,20 @@ final class MeetingNoteTests: XCTestCase {
         XCTAssertEqual(menu(.transcribing(app: "Zoom", done: 0, total: 0), .nothing).title, "Finishing Meeting…")
     }
 
-    /// #31 L4: a meeting from an earlier run being finished says so, and why
-    /// Record Meeting isn't there.
-    func testRecoveringHasItsOwnWording() {
-        let content = menu(.recovering(app: "Zoom", done: 2, total: 5), .one(app("Zoom", meeting: true)))
-        XCTAssertEqual(content.title, "Recovering Meeting… 2 of 5")
-        XCTAssertEqual(content.detail, "A meeting with Zoom that wasn't finished. Record Meeting is back once it's done.")
-        XCTAssertFalse(content.isEnabled)
-        XCTAssertEqual(menu(.recovering(app: "Zoom", done: 0, total: 0), .nothing).title, "Recovering Meeting…")
+    /// #31 L4, #48: a meeting from an earlier run being finished says so,
+    /// with its progress; Record Meeting stays (recording holds the recovery).
+    func testRecoveringHasItsOwnWordingAndStillOffersRecordMeeting() {
+        let zoom = app("Zoom", meeting: true)
+        let content = menu(.recovering(app: "Zoom", done: 2, total: 5), .one(zoom))
+        XCTAssertEqual(content.title, "Record Meeting (Zoom)")
+        XCTAssertEqual(content.action, .start(MeetingApp(zoom)))
+        XCTAssertEqual(content.detail, "Recovering a meeting with Zoom… 2 of 5. It waits while you record.")
+        XCTAssertFalse(content.isRecording)
+        let reading = menu(.recovering(app: "Zoom", done: 0, total: 0), .nothing)
+        XCTAssertEqual(reading.title, "Record Meeting")
+        XCTAssertFalse(reading.isEnabled)
+        XCTAssertEqual(reading.detail, "Recovering a meeting with Zoom… It waits while you record.")
+        XCTAssertNotNil(menu(.recovering(app: "Zoom", done: 0, total: 0), .several([zoom, zoom])).choices)
         UserFacingCopy.assertPlain(content.detail)
     }
 }

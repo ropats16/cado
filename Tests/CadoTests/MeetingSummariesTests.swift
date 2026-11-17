@@ -10,6 +10,7 @@ private final class RecordingNoteStore: MeetingNoteStore {
         saved.append(draft)
         return url
     }
+    func existingNotes(id: String, since: Date) -> [URL] { [] }
 }
 
 /// #34: when summaries run and what they do to the note file, over real
@@ -69,6 +70,18 @@ final class MeetingSummariesTests: XCTestCase {
             XCTAssertEqual(($0 as? CocoaError)?.code, .fileWriteOutOfSpace)
         }
         XCTAssertTrue(pending.isEmpty)
+    }
+
+    /// #48: a note recovery adopts is handed on the same way, on a later turn.
+    func testAnAdoptedNoteIsHandedOnLater() {
+        var pending: [() -> Void] = []
+        var handed: [URL] = []
+        let store = SummarizingNoteStore(RecordingNoteStore(), later: { pending.append($0) }, saved: { handed.append($0) })
+        let note = URL(fileURLWithPath: "/notes/b.md")
+        store.adopted(note)
+        XCTAssertEqual(handed, [])
+        pending.forEach { $0() }
+        XCTAssertEqual(handed, [note])
     }
 
     func testOnlyMeetingNotesAreHandedOn() throws {

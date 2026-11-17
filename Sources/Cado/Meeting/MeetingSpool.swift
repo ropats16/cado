@@ -22,16 +22,30 @@ import AVFoundation
 //
 // Sync policy: every append/record is written straight through to the file
 // (no app-side buffering), so it survives a crash of the app. The files are
-// flushed to the disk itself (`F_FULLFSYNC`) on the milestone events
-// (`isMilestone`: stop, quit, note saved…) and otherwise `synchronize()`d at
-// most every 5 seconds. Power loss may lose the last few seconds; that's
-// accepted.
+// flushed to the disk itself (each to the drive, then one `F_FULLFSYNC` for
+// the drive's cache) on the milestone events (`isMilestone`: stop, quit, note
+// saved…), there and then, and otherwise at most every 5 seconds: a power cut
+// loses at most the last 5 s (plus the capture's half-second batch), a little
+// more if the disk is slow to flush. Measured (#48, M-series SSD, the three
+// files after 1 s or 5 s of a meeting): a round with one `F_FULLFSYNC` takes
+// ~5 ms (p90 ~8 ms); three `F_FULLFSYNC`s took ~15 ms and plain `fsync`s
+// ~0.2 ms. A slow, external or busy disk can take hundreds of ms, so the
+// 5-second round runs on a utility queue (`SpoolDiskSync`), never on the main
+// thread the audio is appended on; one round at a time, on duplicates of the
+// files' descriptors, so a close, rename or discard meanwhile can't pull a
+// file out from under it. The new folder and its meeting.json are flushed
+// once the same way when the spool is created: without that, a power cut
+// could keep the audio and journal but not meeting.json, and the folder
+// would come back unidentified.
 //
 // When the journal can't be written (the disk is full) but something must
-// still be remembered, the folder's name says it: `<uuid>.<mark>`
+// still be remembered, the folder's name says it: `<uuid>.<mark>[.<mark>…]`
 // (`SpoolFolderMark`). A rename in place needs no free space. `leftovers()`
 // deletes a folder marked written down, and returns the others with their
-// mark; a folder with a name it doesn't know is left as it is.
+// marks; a folder with a name it doesn't know is left as it is (so an older
+// Cado leaves a name with two marks alone). A mark has no place in time, so
+// recovery reads it as the event it stands for, after the journal's own,
+// and puts it into the journal once the journal takes it again (#48).
 
 /// What identifies a spooled meeting; written once when it starts.
 struct SpooledMeeting: Codable, Equatable {
@@ -217,16 +231,89 @@ enum SpoolNotice: String, Codable, Equatable {
 }
 
 /// What a spool folder's name says when the journal couldn't take it (the
-/// disk is full): `<uuid>.<rawValue>`.
-enum SpoolFolderMark: String, Equatable {
+/// disk is full): `<uuid>.<rawValue>`, several in `order`.
+enum SpoolFolderMark: String, Equatable, CaseIterable {
+    /// Cado was quit during the meeting and `.appQuit` couldn't be journaled
+    /// (#48): the late note says it was quit, not that it quit unexpectedly.
+    case quit = "quit"
     /// The note couldn't be saved anywhere, and `.noteSaveFailed` couldn't be
     /// journaled: recovered as a note that couldn't be saved.
     case noteNotSaved = "unsaved"
+    /// A recovery attempt began and `.recoveryStarted` couldn't be journaled
+    /// (#48): the crash-loop guard still counts it. Cleared when the attempt
+    /// ends (a clean quit, a note saved or not).
+    case tried = "tried"
+    /// Recovery gave up on the meeting and `.recoveryGaveUp` couldn't be
+    /// journaled (#48): its note is still written at once, and a death
+    /// writing it is still counted (the next launch sets it aside). Goes
+    /// into the journal ahead of anything else written after it
+    /// (`RecoverySpoolHandle`). Older builds leave a name with it as it is.
+    case gaveUp = "gave-up"
+    /// Recovery waited a launch for room (#48): the journal couldn't take
+    /// what it must write first because the disk was full; the user was told.
+    /// Still full the next time, it's set aside, not waited for again. Goes
+    /// once the journal takes an attempt's start or a give-up.
+    case waited = "waited"
     /// The note is saved but `.noteSaved` couldn't be journaled, and the audio
     /// still has to be copied: only the copy is done again, never a note.
     case audioPending = "keep-audio"
     /// The note is saved and nothing is left to keep: `leftovers()` deletes it.
     case writtenDown = "done"
+    /// Its meeting.json is unreadable and its audio couldn't be kept elsewhere
+    /// either; the user was told where it is (#48): `leftovers()` leaves it
+    /// alone, without a word.
+    case unidentified = "unidentified"
+    /// Recovery stopped trying (#48: a give-up that died, a disk still full
+    /// or one Cado can't write to) and the folder couldn't be moved out of
+    /// the way; the user was told where it is: `leftovers()` leaves it
+    /// alone, without a word.
+    case setAside = "set-aside"
+
+    /// How marks are written in a name.
+    static var order: [SpoolFolderMark] { allCases }
+
+    /// `marks` in the order what they stand for happened in: a quit comes
+    /// before the note that couldn't be saved; an attempt that ends in a
+    /// note clears `.tried`, so with both, the attempt came after. A give-up
+    /// comes after its attempt and before its note, which is the unsaved one
+    /// with both (a give-up is never marked after an unsaved note).
+    static func ordered(_ marks: Set<SpoolFolderMark>) -> [SpoolFolderMark] {
+        let journaled: [SpoolFolderMark] = marks.contains(.gaveUp) ? [.quit, .tried, .gaveUp, .noteNotSaved]
+            : [.quit, .noteNotSaved, .tried, .gaveUp]
+        return (journaled + order.filter { $0.event == nil }).filter(marks.contains)
+    }
+
+    /// The journal event a mark stands for, if the plan reads it as one.
+    var event: SpoolEvent? {
+        switch self {
+        case .quit: return .appQuit
+        case .noteNotSaved: return .noteSaveFailed(reason: "The note couldn't be saved (from the folder's name).")
+        case .tried: return .recoveryStarted
+        case .gaveUp: return .recoveryGaveUp(reason: "Recovery gave up (from the folder's name).")
+        case .waited, .audioPending, .writtenDown, .unidentified, .setAside: return nil
+        }
+    }
+
+    /// The events `marks` stand for, in the order they happened.
+    static func events(for marks: Set<SpoolFolderMark>) -> [SpoolEvent] {
+        ordered(marks).compactMap(\.event)
+    }
+
+    /// `<base>.<mark>…` in `order`; `<base>` with none.
+    static func folderName(_ base: String, _ marks: Set<SpoolFolderMark>) -> String {
+        ([base] + order.filter(marks.contains).map(\.rawValue)).joined(separator: ".")
+    }
+
+    /// A folder name's base and marks; nil if a mark isn't one this Cado knows.
+    static func parse(folderName name: String) -> (base: String, marks: Set<SpoolFolderMark>)? {
+        let parts = name.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        var marks = Set<SpoolFolderMark>()
+        for raw in parts.dropFirst() {
+            guard let mark = SpoolFolderMark(rawValue: raw) else { return nil }
+            marks.insert(mark)
+        }
+        return (parts[0], marks)
+    }
 }
 
 /// On disk a speaker is a stable key, not the user-facing label (`rawValue`),
@@ -257,6 +344,8 @@ protocol MeetingSpoolHandle: AnyObject {
     func append(_ samples: [Float], for speaker: MeetingSpeaker)
     /// Appends to the journal. True if it's in it (a folder spool: written to the file); false if it couldn't be written (the disk is full, the folder is gone…).
     @discardableResult func record(_ event: SpoolEvent) -> Bool
+    /// `record`, except that a milestone's flush to the disk itself runs in the background instead of before it returns (#48: a recovery paused for a meeting being started mustn't hold that meeting up). In the journal as soon as `record` would be; on the disk itself a moment later (the flush is queued at once, ahead of any spool made after).
+    @discardableResult func recordFlushingLater(_ event: SpoolEvent) -> Bool
     /// First write/record failure, if any (disk full, folder gone…): after it, `samples(_:of:)` may throw and recovery may be incomplete.
     var writeError: Error? { get }
     /// Samples appended so far for one side.
@@ -273,8 +362,10 @@ protocol MeetingSpoolHandle: AnyObject {
     var hasAllAudioOnDisk: Bool { get }
     /// The spool's folder, if it has one.
     var location: URL? { get }
-    /// Renames the folder in place to say `mark` (`SpoolFolderMark`), for when the journal can't take it. False (logged) if there's no folder or it can't be renamed.
-    @discardableResult func mark(_ mark: SpoolFolderMark) -> Bool
+    /// What the folder's name says now (`SpoolFolderMark`); empty if nothing.
+    var folderMarks: Set<SpoolFolderMark> { get }
+    /// Renames the folder in place to say exactly `marks` (none: its plain name), for when the journal can't take something. False (logged) if there's no folder or it can't be renamed.
+    @discardableResult func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool
     /// Moves the folder, as it is, into `folder`; its new place, or nil (logged) if it stays where it was. The handle writes nothing after.
     func moveFolder(into folder: URL) -> URL?
     /// Deletes the spool folder. Idempotent. A failure is logged and leaves it (a later discard, or the next launch, deletes it).
@@ -282,6 +373,12 @@ protocol MeetingSpoolHandle: AnyObject {
 }
 
 extension MeetingSpoolHandle {
+    /// Nothing to flush (memory, fakes): `record`.
+    @discardableResult func recordFlushingLater(_ event: SpoolEvent) -> Bool { record(event) }
+
+    /// Renames the folder to say `mark` alone (what it said before goes).
+    @discardableResult func mark(_ mark: SpoolFolderMark) -> Bool { setMarks([mark]) }
+
     /// Writes each non-empty side as a 16 kHz mono 16-bit WAV named `<label>.wav` into `folder` (labels supplied by the caller), streaming — never loading a whole side into memory.
     func exportAudio(to folder: URL, fileName: (MeetingSpeaker) -> String) throws {
         try audio().exportWAVs(to: folder, fileName: fileName)
@@ -324,14 +421,32 @@ struct SpoolAudio {
                                to: folder.appendingPathComponent("\(fileName(speaker)).wav")) { try samples($0, of: speaker) }
         }
     }
+
+    /// `exportWAVs`, each side as far as it can be read (`SpoolWAV.writeReadable`):
+    /// for a spool file shorter than its journal says. How many samples of
+    /// each non-empty side are in its WAV (0: none could be read, no file).
+    func exportReadableWAVs(to folder: URL, fileName: (MeetingSpeaker) -> String) throws -> [MeetingSpeaker: Int] {
+        var written: [MeetingSpeaker: Int] = [:]
+        for speaker in MeetingSpeaker.allCases where count(of: speaker) > 0 {
+            written[speaker] = try SpoolWAV.writeReadable(upTo: count(of: speaker),
+                                                          to: folder.appendingPathComponent("\(fileName(speaker)).wav")) {
+                try samples($0, of: speaker)
+            }
+        }
+        return written
+    }
 }
 
 /// A spool reopened after the app quit without finishing it.
 struct LeftoverMeeting {
     let handle: MeetingSpoolHandle
     let events: [SpoolEvent]      // in the order recorded; a torn final line is dropped
-    /// What its folder's name says, if it was marked (`SpoolFolderMark`).
-    var mark: SpoolFolderMark?
+    /// What its folder's name says (`SpoolFolderMark`); empty if nothing.
+    var marks: Set<SpoolFolderMark> = []
+    /// It has audio but no readable meeting.json (#48): `handle.meeting` is
+    /// made up (the folder's id if it has one, its creation date, no app), so
+    /// no note can be written; only its audio can be kept.
+    var isUnidentified = false
 }
 
 protocol MeetingSpooling: AnyObject {
@@ -343,31 +458,120 @@ protocol MeetingSpooling: AnyObject {
 
 // MARK: - Shared helpers
 
-private enum SpoolWAV {
+/// What a failed spool write says about the disk (#48).
+enum SpoolWriteFailure {
+    /// The disk (or the user's quota) is full: room may come back. Anything
+    /// else (permissions, a read-only disk, a locked file, a folder gone)
+    /// means Cado can't write there, however much room there is.
+    static func isDiskFull(_ error: Error?) -> Bool {
+        guard let error else { return false }
+        let ns = error as NSError
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOSPC) || ns.code == Int(EDQUOT) { return true }
+        if ns.domain == NSCocoaErrorDomain, ns.code == NSFileWriteOutOfSpaceError { return true }
+        return isDiskFull(ns.userInfo[NSUnderlyingErrorKey] as? Error)
+    }
+}
+
+/// Why a WAV copy of spooled audio isn't complete (`SpoolWAV.write`).
+enum SpoolWAVError: LocalizedError, Equatable {
+    /// The spool gave fewer samples than it said it has (a file cut short).
+    case shortRead(expected: Int, got: Int)
+    /// The finished file doesn't hold every sample (its header or data didn't reach it).
+    case incomplete(expected: Int, got: Int)
+    case noBuffer
+
+    var errorDescription: String? {
+        switch self {
+        case let .shortRead(expected, got):
+            return "Only \(got) of \(expected) samples of the recording could be read."
+        case let .incomplete(expected, got):
+            return "Only \(got) of \(expected) samples of the recording reached the audio file."
+        case .noBuffer: return "There wasn't enough memory to copy the recording."
+        }
+    }
+}
+
+enum SpoolWAV {
     static let chunk = 1 << 16
 
     /// Streams `count` samples, fetched `chunk` at a time by `read`, into a
-    /// 16-bit WAV at `url`.
+    /// 16-bit WAV at `url` (replacing a file there). Returns only when the
+    /// copy is whole and on the disk itself (#48): every sample read and
+    /// written (a short read throws `shortRead`), the file closed and read
+    /// back holding `count` samples (`incomplete` if not), and the file and
+    /// its folder flushed (`Durable`). On any failure the partial file is
+    /// removed, so a WAV that's there is a complete one.
     static func write(count: Int, to url: URL, read: (Range<Int>) throws -> [Float]) throws {
+        _ = try write(count: count, to: url, read: read, readable: false)
+    }
+
+    /// As many of `count` samples as can be read (#48: a spool file that is
+    /// shorter than its journal says, for good): streamed until `read` comes
+    /// back short, then checked and flushed as `write` does, for that many.
+    /// Returns how many are in the file; 0: nothing could be read, no file.
+    /// A read that throws still throws.
+    static func writeReadable(upTo count: Int, to url: URL, read: (Range<Int>) throws -> [Float]) throws -> Int {
+        try write(count: count, to: url, read: read, readable: true)
+    }
+
+    private static func write(count: Int, to url: URL, read: (Range<Int>) throws -> [Float], readable: Bool) throws -> Int {
+        try? FileManager.default.removeItem(at: url)
+        do {
+            // In pools, so neither file outlives its use (an autoreleased
+            // writer would finish its header only later).
+            let samples = try autoreleasepool { try writeSamples(count: count, to: url, read: read, toTheEnd: readable) }
+            if readable, samples == 0 {
+                try? FileManager.default.removeItem(at: url)
+                return 0
+            }
+            // Closed now: what a reader sees is what reached the file.
+            let written = try autoreleasepool { try AVAudioFile(forReading: url).length }
+            guard written == AVAudioFramePosition(samples) else {
+                throw SpoolWAVError.incomplete(expected: samples, got: Int(written))
+            }
+            do { try Durable.sync(all: [url, url.deletingLastPathComponent()]) }
+            catch let error as POSIXError where Durable.isUnsupported(error) {
+                Log.info("The audio folder can't be flushed to disk (\(error.localizedDescription)); kept without")
+            }
+            return samples
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            throw error
+        }
+    }
+
+    /// The writing part of `write`; the file is closed when it returns. How
+    /// many samples were written: `count`, or with `toTheEnd`, what could be
+    /// read (else a short read throws `shortRead`).
+    private static func writeSamples(count: Int, to url: URL, read: (Range<Int>) throws -> [Float],
+                                     toTheEnd: Bool) throws -> Int {
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: AudioCapture.sampleRate,
             AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false,
         ]
-        try? FileManager.default.removeItem(at: url)
         let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32,
                                    interleaved: false)
+        defer { if #available(macOS 15, *) { file.close() } }   // older: closed when released, on return
         var offset = 0
         while offset < count {
-            let slice = try read(offset..<min(offset + chunk, count))
-            if slice.isEmpty { break }
+            let want = min(chunk, count - offset)
+            let slice = try read(offset..<(offset + want))
+            guard slice.count <= want else { throw SpoolWAVError.shortRead(expected: count, got: offset) }
+            guard !slice.isEmpty else {
+                if toTheEnd { break }
+                throw SpoolWAVError.shortRead(expected: count, got: offset)
+            }
             guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
-                                                frameCapacity: AVAudioFrameCount(slice.count)) else { break }
+                                                frameCapacity: AVAudioFrameCount(slice.count)) else {
+                throw SpoolWAVError.noBuffer
+            }
             buffer.frameLength = AVAudioFrameCount(slice.count)
             slice.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: slice.count) }
             try file.write(from: buffer)
             offset += slice.count
         }
+        return offset
     }
 }
 
@@ -416,7 +620,8 @@ final class InMemorySpoolHandle: MeetingSpoolHandle {
     var hasFolder: Bool { false }
     var hasAllAudioOnDisk: Bool { false }
     var location: URL? { nil }
-    func mark(_ mark: SpoolFolderMark) -> Bool { false }
+    var folderMarks: Set<SpoolFolderMark> { [] }
+    func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool { false }
     func moveFolder(into folder: URL) -> URL? { nil }
     func discard() { stored = [.me: [], .them: []]; events = []; isDiscarded = true }
 }
@@ -466,6 +671,7 @@ final class FallbackSpoolHandle: MeetingSpoolHandle {
     }
 
     func record(_ event: SpoolEvent) -> Bool { primary.record(event) }
+    func recordFlushingLater(_ event: SpoolEvent) -> Bool { primary.recordFlushingLater(event) }
 
     func sampleCount(of speaker: MeetingSpeaker) -> Int {
         guard let start = memoryStart[speaker] else { return primary.sampleCount(of: speaker) }
@@ -503,7 +709,8 @@ final class FallbackSpoolHandle: MeetingSpoolHandle {
     var hasFolder: Bool { primary.hasFolder }
     var hasAllAudioOnDisk: Bool { primary.hasAllAudioOnDisk && !isHoldingAudioInMemory }
     var location: URL? { primary.location }
-    func mark(_ mark: SpoolFolderMark) -> Bool { primary.mark(mark) }
+    var folderMarks: Set<SpoolFolderMark> { primary.folderMarks }
+    func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool { primary.setMarks(marks) }
     func moveFolder(into folder: URL) -> URL? { primary.moveFolder(into: folder) }
 
     func discard() {
@@ -516,12 +723,60 @@ final class FallbackSpoolHandle: MeetingSpoolHandle {
 
 // MARK: - Folder
 
+/// How a folder spool gets its files to the disk itself (#48). Seams for tests.
+struct SpoolDiskSync {
+    /// Seconds since boot, for the 5-second interval.
+    var clock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    /// Runs a flush away from the main thread (a serial utility queue, so
+    /// rounds don't overlap one another).
+    var background: (@escaping () -> Void) -> Void = { SpoolDiskSync.queue.async(execute: $0) }
+    /// Flushes open descriptors (`flushToDisk`). Doesn't close them.
+    var flush: ([Int32]) -> Void = SpoolDiskSync.flushToDisk
+
+    static let queue = DispatchQueue(label: "Cado.MeetingSpool.flush", qos: .utility)
+
+    /// Each to the drive (`fsync`), then one `F_FULLFSYNC` (on the last),
+    /// which flushes the drive's cache with all of them in it (`fsync` if it
+    /// isn't supported). A failure is left to the next round.
+    static func flushToDisk(_ fds: [Int32]) {
+        for (i, fd) in fds.enumerated() {
+            if i == fds.count - 1, fcntl(fd, F_FULLFSYNC) == 0 { continue }
+            _ = fsync(fd)
+        }
+    }
+
+    /// Flushes `fds` in the background and then closes them: they're the
+    /// caller's to give away (opened or `dup`ed for this), so nothing else
+    /// can close them first. `done` runs after, on that queue.
+    func flushInBackground(_ fds: [Int32], done: @escaping () -> Void = {}) {
+        let flush = self.flush
+        background {
+            flush(fds)
+            for fd in fds { close(fd) }
+            done()
+        }
+    }
+}
+
+/// One background flush at a time per handle: a slow disk doesn't get a
+/// queue of them. Any thread.
+private final class FlushGate {
+    private let lock = NSLock()
+    private var busy = false
+    /// False if one is still going.
+    func begin() -> Bool { lock.lock(); defer { lock.unlock() }; if busy { return false }; busy = true; return true }
+    func end() { lock.lock(); busy = false; lock.unlock() }
+}
+
 /// On disk: `<root>/<uuid>/` with `meeting.json`, `me.f32` and `them.f32` (raw little-endian Float32, 16 kHz mono, append-only) and `events.jsonl` (one JSON object per line, append-only).
 final class FolderMeetingSpool: MeetingSpooling {
     private let root: URL
+    private let diskSync: SpoolDiskSync
 
-    init(root: URL = Paths.appSupportDir.appendingPathComponent("Meetings In Progress", isDirectory: true)) {
+    init(root: URL = Paths.appSupportDir.appendingPathComponent("Meetings In Progress", isDirectory: true),
+         diskSync: SpoolDiskSync = SpoolDiskSync()) {
         self.root = root
+        self.diskSync = diskSync
     }
 
     func create(_ meeting: SpooledMeeting) throws -> MeetingSpoolHandle {
@@ -542,34 +797,39 @@ final class FolderMeetingSpool: MeetingSpooling {
         let url = dir.appendingPathComponent(FolderSpoolHandle.infoName)
         try JSONEncoder().encode(info).write(to: url)
         try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        return FolderSpoolHandle(meeting: meeting, dir: dir, lock: lock)
+        // To the disk itself, once (#48): meeting.json, the folder's entries,
+        // the folder's own entry in the root. Off the main thread; opened now,
+        // so a rename or discard meanwhile can't make it miss.
+        let fds = [url, dir, root].map { open($0.path, O_RDONLY | O_CLOEXEC) }.filter { $0 >= 0 }
+        if fds.count < 3 { Log.info("Couldn't open the new meeting spool to flush it to disk") }
+        diskSync.flushInBackground(fds)
+        return FolderSpoolHandle(meeting: meeting, dir: dir, lock: lock, diskSync: diskSync)
     }
 
     /// Spools no open handle holds (another instance's live meeting is
     /// locked), each now locked by its returned handle. A folder without a
-    /// readable meeting.json is deleted if it holds no audio, else skipped.
-    /// A folder marked written down is deleted (its note is saved, nothing
-    /// is left to keep); one with a mark this build doesn't know is skipped.
+    /// readable meeting.json is deleted if it holds no audio, else returned
+    /// as unidentified (#48), unless a newer Cado wrote it (skipped) or it
+    /// was marked so already (skipped quietly). One marked set aside is
+    /// skipped quietly too. A folder marked written down
+    /// is deleted (its note is saved, nothing is left to keep); one with a
+    /// mark this build doesn't know is skipped.
     func leftovers() -> [LeftoverMeeting] {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return [] }
         excludeFromBackups()
         var found: [LeftoverMeeting] = []
         for dir in entries where (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            let name = dir.lastPathComponent.split(separator: ".", maxSplits: 1)
-            var mark: SpoolFolderMark?
-            if name.count == 2 {
-                guard let known = SpoolFolderMark(rawValue: String(name[1])) else {
-                    Log.info("Meeting spool \(dir.lastPathComponent) has a name this Cado doesn't know; left as it is")
-                    continue
-                }
-                mark = known
+            guard let (base, marks) = SpoolFolderMark.parse(folderName: dir.lastPathComponent) else {
+                Log.info("Meeting spool \(dir.lastPathComponent) has a name this Cado doesn't know; left as it is")
+                continue
             }
+            if marks.contains(.unidentified) || marks.contains(.setAside) { continue }   // the user was told where it is
             guard let lock = SpoolLock.take(in: dir) else {
                 Log.info("Meeting spool \(dir.lastPathComponent) is in use by another Cado; skipped")
                 continue
             }
-            if mark == .writtenDown {
+            if marks.contains(.writtenDown) {
                 Log.info("Meeting spool \(dir.lastPathComponent) was written down already; removed")
                 withExtendedLifetime(lock) {
                     do { try fm.removeItem(at: dir) } catch {
@@ -578,25 +838,37 @@ final class FolderMeetingSpool: MeetingSpooling {
                 }
                 continue
             }
-            guard let data = try? Data(contentsOf: dir.appendingPathComponent(FolderSpoolHandle.infoName)),
-                  let info = try? JSONDecoder().decode(FolderSpoolHandle.Info.self, from: data) else {
+            let data = try? Data(contentsOf: dir.appendingPathComponent(FolderSpoolHandle.infoName))
+            guard let data, let info = try? JSONDecoder().decode(FolderSpoolHandle.Info.self, from: data) else {
                 let audio = MeetingSpeaker.allCases.contains { speaker in
                     ((try? fm.attributesOfItem(atPath: dir.appendingPathComponent(FolderSpoolHandle.fileName(speaker)).path))?[.size]
                         as? Int ?? 0) > 0
                 }
                 if audio {
-                    Log.error("Meeting spool \(dir.lastPathComponent) has audio but no readable meeting.json; left as it is")
+                    if let data, let made = try? JSONDecoder().decode(Version.self, from: data), made.version > 1 {
+                        Log.info("Meeting spool \(dir.lastPathComponent) was made by a newer Cado; left as it is")
+                        continue
+                    }
+                    Log.error("Meeting spool \(dir.lastPathComponent) has audio but no readable meeting.json")
+                    let created = (try? dir.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? Date()
+                    let made = SpooledMeeting(id: UUID(uuidString: base) ?? UUID(), appName: "", appBundleID: "",
+                                              startDate: created)
+                    let handle = FolderSpoolHandle(meeting: made, dir: dir, lock: lock, diskSync: diskSync)
+                    found.append(LeftoverMeeting(handle: handle, events: handle.readEvents(), marks: marks,
+                                                 isUnidentified: true))
                 } else {
                     Log.info("Meeting spool \(dir.lastPathComponent) was never set up and holds no audio; removed")
                     try? fm.removeItem(at: dir)
                 }
                 continue
             }
-            let handle = FolderSpoolHandle(meeting: info.meeting, dir: dir, lock: lock)
-            found.append(LeftoverMeeting(handle: handle, events: handle.readEvents(), mark: mark))
+            let handle = FolderSpoolHandle(meeting: info.meeting, dir: dir, lock: lock, diskSync: diskSync)
+            found.append(LeftoverMeeting(handle: handle, events: handle.readEvents(), marks: marks))
         }
         return found.sorted { $0.handle.meeting.startDate < $1.handle.meeting.startDate }
     }
+
+    private struct Version: Decodable { let version: Int }
 
     /// Raw audio and transcript text don't belong in Time Machine.
     private func excludeFromBackups() {
@@ -674,17 +946,21 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
     private var outputs: [String: Output] = [:]
     private var counts: [MeetingSpeaker: Int] = [:]
     private var silent: [MeetingSpeaker: Bool] = [:]
-    private var lastSync = ProcessInfo.processInfo.systemUptime
+    private let diskSync: SpoolDiskSync
+    private var lastSync: TimeInterval
+    private let flushGate = FlushGate()
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.outputFormatting = [.sortedKeys]
         return e
     }()
 
-    init(meeting: SpooledMeeting, dir: URL, lock: SpoolLock?) {
+    init(meeting: SpooledMeeting, dir: URL, lock: SpoolLock?, diskSync: SpoolDiskSync = SpoolDiskSync()) {
         self.meeting = meeting
         self.dir = dir
         self.lock = lock
+        self.diskSync = diskSync
+        lastSync = diskSync.clock()
         for s in MeetingSpeaker.allCases {
             let size = ((try? FileManager.default.attributesOfItem(atPath: url(s).path))?[.size] as? Int) ?? 0
             counts[s] = size / 4
@@ -740,17 +1016,26 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         }
     }
 
-    /// Every 5 s to the OS; `full`: to the disk itself (`F_FULLFSYNC`, which
-    /// survives power loss), for milestones only.
-    private func syncIfDue(full: Bool = false) {
-        let now = ProcessInfo.processInfo.systemUptime
-        guard full || now - lastSync >= Self.syncInterval else { return }
+    /// To the disk itself, which survives power loss (`SpoolDiskSync.flushToDisk`).
+    /// `now` (milestones): there and then, on this thread, so a caller can
+    /// rely on it having reached the disk when it returns. Otherwise every
+    /// 5 s, in the background, on `dup`s of the open files (their own
+    /// descriptors, closed by the flush): a close, rename (`setMarks`), move
+    /// or discard meanwhile leaves them valid, and an unlinked file's flush
+    /// is merely wasted. While one is still going (a slow disk) the next
+    /// round is skipped, not queued.
+    private func syncIfDue(now force: Bool = false) {
+        let now = diskSync.clock()
+        guard force || now - lastSync >= Self.syncInterval else { return }
         lastSync = now
-        for o in outputs.values {
-            guard let h = o.handle else { continue }
-            if full, fcntl(h.fileDescriptor, F_FULLFSYNC) == 0 { continue }
-            try? h.synchronize()
-        }
+        let fds = outputs.values.compactMap { $0.handle?.fileDescriptor }
+        guard !fds.isEmpty else { return }
+        if force { diskSync.flush(fds); return }
+        guard flushGate.begin() else { return }
+        let copies = fds.map { dup($0) }.filter { $0 >= 0 }
+        guard !copies.isEmpty else { flushGate.end(); return }
+        let gate = flushGate
+        diskSync.flushInBackground(copies) { gate.end() }
     }
 
     func append(_ samples: [Float], for speaker: MeetingSpeaker) {
@@ -763,14 +1048,27 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         if silent[speaker] == true, samples.contains(where: { $0 != 0 }) { silent[speaker] = false }
     }
 
-    func record(_ event: SpoolEvent) -> Bool {
+    func record(_ event: SpoolEvent) -> Bool { journal(event, flushNow: true) }
+    func recordFlushingLater(_ event: SpoolEvent) -> Bool { journal(event, flushNow: false) }
+
+    private func journal(_ event: SpoolEvent, flushNow: Bool) -> Bool {
         guard var data = try? encoder.encode(event) else { return false }
         data.append(0x0A)
         guard let out = output(Self.eventsName) else { return false }
         if out.handle != nil, !endsWithNewline(out.url) { data.insert(0x0A, at: 0) }   // a torn line from a crash
         guard write(data, to: out) else { return false }
-        if event.isMilestone { syncIfDue(full: true) }
+        if event.isMilestone { flushNow ? syncIfDue(now: true) : flushSoon() }
         return true
+    }
+
+    /// A milestone's flush, queued now in the background on `dup`s of the
+    /// open files (as the 5-second round), even while a round is going: that
+    /// one may have started before this write.
+    private func flushSoon() {
+        let copies = outputs.values.compactMap { $0.handle?.fileDescriptor }.map { dup($0) }.filter { $0 >= 0 }
+        guard !copies.isEmpty else { return }
+        lastSync = diskSync.clock()
+        diskSync.flushInBackground(copies)
     }
 
     private var checkedEventsTail = false
@@ -843,16 +1141,28 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         if !forGood { outputs = [:]; checkedEventsTail = false }
     }
 
-    /// `<uuid>` (or `<uuid>.<old mark>`) → `<uuid>.<mark>`, in place: a rename
-    /// needs no free space. The lock is held throughout (it's on the open file).
-    func mark(_ mark: SpoolFolderMark) -> Bool {
+    var folderMarks: Set<SpoolFolderMark> { SpoolFolderMark.parse(folderName: dir.lastPathComponent)?.marks ?? [] }
+
+    /// `<uuid>[.<old marks>]` → `<uuid>[.<marks>]`, in place: a rename needs
+    /// no free space. The lock is held throughout (it's on the open file).
+    ///
+    /// The files are closed (not for good) and reopened at the new name on
+    /// the next write. So a rename resets a write failure: after it, an
+    /// `append` or `record` that failed before (the disk was full, a file
+    /// couldn't be opened) is tried on disk again, and returns true / is
+    /// counted if it now works; `writeError` keeps the first failure. A fake
+    /// spool that models a full disk should do the same: once marked, let
+    /// `record` reach the journal again if there's room. A failed rename
+    /// changes nothing (the files stay open, failures stay failed).
+    func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool {
         let base = dir.lastPathComponent.split(separator: ".", maxSplits: 1).first.map(String.init) ?? dir.lastPathComponent
-        let target = dir.deletingLastPathComponent().appendingPathComponent("\(base).\(mark.rawValue)", isDirectory: true)
+        let name = SpoolFolderMark.folderName(base, marks)
+        let target = dir.deletingLastPathComponent().appendingPathComponent(name, isDirectory: true)
         guard target.path != dir.path else { return true }
         do {
             try FileManager.default.moveItem(at: dir, to: target)
         } catch {
-            Log.error("Couldn't mark the meeting spool \(dir.lastPathComponent) as \(mark.rawValue) (\(error.localizedDescription))")
+            Log.error("Couldn't rename the meeting spool \(dir.lastPathComponent) to \(name) (\(error.localizedDescription))")
             return false
         }
         closeOutputs(forGood: false)

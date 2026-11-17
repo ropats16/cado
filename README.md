@@ -386,14 +386,41 @@ and says why).
   recording on disk is never deleted before its note is saved. The note then
   says: "This note couldn't be saved when the meeting ended; it was finished the
   next time Cado started." Two copies of Cado on one Mac never touch each
-  other's meetings.
+  other's meetings. If Cado finds a recording there whose details (which app,
+  and when) can't be read, it can't write a note for it: it keeps the audio as
+  `Me.wav`/`Others.wav` in a `Meeting Audio` folder, moves the whole
+  recording's folder (the transcript so far included) in next to them, and
+  tells you where, once. If the audio can't be copied or the folder can't be
+  moved, the recording stays where it is, renamed so Cado leaves it alone,
+  and Cado tells you where it is. A note is saved whole or not at all: if
+  saving fails partway (a full disk), no half-written note is left in the
+  notes folder.
+- **The note's id:** a meeting note's front matter has an `id` line (the
+  meeting's own id), so if Cado stops right after saving a note, the next
+  launch finds the note and doesn't write a second one. It looks only at the
+  top level of the current notes folder, at notes changed since the meeting
+  began, so it can still write a second one if the notes folder was changed in
+  Settings in between, the note was moved into a subfolder, the Mac's clock
+  was set back, or the note had gone to the `Meeting Audio` folder. Notes in
+  iCloud Drive that aren't downloaded aren't opened for this. Other apps can
+  ignore the line; notes without it open as before. A note found this way
+  is used as it is, never rewritten: the meeting's audio is then always kept
+  in the `Meeting Audio` folder (in the folder the note names, if it's there
+  and empty), and the note gets its summary as any saved note does. Only a
+  whole note is used: part of a note left by a save that failed (an older
+  Cado could leave one on a full disk) is never used or deleted; the whole
+  note is written beside it, and if a whole note is there too, that one is
+  used.
 - **Keep meeting audio:** off by default, the meeting's audio is deleted once
   the note is saved. To keep it, turn on **Settings → Meetings → Keep meeting
   audio**: each meeting's audio is then kept as `Me.wav` and `Others.wav`
   (about 115 MB per hour each, even for a meeting where no speech was heard) in
   `~/Library/Application Support/Cado/Meeting Audio/<note title>/`. Whatever the
   setting, the audio is kept there when part of the meeting couldn't be
-  transcribed; the note says where.
+  transcribed; the note says where. If the end of a recording can't be read
+  back (its file in Meetings In Progress was cut short), Cado keeps what can
+  be read and says how much at the end is missing ("Part of a meeting's audio
+  is missing"), rather than try again on every launch.
 - **If you quit Cado mid-meeting**, nothing is lost: the recording is kept
   safely on disk. The next time Cado starts, it finishes transcribing and saves
   the complete note, which says: "Cado was quit during this meeting; the note
@@ -403,14 +430,28 @@ and says why).
   and its speech model is ready, it finishes the note from what was recorded
   and saves it with a line saying Cado quit unexpectedly and the note was
   recovered, then a notification. Up to about a second of audio right before
-  the crash can be lost (a few more seconds after a power cut). Meetings with
+  the crash can be lost (after a power cut, up to about 5 seconds more: the
+  recording is flushed to the disk every 5 seconds). Meetings with
   no speech are just deleted. If Cado can't recover a meeting after trying on
   two launches, it stops trying: it saves a note with what was transcribed
   before and keeps the audio in the `Meeting Audio` folder. If even that fails,
   the untouched recording is moved to the `Meeting Audio` folder and Cado says
   where it is ("Couldn't finish a meeting"). It is never deleted. While a
-  recovery runs, the menu shows **Recovering Meeting…** with its progress, and
-  **Record Meeting** is unavailable until it's done.
+  recovery runs, the menu shows its progress ("Recovering a meeting with
+  Zoom… 2 of 5") under **Record Meeting**, which still works (as do the
+  meeting hotkey and the mascot): the recovery
+  waits while you record (the menu then shows only the new meeting), and goes
+  on, with its progress shown again, once the new meeting's note is saved.
+  If the disk is too full for Cado to keep track of a recovery, it doesn't
+  try where a crash couldn't be counted: it waits one launch for free space
+  ("Couldn't finish a meeting yet"). If the disk is still full the launch
+  after, or Cado can't write to its Meetings In Progress folder at all (no
+  permission, a read-only disk), it stops trying: the untouched recording is
+  moved to the `Meeting Audio` folder and Cado says why and where, once
+  ("Couldn't finish a meeting"). If the folder cannot be renamed to keep
+  recovery's progress in the right order, Cado also stops and preserves the
+  recording rather than risking repeated recovery crashes. If it cannot move
+  the recording, it keeps it in place and tells you where.
 - **Limits:** a meeting stops by itself after the **Max meeting length**
   (Settings → Meetings: 30 minutes to 4 hours, default 2 hours, or Off), with
   a notification; the note is still written and says so. Off still stops a

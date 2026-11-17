@@ -90,24 +90,30 @@ final class MeetingController: MeetingActivity, MeetingRecording {
 
     var status: MeetingStatus { session.status }
 
-    /// The menu is opening: which apps could be recorded right now.
+    /// The menu is opening: which apps could be recorded right now (also
+    /// during a recovery, which recording holds, #48).
     func refreshApps() {
-        if session.status == .idle {
+        if canStart {
             choice = currentChoice()
         }
         renderNow()
     }
 
+    /// A start would record now: idle, or recovering (recording holds the
+    /// recovery, #48).
+    private var canStart: Bool { session.status == .idle || session.status.isRecovering }
+
     func perform(_ action: MeetingMenuContent.Action) {
         switch action {
         case .start(let app):
-            // Not idle: the session ignores it, or says why (a recovery).
-            guard session.status == .idle else { return session.start(app) }
+            // Recording or writing one down: the session ignores it. A
+            // recovery is held for it, so that start passes the reminder too.
+            guard canStart else { return session.start(app) }
             consent.confirm { [weak self] in
                 guard let self else { return }
                 // The reminder's modal loop may have let another start
-                // through meanwhile: that one is recording (or explained).
-                guard session.status == .idle else { return session.start(app) }
+                // through meanwhile: that one is recording.
+                guard canStart else { return session.start(app) }
                 startedApp = app
                 session.start(app)
             }

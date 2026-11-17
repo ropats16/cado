@@ -22,6 +22,16 @@ final class MeetingToggleTests: XCTestCase {
         UserFacingCopy.assertPlain(MeetingToggle.finishDictating)
     }
 
+    /// A recovery doesn't stop a new meeting: it's held for it (#48), as
+    /// from the menu; a dictation still does.
+    func testStartsDuringARecovery() {
+        let recovering = MeetingStatus.recovering(app: "Zoom", done: 0, total: 0)
+        XCTAssertEqual(decide(recovering, usingMic: [teams]), .start(teams))
+        XCTAssertEqual(decide(recovering, choice: .one(zoomRunning)), .start(zoom))
+        XCTAssertEqual(decide(recovering, usingMic: [teams], dictating: true),
+                       .explain(title: "Meeting not started", body: "Finish dictating first."))
+    }
+
     func testStopsARecording() {
         XCTAssertEqual(decide(.recording(app: "Zoom", startedAt: 0, lost: [])), .stop)
     }
@@ -50,9 +60,7 @@ final class MeetingToggleTests: XCTestCase {
         guard case .explain(_, let busy) = decide(.transcribing(app: "Zoom", done: 1, total: 3), usingMic: [zoom])
         else { return XCTFail() }
         XCTAssertTrue(busy.hasPrefix("Cado is still writing down the last meeting."))
-        guard case .explain(_, let recovering) = decide(.recovering(app: "Zoom", done: 0, total: 0)) else { return XCTFail() }
-        XCTAssertTrue(recovering.contains("with Zoom"))
-        for text in [title, body, busy, recovering] {
+        for text in [title, body, busy] {
             UserFacingCopy.assertPlain(text)
             UserFacingCopy.assertNoClick(text)
         }

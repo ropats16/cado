@@ -27,12 +27,8 @@ enum MeetingToggle: Equatable {
         case .transcribing:
             return .explain(title: notStarted,
                             body: "Cado is still writing down the last meeting. Start the new one once it's done.")
-        case .recovering(let app, _, _):
-            return .explain(title: notStarted,
-                            body: "Cado is still finishing a meeting with \(app) that wasn't finished. "
-                                + "Start the new one once it's done.")
-        case .idle:
-            break
+        case .idle, .recovering:
+            break   // a recovery is held for the new meeting (#48)
         }
         if dictating { return .explain(title: notStarted, body: finishDictating) }
         if case .record(let app, _)? = prompt { return .start(app) }

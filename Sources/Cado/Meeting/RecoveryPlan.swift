@@ -19,6 +19,10 @@ import Foundation
 ///   stalled: it did its job, saving failed for an outside reason.
 /// - `.noteSaved` means the meeting is written down already: only a pending
 ///   audio copy is left.
+/// - Without it, a note with the meeting's id in the notes folder may be the
+///   meeting's, saved just before Cado died (#48): `mayAdoptNote` says whether
+///   to look, `isWholeNote` whether what's found can be trusted, `adoption`
+///   how its audio is kept.
 struct RecoveryPlan: Equatable {
     /// Why the meeting wasn't finished when it ended.
     enum Reason: Equatable {
@@ -81,6 +85,16 @@ struct RecoveryPlan: Equatable {
 
     var shouldGiveUp: Bool { gaveUp || stalledAttempts >= Self.maxStalledAttempts }
 
+    /// A note found by the meeting's id may be the meeting's, saved just
+    /// before Cado died, unjournaled (#48), so it's worth looking for, and
+    /// adopting if whole. Only if the meeting got as far as writing its note
+    /// (stopped or quit, a give-up, or a recovery attempt with nothing left
+    /// to transcribe), and the last try at saving it didn't fail
+    /// (`.noteSaveFailed` or an `.unsaved` mark after the last
+    /// `.recoveryStarted`): a save that threw may have left part of a note
+    /// behind, never to be taken for the whole one.
+    private(set) var mayAdoptNote = false
+
     init(events: [SpoolEvent], sampleCounts: [MeetingSpeaker: Int]) {
         var sides: [MeetingSpeaker: Side] = [:]
         for speaker in MeetingSpeaker.allCases { sides[speaker] = Side(restartAt: 0) }
@@ -89,6 +103,7 @@ struct RecoveryPlan: Equatable {
         var stoppedAt: TimeInterval?
         var quit = false, saveFailed = false
         var attemptOpen = false, progressed = false, paused = false, reachedSaving = false
+        var attempted = false, lastSaveFailed = false
         var concluded: Concluded?
 
         func closeAttempt() {
@@ -130,6 +145,8 @@ struct RecoveryPlan: Equatable {
                 quit = true
             case .recoveryStarted:
                 closeAttempt()
+                attempted = true
+                lastSaveFailed = false
                 attemptOpen = true
                 progressed = false
                 paused = false
@@ -147,6 +164,7 @@ struct RecoveryPlan: Equatable {
                 concluded?.keepFailures += 1
             case .noteSaveFailed:
                 saveFailed = true
+                lastSaveFailed = true
                 reachedSaving = true
                 if !gaveUp { transcriptionComplete = true }   // a give-up's note isn't a finished transcript
             case .recoveryGaveUp:
@@ -172,5 +190,90 @@ struct RecoveryPlan: Equatable {
         duration = stoppedAt ?? onDisk
         reason = saveFailed ? .noteNotSaved : quit ? .quit : .crashed
         self.concluded = concluded
+        let nothingLeft = MeetingSpeaker.allCases.allSatisfy { (sides[$0]?.restartAt ?? 0) >= (sampleCounts[$0] ?? 0) }
+        let reachedTheNote = stoppedAt != nil || quit || gaveUp || (attempted && nothingLeft)
+        mayAdoptNote = concluded == nil && reachedTheNote && !lastSaveFailed
+    }
+}
+
+extension RecoveryPlan {
+    /// Recovery gave up on it, and nothing came of that (no note saved, none
+    /// failed to save): Cado died writing the note. Not if the give-up was
+    /// paused before its note (#48: a meeting the user started, or a clean
+    /// quit; the last of `.recoveryPaused`/`.recoveryStarted` since is a
+    /// pause): that note is still to be written.
+    static func diedAfterGivingUp(_ events: [SpoolEvent]) -> Bool {
+        guard let last = events.lastIndex(where: { if case .recoveryGaveUp = $0 { return true } else { return false } })
+        else { return false }
+        let since = events[last...]
+        if since.contains(where: { if case .noteSaveFailed = $0 { return true } else { return false } }) { return false }
+        return since.last { $0 == .recoveryPaused || $0 == .recoveryStarted } != .recoveryPaused
+    }
+}
+
+// MARK: - Adopting a note saved but not journaled (#48)
+
+extension RecoveryPlan {
+    /// How an adopted note's audio is kept.
+    struct Adoption: Equatable {
+        /// Kept whenever there is any: the rule the note was written under
+        /// isn't known for sure (a quit-time note always keeps it; failures
+        /// the journal couldn't take aren't in the plan), so the stricter one.
+        var keepAudio: Bool
+        /// The folder the note names, there and empty: the audio goes there,
+        /// so the note stays true. Nil: a new folder.
+        var audioFolder: URL?
+        /// The note names a folder the audio can't go into (gone, or not
+        /// empty): the notice says where it is instead.
+        var namedFolderUnusable: Bool
+    }
+
+    static func adoption(hasAudio: Bool, namedFolder: URL?, namedFolderIsFree: Bool) -> Adoption {
+        let reuse = hasAudio && namedFolder != nil && namedFolderIsFree
+        return Adoption(keepAudio: hasAudio, audioFolder: reuse ? namedFolder : nil,
+                        namedFolderUnusable: hasAudio && namedFolder != nil && !reuse)
+    }
+
+    /// Whether `text`, a note found by the meeting's id, is the whole note,
+    /// not what a save that died or threw left of it: front matter, the
+    /// intro line, every journaled passage the note shows, in its order
+    /// (`MeetingTranscript.shown`: the speaker-bleed filter's, so a Me
+    /// passage it left out isn't missed), a final newline. A Summary section
+    /// (added after the save) doesn't count towards it. A note with more
+    /// than the journal (a journal that stopped taking events) passes; one
+    /// cut short doesn't.
+    func isWholeNote(_ text: String) -> Bool {
+        let parsed = NoteFrontMatter.parse(text)
+        guard parsed.hasBlock, parsed.body.hasSuffix("\n"), MeetingNote.recordedApp(inBody: parsed.body) != nil
+        else { return false }
+        let flat = Self.collapsed(SummarySection.split(parsed.body).rest)
+        var from = flat.startIndex
+        for piece in MeetingTranscript.shown(pieces) {
+            let words = Self.collapsed(piece.text)
+            guard !words.isEmpty else { continue }
+            guard let found = flat.range(of: words, range: from..<flat.endIndex) else { return false }
+            from = found.upperBound
+        }
+        return true
+    }
+
+    /// The audio folder the note names (its `.audioKept` caveat), if any.
+    static func audioFolder(namedIn text: String) -> URL? {
+        let marker = "/cado-audio-folder"
+        let sample = MeetingNote(appName: "x", start: Date(timeIntervalSince1970: 0), duration: 0, turns: [],
+                                 caveats: [.audioKept(URL(fileURLWithPath: marker))]).body
+        guard let line = sample.split(separator: "\n").first(where: { $0.hasPrefix("> ") }),
+              let at = line.range(of: marker) else { return nil }
+        let (prefix, suffix) = (line[..<at.lowerBound], line[at.upperBound...])
+        for candidate in text.split(separator: "\n") where candidate.hasPrefix(prefix) && candidate.hasSuffix(suffix)
+            && candidate.count > prefix.count + suffix.count {
+            let path = candidate.dropFirst(prefix.count).dropLast(suffix.count)
+            if path.hasPrefix("/") { return URL(fileURLWithPath: String(path), isDirectory: true) }
+        }
+        return nil
+    }
+
+    private static func collapsed(_ text: String) -> String {
+        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }

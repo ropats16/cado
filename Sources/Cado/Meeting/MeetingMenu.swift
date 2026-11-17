@@ -53,6 +53,8 @@ enum MeetingStatus: Equatable {
     /// Finishing a meeting an earlier run didn't (#31): reading it back
     /// (`total` 0), then `done` of `total` passages.
     case recovering(app: String, done: Int, total: Int)
+
+    var isRecovering: Bool { if case .recovering = self { return true } else { return false } }
 }
 
 /// The meeting part of the status menu: one main item (a click, a submenu of
@@ -150,28 +152,36 @@ struct MeetingMenuContent: Equatable {
             title = total > 0 ? "Transcribing Meeting… \(done) of \(total)" : "Finishing Meeting…"
             detail = "Meeting with \(app)"
         case .recovering(let app, let done, let total):
-            title = total > 0 ? "Recovering Meeting… \(done) of \(total)" : "Recovering Meeting…"
-            detail = "A meeting with \(app) that wasn't finished. Record Meeting is back once it's done."
+            // #48: Record Meeting stays; recording holds the recovery, which goes on after.
+            title = "Record Meeting"
+            offer(choice)
+            detail = (total > 0 ? "Recovering a meeting with \(app)… \(done) of \(total)." : "Recovering a meeting with \(app)…")
+                + " It waits while you record."
         case .idle:
             title = "Record Meeting"
             if choice != .unsupported, let systemAudio, systemAudio != .unsupportedOS {
                 detail = systemAudio.menuLine
                 if systemAudio == .heardOnlySilence { systemAudioSettings = Self.systemAudioSettingsTitle }
             }
-            switch choice {
-            case .unsupported:
-                detail = Self.unsupportedDetail
-            case .one(let app):
-                title = "Record Meeting (\(app.name))"
-                action = .start(MeetingApp(app))
-            case .several(let apps):
-                choices = apps.map { Row(title: $0.name, action: .start(MeetingApp($0))) }
-            case .noMeetingApp(let others):
-                choices = [Row(title: Self.noMeetingAppTitle, action: nil)]
-                    + others.map { Row(title: $0.name, action: .start(MeetingApp($0))) }
-            case .nothing:
-                detail = "No meeting app is running"
-            }
+            offer(choice)
+        }
+    }
+
+    /// The main item for `choice`: what Record Meeting would record.
+    private mutating func offer(_ choice: MeetingAppChoice) {
+        switch choice {
+        case .unsupported:
+            detail = Self.unsupportedDetail
+        case .one(let app):
+            title = "Record Meeting (\(app.name))"
+            action = .start(MeetingApp(app))
+        case .several(let apps):
+            choices = apps.map { Row(title: $0.name, action: .start(MeetingApp($0))) }
+        case .noMeetingApp(let others):
+            choices = [Row(title: Self.noMeetingAppTitle, action: nil)]
+                + others.map { Row(title: $0.name, action: .start(MeetingApp($0))) }
+        case .nothing:
+            detail = "No meeting app is running"
         }
     }
 

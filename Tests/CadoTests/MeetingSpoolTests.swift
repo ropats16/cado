@@ -208,7 +208,9 @@ final class FolderMeetingSpoolTests: XCTestCase {
         try Data("x".utf8).write(to: stray.appendingPathComponent("me.f32"))
         try Data("{nope".utf8).write(to: dir.deletingLastPathComponent().appendingPathComponent("bad", isDirectory: false))
         let left = FolderMeetingSpool(root: root).leftovers()
-        XCTAssertEqual(left.map(\.handle.meeting), [meeting])
+        XCTAssertEqual(left.filter { !$0.isUnidentified }.map(\.handle.meeting), [meeting])
+        XCTAssertEqual(left.filter(\.isUnidentified).map(\.handle.location?.lastPathComponent), ["not-a-spool"],
+                       "#48: returned so its audio can be kept")
         XCTAssertTrue(FileManager.default.fileExists(atPath: stray.appendingPathComponent("me.f32").path))
     }
 
@@ -315,7 +317,8 @@ final class FolderMeetingSpoolSafetyTests: XCTestCase {
         let withAudio = root.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: withAudio, withIntermediateDirectories: true)
         try Data([1, 2, 3, 4]).write(to: withAudio.appendingPathComponent("them.f32"))
-        XCTAssertTrue(FolderMeetingSpool(root: root).leftovers().isEmpty)
+        XCTAssertEqual(FolderMeetingSpool(root: root).leftovers().map(\.isUnidentified), [true],
+                       "#48: the one with audio, for its audio to be kept")
         XCTAssertFalse(FileManager.default.fileExists(atPath: empty.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: withAudio.path))
     }
@@ -391,7 +394,7 @@ final class FolderMeetingSpoolSafetyTests: XCTestCase {
 
         let left = FolderMeetingSpool(root: root).leftovers()
         XCTAssertEqual(left.map(\.handle.meeting), [a, b])
-        XCTAssertEqual(left.map(\.mark), [.noteNotSaved, .audioPending])
+        XCTAssertEqual(left.map(\.marks), [[.noteNotSaved], [.audioPending]])
         XCTAssertEqual(left[0].events, [.sideStarted(.me, origin: 0), .stopped(at: 1, capReached: false)])
         XCTAssertEqual(left[0].handle.sampleCount(of: .me), 3)
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(c.id.uuidString + ".done").path),
@@ -462,7 +465,9 @@ final class FullDiskSpoolHandle: MeetingSpoolHandle {
     let onDisk: Bool
     var journalKeepsWorking = false
     private(set) var writeError: Error?
+    /// Each mark as it was added; `folderMarks` what the name says now.
     private(set) var marks: [SpoolFolderMark] = []
+    private(set) var folderMarks: Set<SpoolFolderMark> = []
     init(_ meeting: SpooledMeeting, room: Int, onDisk: Bool = false) {
         inner = InMemorySpoolHandle(meeting); self.room = room; self.onDisk = onDisk
     }
@@ -484,19 +489,20 @@ final class FullDiskSpoolHandle: MeetingSpoolHandle {
     var hasFolder: Bool { onDisk && !inner.isDiscarded }
     var hasAllAudioOnDisk: Bool { hasFolder }
     var location: URL? {
-        onDisk ? URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)" + (marks.last.map { "." + $0.rawValue } ?? "")) : nil
+        onDisk ? URL(fileURLWithPath: "/spool/" + SpoolFolderMark.folderName(meeting.id.uuidString, folderMarks)) : nil
     }
-    func mark(_ mark: SpoolFolderMark) -> Bool {
+    func setMarks(_ new: Set<SpoolFolderMark>) -> Bool {
         guard hasFolder else { return false }
-        marks.append(mark)
+        marks += SpoolFolderMark.order.filter { new.contains($0) && !folderMarks.contains($0) }
+        folderMarks = new
         return true
     }
     func moveFolder(into folder: URL) -> URL? { nil }
     func discard() { inner.discard() }
     /// What the next launch finds of it: its folder, unless gone or marked written down.
     var leftover: LeftoverMeeting? {
-        guard hasFolder, marks.last != .writtenDown else { return nil }
-        return LeftoverMeeting(handle: self, events: events, mark: marks.last)
+        guard hasFolder, !folderMarks.contains(.writtenDown) else { return nil }
+        return LeftoverMeeting(handle: self, events: events, marks: folderMarks)
     }
 }
 
@@ -560,5 +566,284 @@ final class FallbackSpoolHandleTests: XCTestCase {
         h.discard()
         XCTAssertEqual(h.sampleCount(of: .me), 0)
         XCTAssertFalse(h.isHoldingAudioInMemory)
+    }
+}
+
+/// A WAV copy of spooled audio is whole and on disk, or it throws and isn't there (#48).
+final class MeetingSpoolWAVTests: XCTestCase {
+    private var dir: URL!
+    private let fm = FileManager.default
+
+    override func setUpWithError() throws {
+        dir = fm.temporaryDirectory.appendingPathComponent("wav-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    override func tearDownWithError() throws { try? fm.removeItem(at: dir) }
+
+    private func source(_ n: Int) -> [Float] { (0..<n).map { Float($0 % 1_000) / 2_000 } }
+
+    func testAWholeCopyHoldsEverySample() throws {
+        let samples = source(SpoolWAV.chunk * 2 + 123)
+        let url = dir.appendingPathComponent("Me.wav")
+        try SpoolWAV.write(count: samples.count, to: url) { Array(samples[$0]) }
+        XCTAssertEqual(try AVAudioFile(forReading: url).length, AVAudioFramePosition(samples.count))
+    }
+
+    /// The spool's file is shorter than it said (cut short): it throws, and no WAV is left.
+    func testAShortSourceThrowsAndLeavesNoFile() throws {
+        let samples = source(SpoolWAV.chunk + 500)
+        let url = dir.appendingPathComponent("Me.wav")
+        XCTAssertThrowsError(try SpoolWAV.write(count: samples.count + 10_000, to: url) { r in
+            Array(samples[r.clamped(toCount: samples.count)])
+        }) { XCTAssertEqual($0 as? SpoolWAVError, .shortRead(expected: samples.count + 10_000, got: samples.count)) }
+        XCTAssertFalse(fm.fileExists(atPath: url.path))
+    }
+
+    func testAReadFailureThrowsAndLeavesNoFile() throws {
+        struct Boom: Error {}
+        let url = dir.appendingPathComponent("Me.wav")
+        var calls = 0
+        XCTAssertThrowsError(try SpoolWAV.write(count: SpoolWAV.chunk * 3, to: url) { r in
+            calls += 1
+            if calls == 2 { throw Boom() }
+            return [Float](repeating: 0.1, count: r.count)
+        }) { XCTAssertTrue($0 is Boom) }
+        XCTAssertFalse(fm.fileExists(atPath: url.path))
+    }
+
+    /// #48: a source cut short for good: what can be read, whole and checked.
+    func testAShortSourceCanBeKeptAsFarAsItCanBeRead() throws {
+        let samples = source(SpoolWAV.chunk + 500)
+        let url = dir.appendingPathComponent("Me.wav")
+        let n = try SpoolWAV.writeReadable(upTo: samples.count + 10_000, to: url) { r in
+            Array(samples[r.clamped(toCount: samples.count)])
+        }
+        XCTAssertEqual(n, samples.count)
+        XCTAssertEqual(try AVAudioFile(forReading: url).length, AVAudioFramePosition(samples.count))
+        XCTAssertEqual(try SpoolWAV.writeReadable(upTo: 100, to: url) { _ in [] }, 0)
+        XCTAssertFalse(fm.fileExists(atPath: url.path), "Nothing readable: no file")
+        struct Boom: Error {}
+        XCTAssertThrowsError(try SpoolWAV.writeReadable(upTo: 100, to: url) { _ in throw Boom() }) { XCTAssertTrue($0 is Boom) }
+    }
+
+    func testAReadableExportSaysHowMuchOfEachSideItKept() throws {
+        let audio = SpoolAudio(counts: [.me: 1_000, .them: 2_000]) { speaker, r in
+            [Float](repeating: 0.2, count: speaker == .me ? r.count : max(0, min(r.upperBound, 1_500) - r.lowerBound))
+        }
+        XCTAssertEqual(try audio.exportReadableWAVs(to: dir) { $0.spoolKey }, [.me: 1_000, .them: 1_500])
+        XCTAssertEqual(try AVAudioFile(forReading: dir.appendingPathComponent("them.wav")).length, 1_500)
+    }
+
+    /// The export loop stops at the first side that can't be copied, with its error.
+    func testAnExportOfAShortSideThrows() throws {
+        let audio = SpoolAudio(counts: [.me: 1_000, .them: 2_000]) { speaker, r in
+            speaker == .me ? [Float](repeating: 0.2, count: r.count) : []
+        }
+        XCTAssertThrowsError(try audio.exportWAVs(to: dir) { $0.spoolKey })
+        XCTAssertFalse(fm.fileExists(atPath: dir.appendingPathComponent("them.wav").path))
+    }
+}
+
+/// The 5-second flush runs off the main thread on descriptors of its own; a
+/// milestone flush is still done there and then (#48).
+final class MeetingSpoolFlushTests: XCTestCase {
+    private var root: URL!
+    private let fm = FileManager.default
+    private let meeting = SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "us.zoom.xos", startDate: Date())
+
+    /// What the flush saw: each descriptor's file (nil: not open) at the time.
+    private var flushed: [[UInt64?]] = []
+    private var queued: [() -> Void] = []
+    private var now: TimeInterval = 1_000
+
+    override func setUpWithError() throws {
+        root = fm.temporaryDirectory.appendingPathComponent("flush-\(UUID().uuidString)", isDirectory: true)
+    }
+    override func tearDownWithError() throws {
+        runQueued()
+        try? fm.removeItem(at: root)
+    }
+
+    private func spool() -> FolderMeetingSpool {
+        var sync = SpoolDiskSync()
+        sync.clock = { [unowned self] in now }
+        sync.background = { [unowned self] work in queued.append(work) }
+        sync.flush = { [unowned self] fds in flushed.append(fds.map(Self.inode)) }
+        return FolderMeetingSpool(root: root, diskSync: sync)
+    }
+
+    private static func inode(_ fd: Int32) -> UInt64? {
+        var st = stat()
+        return fstat(fd, &st) == 0 ? st.st_ino : nil
+    }
+    private static func inode(_ url: URL) -> UInt64? {
+        var st = stat()
+        return stat(url.path, &st) == 0 ? st.st_ino : nil
+    }
+    private static func isOpen(_ fd: Int32) -> Bool { fcntl(fd, F_GETFD) != -1 }
+
+    private func runQueued() {
+        let work = queued
+        queued = []
+        work.forEach { $0() }
+    }
+
+    private func spoolFiles(_ dir: URL) -> Set<UInt64?> {
+        Set([FolderSpoolHandle.fileName(.me), FolderSpoolHandle.fileName(.them), FolderSpoolHandle.eventsName]
+            .map { Self.inode(dir.appendingPathComponent($0)) })
+    }
+
+    /// Created: meeting.json (complete by then), the folder and the root are
+    /// flushed once, in the background, root last (its F_FULLFSYNC).
+    func testANewSpoolsMeetingJSONAndFolderAreFlushedOnceInTheBackground() throws {
+        let h = try spool().create(meeting)
+        let info = try XCTUnwrap(h.location).appendingPathComponent(FolderSpoolHandle.infoName)
+        let expected = [Self.inode(info), Self.inode(try XCTUnwrap(h.location)), Self.inode(root)]
+        XCTAssertTrue(flushed.isEmpty, "Not on the calling thread")
+        XCTAssertEqual(queued.count, 1)
+        h.discard()   // gone before the flush runs: its descriptors still hold
+        runQueued()
+        XCTAssertEqual(flushed.count, 1)
+        XCTAssertEqual(flushed[0], expected)
+    }
+
+    func testTheMeetingJSONIsCompleteWhenFlushed() throws {
+        var sync = SpoolDiskSync()
+        var seen: SpooledMeeting?
+        sync.background = { $0() }
+        let rootURL = root!
+        sync.flush = { _ in
+            let dirs = (try? FileManager.default.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil)) ?? []
+            let data = dirs.first.flatMap { try? Data(contentsOf: $0.appendingPathComponent(FolderSpoolHandle.infoName)) }
+            seen = data.flatMap { try? JSONDecoder().decode(FolderSpoolHandle.Info.self, from: $0) }?.meeting
+        }
+        _ = try FolderMeetingSpool(root: root, diskSync: sync).create(meeting)
+        XCTAssertEqual(seen, meeting)
+    }
+
+    func testThePeriodicFlushRunsInTheBackgroundOnItsOwnDescriptors() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        h.append([0.1], for: .me)
+        _ = h.record(.settled(.me, through: 1))
+        XCTAssertTrue(flushed.isEmpty && queued.isEmpty, "Not due yet")
+        now += 5
+        h.append([0.2], for: .them)
+        XCTAssertTrue(flushed.isEmpty, "Never on the capture's thread")
+        XCTAssertEqual(queued.count, 1)
+        runQueued()
+        XCTAssertEqual(flushed.count, 1)
+        XCTAssertEqual(Set(flushed[0]), spoolFiles(try XCTUnwrap(h.location)))
+    }
+
+    func testTheFlushsDescriptorsAreClosedAfterIt() throws {
+        var sync = SpoolDiskSync()
+        var clock: TimeInterval = 0
+        var given: [Int32] = []
+        var work: [() -> Void] = []
+        sync.clock = { clock }
+        sync.background = { work.append($0) }
+        sync.flush = { given += $0 }
+        let h = try FolderMeetingSpool(root: root, diskSync: sync).create(meeting)
+        work.forEach { $0() }; work = []; given = []
+        h.append([0.1], for: .me)
+        clock += 6
+        h.append([0.1], for: .me)
+        work.forEach { $0() }
+        XCTAssertEqual(given.count, 1)
+        XCTAssertFalse(given.contains(where: Self.isOpen), "Closed after the flush")
+        h.append([0.3], for: .me)   // the spool's own file is still open and working
+        XCTAssertEqual(try h.samples(0..<3, of: .me), [0.1, 0.1, 0.3])
+    }
+
+    /// The flush is still pending when the folder is renamed (closing its
+    /// files), moved or deleted: it flushes the same files, all still open.
+    func testAPendingFlushOutlivesARenameAndADiscard() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        h.append([0.1], for: .me); h.append([0.2], for: .them); _ = h.record(.settled(.me, through: 1))
+        let files = spoolFiles(try XCTUnwrap(h.location))
+        now += 5
+        h.append([0.3], for: .me)
+        XCTAssertEqual(queued.count, 1)
+        XCTAssertTrue(h.setMarks([.quit]))
+        h.append([0.4], for: .me)       // reopened at the new name
+        h.discard()
+        runQueued()
+        XCTAssertEqual(flushed.count, 1)
+        XCTAssertEqual(Set(flushed[0]), files)
+        XCTAssertFalse(flushed[0].contains(nil))
+    }
+
+    func testAPendingFlushOutlivesAMove() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        h.append([0.1], for: .me)
+        let files = Set([Self.inode(try XCTUnwrap(h.location).appendingPathComponent(FolderSpoolHandle.fileName(.me)))])
+        now += 5
+        h.append([0.2], for: .me)
+        let elsewhere = root.appendingPathComponent("kept", isDirectory: true)
+        try fm.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        XCTAssertNotNil(h.moveFolder(into: elsewhere))
+        runQueued()
+        XCTAssertEqual(Set(flushed[0]), files)
+    }
+
+    /// A slow disk: the next round is skipped while one is still going, not queued.
+    func testOnlyOneFlushIsInFlight() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        now += 5; h.append([0.1], for: .me)
+        now += 5; h.append([0.1], for: .me)
+        now += 5; h.append([0.1], for: .me)
+        XCTAssertEqual(queued.count, 1)
+        runQueued()
+        now += 5; h.append([0.1], for: .me)
+        XCTAssertEqual(queued.count, 1, "Once it's done, the next round goes")
+    }
+
+    /// A milestone (stop, quit, note saved…) is on the disk when `record` returns.
+    func testAMilestoneIsFlushedThereAndThen() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        h.append([0.1], for: .me)
+        XCTAssertTrue(h.record(.stopped(at: 1, capReached: false)))
+        XCTAssertEqual(flushed.count, 1, "Before record returned")
+        XCTAssertTrue(queued.isEmpty)
+        XCTAssertTrue(flushed[0].contains(Self.inode(try XCTUnwrap(h.location).appendingPathComponent(FolderSpoolHandle.eventsName))))
+    }
+
+    /// A milestone recorded for a live meeting's sake (#48: a recovery's
+    /// pause as Record Meeting starts) is in the journal at once and flushed
+    /// in the background, even while a 5-second round is still going.
+    func testAMilestoneCanBeFlushedInTheBackground() throws {
+        let h = try spool().create(meeting)
+        runQueued(); flushed = []
+        now += 5; h.append([0.1], for: .me)        // a round, still queued
+        XCTAssertEqual(queued.count, 1)
+        XCTAssertTrue(h.recordFlushingLater(.recoveryPaused))
+        XCTAssertTrue(flushed.isEmpty, "Not before it returned")
+        XCTAssertEqual(queued.count, 2, "Queued, not skipped")
+        let events = Self.inode(try XCTUnwrap(h.location).appendingPathComponent(FolderSpoolHandle.eventsName))
+        runQueued()
+        XCTAssertEqual(flushed.count, 2)
+        XCTAssertTrue(flushed[1].contains(events))
+        let reopened = FolderSpoolHandle(meeting: meeting, dir: try XCTUnwrap(h.location), lock: nil)
+        XCTAssertEqual(reopened.readEvents(), [.recoveryPaused])
+    }
+
+    /// The real thing, end to end: flushes in the background and the spool keeps working.
+    func testTheRealBackgroundFlushRuns() throws {
+        var sync = SpoolDiskSync()
+        var clock: TimeInterval = 0
+        sync.clock = { clock }
+        let h = try FolderMeetingSpool(root: root, diskSync: sync).create(meeting)
+        h.append([0.1], for: .me)
+        clock += 6
+        h.append([0.2], for: .me)
+        SpoolDiskSync.queue.sync {}
+        h.discard()
+        SpoolDiskSync.queue.sync {}
+        XCTAssertFalse(fm.fileExists(atPath: root.appendingPathComponent(meeting.id.uuidString).path))
     }
 }

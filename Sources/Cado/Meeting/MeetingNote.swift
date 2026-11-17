@@ -43,13 +43,8 @@ enum MeetingTranscript {
     /// whitespace collapsed. Me pieces that only repeat Others (the mic
     /// hearing the speakers) are left out first (`SpeakerBleedFilter`).
     static func turns(_ pieces: [Piece]) -> [Turn] {
-        let ordered = SpeakerBleedFilter.filtered(pieces).enumerated().sorted { a, b in
-            if a.element.start != b.element.start { return a.element.start < b.element.start }
-            if a.element.speaker != b.element.speaker { return a.element.speaker == .me }
-            return a.offset < b.offset
-        }
         var turns: [Turn] = []
-        for (_, piece) in ordered {
+        for piece in shown(pieces) {
             let text = piece.text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
             guard !text.isEmpty else { continue }
             if let last = turns.last, last.speaker == piece.speaker {
@@ -59,6 +54,18 @@ enum MeetingTranscript {
             }
         }
         return turns
+    }
+
+    /// The pieces a note shows, in its order (`turns` merges them): Me
+    /// pieces that only repeat Others left out (`SpeakerBleedFilter`), then
+    /// by start time, Me first on a tie, else as given. Also what a found
+    /// note is checked against (`RecoveryPlan.isWholeNote`, #48).
+    static func shown(_ pieces: [Piece]) -> [Piece] {
+        SpeakerBleedFilter.filtered(pieces).enumerated().sorted { a, b in
+            if a.element.start != b.element.start { return a.element.start < b.element.start }
+            if a.element.speaker != b.element.speaker { return a.element.speaker == .me }
+            return a.offset < b.offset
+        }.map(\.element)
     }
 }
 
