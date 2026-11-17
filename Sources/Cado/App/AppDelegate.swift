@@ -77,6 +77,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notes: notesLibrary,
         systemAudio: { [permissions] in permissions.systemAudio },
         keepAudio: { [configStore] in configStore.config.keepMeetingAudio })
+    /// Set once the first `.ready` asked the meetings to recover leftovers.
+    private var askedMeetingRecovery = false
     /// The mascot, watching `activity`. Attached at launch; builds its panel
     /// on first show (at launch with "always visible" on).
     private var overlay: MascotOverlay?
@@ -480,6 +482,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if status == .ready { Log.info("Transcription model loaded: \(readiness.modelPath)") }
         monitor.engineChanged(readiness)
+        // A meeting an earlier run didn't finish (crash, force quit) needs the
+        // engine: recover it once there is one. Not at launch itself, and
+        // the session waits for a meeting the user already started.
+        if status == .ready, !askedMeetingRecovery {
+            askedMeetingRecovery = true
+            meetings.recoverLeftovers()
+        }
     }
 
     // MARK: - Dictation & hotkeys
