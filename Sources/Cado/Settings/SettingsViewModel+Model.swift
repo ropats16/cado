@@ -179,23 +179,12 @@ extension SettingsViewModel {
         return (split[true] ?? [], split[false] ?? [])
     }
 
-    /// The heading over models that aren't installed: how to get them, from
-    /// the engine's own `downloadHint`. One command (or one model) is shown
-    /// as is; per-model commands get a `<name>` placeholder for the id.
+    /// The heading over models that aren't installed: where to get them,
+    /// when the Download list offers them (named, not "below", so it's
+    /// true wherever the list sits).
     var notDownloadedHeading: String {
-        var context = modelContext
-        context.customPath = ""   // a hand-set file would stand in for every named model
-        let missing = modelLists.notDownloaded
-        let hints = missing.map { descriptor.downloadHint(for: descriptor.resolve(.named($0.id), in: context)) }
-        guard let first = hints.first.flatMap({ $0 }) else { return "Not downloaded" }
-        switch first {
-        case .instructions(let text):
-            return "Not downloaded — \(text)"
-        case .command(let command), .inApp(let command):
-            let id = missing[0].id
-            guard !hints.allSatisfy({ $0 == first }), command.hasSuffix(id) else { return "Not downloaded — run: \(command)" }
-            return "Not downloaded — run: \(command.dropLast(id.count))<name>"
-        }
+        let offered = modelLists.notDownloaded.contains { descriptor.inAppDownload(of: $0.id, in: modelsDir) != nil }
+        return offered ? "Not downloaded — get them in “\(Self.downloadListTitle)”" : "Not downloaded"
     }
 
     /// The file name of the custom model, when that row is selected.
@@ -233,25 +222,40 @@ extension SettingsViewModel {
         }
     }
 
-    /// A one-line explanation of a model problem (or load in progress), else nil.
+    /// A one-line explanation of a model problem (or load in progress),
+    /// else nil. Points only at controls in this section, by name; the
+    /// command that fetches a model from a source checkout is never shown.
     var modelStatusHint: String? {
         switch modelStatus {
         case .missing:
             let spec = currentModel()
             switch engines.downloadHint(for: spec) {
-            case .command(let command)?, .inApp(let command)?:
-                return isDownloadableInApp(spec) ? "Not downloaded. Click Download below, or run: \(command)"
-                    : "Not downloaded. Run: \(command)"
-            case .instructions(let text)?: return text
-            case nil: return "Model file not found: \(spec.path)"
+            case .inApp?, .command?:
+                if let model = downloadableModel(for: spec) {
+                    // Under way: its row shows the progress.
+                    if isDownloadingModel(ModelDownloadKey(engine: engine, id: model.id)) { return nil }
+                    return "Not downloaded. Click Download next to \(model.label) in “\(Self.downloadListTitle)”."
+                }
+                return "Not downloaded, and Cado can't download it. Choose another in the Model menu."
+            case .instructions(let text)?:
+                // Apple Speech: its own row in this section downloads it.
+                if canDownloadSpeechModel { return "Not downloaded. Click Download next to \(Self.appleSpeechRow)." }
+                if case .downloading? = speechAssetState { return nil }   // its row shows the progress
+                return text
+            case nil: return "The model file is missing. Choose another in the Model menu."
             }
         case .failed(let reason): return "Failed to load: \(reason)"
-        case .verifying: return "Verifying the model's checksum (first use)…"
-        case .loading: return isFirstLoad(currentModel()) ? ModelHints.preparing : "Loading model…"
+        case .verifying: return "Checking the speech model (first use only)…"
+        case .loading: return isFirstLoad(currentModel()) ? ModelHints.preparing : "Loading the speech model…"
         case .ready: return modelSwitchError
         case .notLoaded: return nil
         }
     }
+
+    /// The Download list's label (a disclosure in the Speech Model section).
+    static let downloadListTitle = "Download a model"
+    /// Apple Speech's row: its OS-managed model for the language.
+    static let appleSpeechRow = "Apple Speech model"
 
     // MARK: - Private
 

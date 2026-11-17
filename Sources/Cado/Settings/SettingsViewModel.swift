@@ -106,6 +106,9 @@ final class SettingsViewModel: ObservableObject {
     @Published var speechAssetError: String?
     /// Folder-model downloads under way or failed, by engine and model.
     @Published var modelDownloads: [ModelDownloadKey: ModelDownloadState] = [:]
+    /// The user's last open or close of the Download list; nil = untouched
+    /// (`isDownloadListExpanded`).
+    @Published var downloadListChoice: DownloadListChoice?
     /// The tasks behind `modelDownloads`' downloads, for Cancel.
     var modelDownloadTasks: [ModelDownloadKey: Task<Void, Never>] = [:]
 
@@ -115,7 +118,8 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var holdBinding: KeyBinding
     /// Current toggle binding — reflects the persisted config value.
     @Published private(set) var toggleBinding: KeyBinding
-    /// Non-nil when `ConfigValidator` finds a hold/toggle conflict after a change.
+    /// Non-nil when `ConfigValidator` finds a hotkey problem after a change:
+    /// its plain summary and the fix.
     @Published private(set) var hotkeyWarning: String?
     /// True while a live key-capture session is in progress (global tap is suspended).
     @Published private(set) var isCapturing: Bool = false
@@ -368,11 +372,10 @@ final class SettingsViewModel: ObservableObject {
 
     // MARK: - Private helpers
 
-    /// Surfaces the first hold/toggle config issue as a user-visible warning.
+    /// Surfaces the first hotkey issue in plain words, with what to do here.
     private func updateHotkeyWarning() {
         let issues = ConfigValidator.validate(configStore.config)
-        hotkeyWarning = issues.first {
-            $0.message.contains("hold") || $0.message.contains("toggle")
-        }?.message
+        hotkeyWarning = issues.first { $0.topic == .hotkeys }
+            .map { "\($0.summary) Record a different shortcut, or click Reset to Default." }
     }
 }

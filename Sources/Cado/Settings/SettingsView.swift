@@ -11,12 +11,6 @@ struct SettingsView: View {
     /// can reach it via `viewModel.cancelCapture()` from `windowWillClose(_:)`.
     /// Passed explicitly so SwiftUI observes its `@Published` properties.
     @ObservedObject var recorder: HotkeyRecorder
-    /// The Download list; nil = not toggled yet: open while it's short (a
-    /// missing model's hint points at it), closed when it's long (whisper
-    /// alone has dozens).
-    @State private var showsDownloads: Bool?
-    private static let maxDownloadsShownOpen = 6
-
     /// Room for the longest model and engine names before they truncate.
     private static let pickerWidth: CGFloat = 240
 
@@ -153,7 +147,7 @@ struct SettingsView: View {
                 // MARK: Hotkeys
                 SettingsSection(title: "Hotkeys", systemImage: "keyboard") {
                     HotkeyRow(
-                        label: "Hold to talk",
+                        label: ConfigValidator.hold,
                         description: viewModel.holdDescription,
                         isCapturing: recorder.captureTarget == .hold,
                         onRecord: { recorder.startCapture(for: .hold, vm: viewModel) },
@@ -161,7 +155,7 @@ struct SettingsView: View {
                     )
                     CardDivider()
                     HotkeyRow(
-                        label: "Toggle to talk",
+                        label: ConfigValidator.toggle,
                         description: viewModel.toggleDescription,
                         isCapturing: recorder.captureTarget == .toggle,
                         onRecord: { recorder.startCapture(for: .toggle, vm: viewModel) },
@@ -219,7 +213,7 @@ struct SettingsView: View {
     // MARK: Model
 
     private var modelSection: some View {
-        SettingsSection(title: "Model", systemImage: "waveform") {
+        SettingsSection(title: "Speech Model", systemImage: "waveform") {
             SettingsRow("Engine") {
                 Picker("Engine",
                        selection: Binding(
@@ -266,9 +260,11 @@ struct SettingsView: View {
             // whisper.cpp, WhisperKit, Parakeet: a Download button per model not yet installed.
             let downloadable = viewModel.inAppDownloadableModels
             if !downloadable.isEmpty {
+                // Open or closed: the view model decides (it opens for a
+                // download, a failure or a missing pick).
                 DisclosureGroup(isExpanded: Binding(
-                    get: { showsDownloads ?? (downloadable.count <= Self.maxDownloadsShownOpen) },
-                    set: { showsDownloads = $0 })) {
+                    get: { viewModel.isDownloadListExpanded },
+                    set: { viewModel.setDownloadListExpanded($0) })) {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(downloadable) { model in
                             ModelDownloadRow(model: model, viewModel: viewModel)
@@ -277,7 +273,7 @@ struct SettingsView: View {
                     .padding(.top, 4)
                     .padding(.leading, 18)   // under the label, past the chevron
                 } label: {
-                    Text("Download a model").foregroundStyle(Brand.Palette.ink)
+                    Text(SettingsViewModel.downloadListTitle).foregroundStyle(Brand.Palette.ink)
                 }
                 .settingsRowPadding()
             }
@@ -301,7 +297,7 @@ struct SettingsView: View {
             if let state = viewModel.speechAssetLabel {
                 CardDivider()
                 HStack(spacing: 12) {
-                    Text("Speech model").foregroundStyle(Brand.Palette.ink)
+                    Text(SettingsViewModel.appleSpeechRow).foregroundStyle(Brand.Palette.ink)
                     Spacer()
                     Text(state).foregroundStyle(Brand.Palette.inkSecondary)
                     if viewModel.canDownloadSpeechModel {

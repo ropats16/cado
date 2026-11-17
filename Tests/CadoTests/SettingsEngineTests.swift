@@ -186,21 +186,27 @@ final class SettingsEngineTests: XCTestCase {
         XCTAssertEqual(vm.modelStatusHint, "Open Settings › Model to download it.")
     }
 
-    /// The heading over models that aren't installed says how to get them,
-    /// with the engine's own command: the model's when one is missing, a
-    /// `<name>` placeholder when several are.
-    func testTheNotDownloadedHeadingUsesTheEnginesDownloadCommand() {
+    /// The heading over models that aren't installed points at the
+    /// Download list when there is one; never at a command.
+    func testTheNotDownloadedHeadingPointsAtTheDownloadList() {
         configStore.update { $0.engine = "whisper" }
-        XCTAssertEqual(makeVM().notDownloadedHeading, "Not downloaded — run: make model MODEL=<name>")
+        XCTAssertEqual(makeVM().notDownloadedHeading, "Not downloaded — get them in “Download a model”")
 
         configStore.update { $0.engine = "parakeet" }
         engines = EngineRegistry([WhisperEngine(), FakeEngine(present: [fakePath("fast")], hintsCommand: true)])
-        XCTAssertEqual(makeVM().notDownloadedHeading, "Not downloaded — run: make fake-model FAKE=big")
-
-        engines = EngineRegistry([WhisperEngine(), FakeEngine(present: [], hintsCommand: true)])
-        XCTAssertEqual(makeVM().notDownloadedHeading, "Not downloaded — run: make fake-model FAKE=<name>")
+        XCTAssertEqual(makeVM().notDownloadedHeading, "Not downloaded")
 
         engines = EngineRegistry([WhisperEngine(), FakeEngine(present: [])])
-        XCTAssertEqual(makeVM().notDownloadedHeading, "Not downloaded — Open Settings › Model to download it.")
+        XCTAssertEqual(makeVM().notDownloadedHeading, "Not downloaded")
+    }
+
+    /// A model only a source checkout can fetch: the hint says so and
+    /// points at the picker, never at the command.
+    func testAMissingModelTheAppCantDownloadPointsAtThePicker() {
+        configStore.update { $0.engine = "parakeet"; $0.engineModels = ["parakeet": .named("big")] }
+        engines = EngineRegistry([WhisperEngine(), FakeEngine(present: [fakePath("fast")], hintsCommand: true)])
+        let vm = makeVM()
+        vm.modelStatusChanged(.missing)
+        XCTAssertEqual(vm.modelStatusHint, "Not downloaded, and Cado can't download it. Choose another in the Model menu.")
     }
 }

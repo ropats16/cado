@@ -22,6 +22,18 @@ enum ModelDownloadState: Equatable {
     case failed(String)
 }
 
+/// The user's last open or close of Settings' Download list, and what
+/// needed them then (`SettingsViewModel.isDownloadListExpanded`).
+struct DownloadListChoice: Equatable {
+    enum Attention: Hashable {
+        case downloading(ModelDownloadKey)
+        case failed(ModelDownloadKey)
+        case selectedMissing
+    }
+    var expanded: Bool
+    var seen: Set<Attention>
+}
+
 /// One row of Settings' Download list.
 struct DownloadableModel: Hashable, Identifiable {
     let key: ModelDownloadKey
@@ -146,12 +158,47 @@ extension SettingsViewModel {
     /// Whether the engine's model `spec` (reported missing) has a Download
     /// button in the selected engine's list: its path (folder or file) is
     /// where that engine downloads one of its models to.
-    func isDownloadableInApp(_ spec: ModelSpec) -> Bool {
-        guard spec.engine == engine else { return false }
+    func isDownloadableInApp(_ spec: ModelSpec) -> Bool { downloadableModel(for: spec) != nil }
+
+    /// The selected engine's model whose Download puts it at `spec`'s path.
+    func downloadableModel(for spec: ModelSpec) -> EngineModelOption? {
+        guard spec.engine == engine else { return nil }
         let path = URL(fileURLWithPath: spec.path).standardizedFileURL.path
-        return descriptor.models.contains {
+        return descriptor.models.first {
             descriptor.inAppDownload(of: $0.id, in: modelsDir)?.destination.standardizedFileURL.path == path
         }
+    }
+
+    // MARK: - The list, open or closed
+
+    /// Up to this many rows the list starts open (whisper alone has dozens).
+    static let downloadListShortLength = 6
+
+    /// Whether the Download list shows its rows. Open when short; and open
+    /// by itself, whatever its length, while something there needs the
+    /// user: a download under way or failed, or the selected model missing
+    /// (the hint names its button). The user's own open or close holds
+    /// until something new needs them (a progress tick isn't new; a
+    /// failure is).
+    var isDownloadListExpanded: Bool {
+        let attention = downloadListAttention
+        if let choice = downloadListChoice, choice.seen.isSuperset(of: attention) { return choice.expanded }
+        return !attention.isEmpty || inAppDownloadableModels.count <= Self.downloadListShortLength
+    }
+
+    /// The user opened or closed the list.
+    func setDownloadListExpanded(_ expanded: Bool) {
+        downloadListChoice = DownloadListChoice(expanded: expanded, seen: downloadListAttention)
+    }
+
+    /// What in the list needs the user now.
+    private var downloadListAttention: Set<DownloadListChoice.Attention> {
+        var attention = Set(modelDownloads.map { key, state -> DownloadListChoice.Attention in
+            if case .failed = state { return .failed(key) }
+            return .downloading(key)
+        })
+        if modelStatus == .missing, isDownloadableInApp(currentModel()) { attention.insert(.selectedMissing) }
+        return attention
     }
 
     // MARK: - Private

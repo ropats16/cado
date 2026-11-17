@@ -123,7 +123,7 @@ final class SettingsModelTests: XCTestCase {
         XCTAssertEqual(vm.customModelName, "finetune.bin")
 
         vm.modelStatusChanged(.missing)
-        XCTAssertEqual(vm.modelStatusHint, "Model file not found: /m/finetune.bin")
+        XCTAssertEqual(vm.modelStatusHint, "The model file is missing. Choose another in the Model menu.")
     }
 
     func testModelListsSplitDownloadedFromNot() {
@@ -172,10 +172,12 @@ final class SettingsModelTests: XCTestCase {
     func testStatusHints() {
         let vm = makeVM(present: [])
         vm.modelStatusChanged(.missing)
-        XCTAssertEqual(vm.modelStatusHint, "Not downloaded. Click Download below, or run: make model MODEL=small.en-q5_1")
+        XCTAssertEqual(vm.modelStatusHint,
+                       "Not downloaded. Click Download next to \(ModelCatalog.model(id: "small.en-q5_1")!.label) "
+                           + "in “Download a model”.")
 
         vm.modelStatusChanged(.verifying)
-        XCTAssertEqual(vm.modelStatusHint, "Verifying the model's checksum (first use)…")
+        XCTAssertEqual(vm.modelStatusHint, "Checking the speech model (first use only)…")
 
         vm.modelStatusChanged(.ready)
         XCTAssertNil(vm.modelStatusHint)

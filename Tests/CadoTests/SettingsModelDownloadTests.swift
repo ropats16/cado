@@ -312,13 +312,71 @@ final class SettingsModelDownloadTests: XCTestCase {
         XCTAssertEqual(downloader.started, [])
     }
 
-    /// The missing-model hint points at the button before the command.
-    func testAMissingDownloadableModelsHintMentionsTheButton() {
+    /// The missing-model hint names the model's own Download button, by
+    /// the list's name (not "below": it's true wherever the list is), and
+    /// never the command.
+    func testAMissingDownloadableModelsHintNamesItsButton() {
         let vm = makeVM(model: .named("big"))
         engineModel = ModelSpec(path: modelsDir.appendingPathComponent("fake/big").path, sha256: nil,
                                 language: "en", engine: .whisperKit)
         vm.modelStatusChanged(.missing)
-        XCTAssertEqual(vm.modelStatusHint, "Not downloaded. Click Download below, or run: make fake-model FAKE=big")
+        XCTAssertEqual(vm.modelStatusHint, "Not downloaded. Click Download next to Big in “Download a model”.")
+        UserFacingCopy.assertPlain(vm.modelStatusHint)
+        XCTAssertEqual(vm.notDownloadedHeading, "Not downloaded — get them in “Download a model”")
+    }
+
+    // MARK: - The Download list opens when it matters
+
+    private var bigSpec: ModelSpec {
+        ModelSpec(path: modelsDir.appendingPathComponent("fake/big").path, sha256: nil, language: "en",
+                  engine: .whisperKit)
+    }
+
+    /// Short lists start open; whisper's dozens start closed.
+    func testTheDownloadListStartsOpenOnlyWhenShort() {
+        let short = makeVM()
+        short.modelStatusChanged(.ready)
+        XCTAssertTrue(short.isDownloadListExpanded)
+
+        let long = makeVM(engine: .whisper)
+        long.modelStatusChanged(.ready)
+        XCTAssertGreaterThan(long.inAppDownloadableModels.count, SettingsViewModel.downloadListShortLength)
+        XCTAssertFalse(long.isDownloadListExpanded)
+    }
+
+    /// A long list opens by itself for a download under way, one that
+    /// failed, and a selected model that's missing (its hint points there).
+    func testALongListOpensForADownloadAFailureOrAMissingSelection() {
+        let vm = makeVM(engine: .whisper)
+        vm.modelStatusChanged(.ready)
+        XCTAssertFalse(vm.isDownloadListExpanded)
+
+        vm.modelDownloads[whisperKey("base.en")] = .downloading(fraction: 0.3)
+        XCTAssertTrue(vm.isDownloadListExpanded, "downloading")
+        vm.modelDownloads[whisperKey("base.en")] = .failed("Download failed: offline")
+        XCTAssertTrue(vm.isDownloadListExpanded, "failed")
+        vm.modelDownloads = [:]
+        XCTAssertFalse(vm.isDownloadListExpanded)
+
+        engineModel = .file(modelsDir.appendingPathComponent("ggml-tiny.en.bin").path)
+        vm.modelStatusChanged(.missing)
+        XCTAssertTrue(vm.isDownloadListExpanded, "the selected model is missing")
+    }
+
+    /// The user's own choice holds until something new needs them: a
+    /// collapse mid-download sticks through progress, but a failure reopens.
+    func testTheUsersChoiceHoldsUntilSomethingNewHappens() {
+        let vm = makeVM(engine: .whisper)
+        vm.modelStatusChanged(.ready)
+        vm.setDownloadListExpanded(true)
+        XCTAssertTrue(vm.isDownloadListExpanded)
+
+        vm.modelDownloads[whisperKey("base.en")] = .downloading(fraction: 0.1)
+        vm.setDownloadListExpanded(false)
+        vm.modelDownloads[whisperKey("base.en")] = .downloading(fraction: 0.6)
+        XCTAssertFalse(vm.isDownloadListExpanded, "progress isn't news")
+        vm.modelDownloads[whisperKey("base.en")] = .failed("Download failed: offline")
+        XCTAssertTrue(vm.isDownloadListExpanded, "a failure is")
     }
 
     // MARK: - Progress
