@@ -33,8 +33,16 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 /// Which tab is showing; shared by the toolbar and the view.
 @MainActor
 final class SettingsNavigator: ObservableObject {
-    @Published var tab: SettingsTab
-    init(tab: SettingsTab = .general) { self.tab = tab }
+    @Published var tab: SettingsTab {
+        didSet { if tab != oldValue { onSwitch?() } }
+    }
+    /// Runs after the tab changes: the window cancels a hotkey capture, so its
+    /// key monitor stops and the global hotkeys resume.
+    var onSwitch: (() -> Void)?
+    init(tab: SettingsTab = .general, onSwitch: (() -> Void)? = nil) {
+        self.tab = tab
+        self.onSwitch = onSwitch
+    }
 }
 
 /// The window's tabs as a macOS preferences-style toolbar: icon over label,

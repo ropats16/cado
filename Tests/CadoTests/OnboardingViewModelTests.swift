@@ -106,8 +106,8 @@ final class OnboardingViewModelTests: XCTestCase {
     func testReadinessActionsAreForwarded() {
         let vm = makeVM(inputs(microphone: .notDetermined))
         vm.perform(vm.content.step(.microphone).primary!.action)
-        vm.perform(.readiness(.openSettings))
-        XCTAssertEqual(performed, [.requestMicrophone, .openSettings])
+        vm.perform(.readiness(.openSettings(.general)))
+        XCTAssertEqual(performed, [.requestMicrophone, .openSettings(.general)])
     }
 
     func testFinishCallsOnFinish() {

@@ -134,7 +134,7 @@ final class AppReadinessTests: XCTestCase {
         XCTAssertEqual(missing.title, "Speech model missing")
         XCTAssertEqual(failed.title, "Speech model failed to load")
         XCTAssertNotEqual(missing.issue?.detail, failed.issue?.detail)
-        XCTAssertEqual(missing.issue?.action, .openSettings, "Settings is where another model is chosen")
+        XCTAssertEqual(missing.issue?.action, .openSettings(.speechModel), "Settings is where another model is chosen")
         XCTAssertFalse(missing.allowsDictation)
         XCTAssertFalse(failed.allowsDictation)
     }
@@ -147,10 +147,10 @@ final class AppReadinessTests: XCTestCase {
                            + "Choose another in Settings › Speech Model.")
         XCTAssertEqual(ReadinessIssue.modelMissing(path: Self.modelPath, download: nil).detail,
                        "The speech model file is missing. Choose another in Settings › Speech Model.")
-        XCTAssertEqual(ReadinessIssue.modelMissing(path: Self.modelPath, download: nil).action, .openSettings)
+        XCTAssertEqual(ReadinessIssue.modelMissing(path: Self.modelPath, download: nil).action, .openSettings(.speechModel))
         XCTAssertEqual(ReadinessIssue.modelFailed(reason: "x", download: nil).detail,
                        "The speech model didn't load. Choose another in Settings › Speech Model.")
-        XCTAssertEqual(ReadinessIssue.modelFailed(reason: "x", download: nil).action, .openSettings)
+        XCTAssertEqual(ReadinessIssue.modelFailed(reason: "x", download: nil).action, .openSettings(.speechModel))
         XCTAssertEqual(ReadinessIssue.modelFailed(reason: "x", download: Self.download).detail,
                        "The speech model didn't load. Choose another in Settings › Speech Model.")
     }
@@ -198,7 +198,7 @@ final class AppReadinessTests: XCTestCase {
         let hint = ModelDownloadHint.inApp(command: command)
         let missing = ReadinessIssue.modelMissing(path: "/m/whisperkit/tiny.en", download: hint)
         XCTAssertEqual(missing.detail, "The speech model isn't downloaded. Download it in Settings › Speech Model.")
-        XCTAssertEqual(missing.action, .openSettings)
+        XCTAssertEqual(missing.action, .openSettings(.speechModel))
 
         // Installed but broken: Settings only offers models that aren't there.
         // The menu line is clickable (it opens the folder); the same issue
@@ -224,7 +224,7 @@ final class AppReadinessTests: XCTestCase {
 
     func testOSManagedModelsOpenSettingsToo() {
         let hint = ModelDownloadHint.instructions("Download it in Settings › Speech Model.")
-        XCTAssertEqual(ReadinessIssue.modelMissing(path: "en-US", download: hint).action, .openSettings)
+        XCTAssertEqual(ReadinessIssue.modelMissing(path: "en-US", download: hint).action, .openSettings(.speechModel))
     }
 
     func testFailedSwitchNoticeSkipsTheFix() {

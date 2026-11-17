@@ -49,7 +49,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     /// the offscreen render harness, SettingsRenderHarness). It never touches
     /// the saved frame: `show` does.
     static func makeWindow(viewModel: SettingsViewModel, tab: SettingsTab = .general) -> NSWindow {
-        let navigator = SettingsNavigator(tab: tab)
+        let navigator = SettingsNavigator(tab: tab) { [weak viewModel] in viewModel?.cancelCapture() }
         // Pass viewModel.recorder explicitly so the SwiftUI view observes its
         // @Published properties; the recorder is stable (let on the VM).
         let hosting = NSHostingView(rootView: SettingsView(viewModel: viewModel,

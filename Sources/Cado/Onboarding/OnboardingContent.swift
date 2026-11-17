@@ -208,14 +208,14 @@ struct OnboardingContent: Equatable {
         case .missing, .failed:
             guard let chosen else {
                 if case .failed(let reason) = engine.status { step.note = reason }
-                step.primary = OnboardingButton(title: "Open Settings", action: .readiness(.openSettings))
+                step.primary = OnboardingButton(title: "Open Settings", action: .readiness(.openSettings(.speechModel)))
                 return step
             }
             if chosen.isInstalled {
                 if case .failed(let reason) = engine.status {
                     step.detail = "\(chosen.title) is installed but didn't load."
                     step.note = reason
-                    step.primary = OnboardingButton(title: "Open Settings", action: .readiness(.openSettings))
+                    step.primary = OnboardingButton(title: "Open Settings", action: .readiness(.openSettings(.speechModel)))
                 } else {
                     // Just downloaded; the engine picks it up in a moment.
                     step.state = .settling
@@ -275,11 +275,11 @@ struct OnboardingContent: Equatable {
                 let title = facts.partial.contains(option.key) ? "Resume" : "Download"
                 return (.todo, OnboardingButton(title: title, action: .download(option.key)), nil, nil)
             case .settings:
-                return (.todo, OnboardingButton(title: "Open Settings", action: .readiness(.openSettings)), nil, nil)
+                return (.todo, OnboardingButton(title: "Open Settings", action: .readiness(.openSettings(.speechModel))), nil, nil)
             case .command:
                 // Only a source checkout fetches it (the command is logged
                 // with the engine's missing-model notice).
-                return (.todo, OnboardingButton(title: "Open Settings", action: .readiness(.openSettings)), nil,
+                return (.todo, OnboardingButton(title: "Open Settings", action: .readiness(.openSettings(.speechModel))), nil,
                         "Cado can't download \(option.title). Choose another speech model in Settings.")
             }
         }

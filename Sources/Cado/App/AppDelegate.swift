@@ -383,8 +383,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .openModelsFolder:
             Paths.ensureDirectories()
             NSWorkspace.shared.open(Paths.modelsDir)
-        case .openSettings:
-            openSettings()
+        case .openSettings(let tab):
+            openSettings(tab: tab)
         }
     }
 
@@ -568,14 +568,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Menu actions
 
-    private func openSettings() {
+    private func openSettings(tab: SettingsTab? = nil) {
         // Menu actions are always dispatched on the main thread; assume main
         // actor so we can create @MainActor-isolated types synchronously.
         MainActor.assumeIsolated {
             if settingsWindowController == nil {
                 settingsWindowController = SettingsWindowController(viewModel: sharedSettingsViewModel())
             }
-            settingsWindowController?.show()
+            settingsWindowController?.show(tab: tab)
         }
     }
 

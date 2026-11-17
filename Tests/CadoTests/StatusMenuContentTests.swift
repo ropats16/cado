@@ -72,15 +72,15 @@ final class StatusMenuContentTests: XCTestCase {
         XCTAssertEqual(missing.reason?.title, ModelHints.missing(download: .command("make model")))
         XCTAssertEqual(failed.header, "Cado — Speech model failed to load")
         XCTAssertEqual(failed.reason?.title, ModelHints.failed(download: .command("make model")))
-        XCTAssertEqual(missing.reason?.action, .openSettings)
-        XCTAssertEqual(failed.reason?.action, .openSettings)
+        XCTAssertEqual(missing.reason?.action, .openSettings(.speechModel))
+        XCTAssertEqual(failed.reason?.action, .openSettings(.speechModel))
     }
 
     func testModelProblemBehindAPermissionStillShowsItsHint() {
         let menu = content(.notReady(.accessibilityNeeded), accessibility: .denied, engine: .missing)
         XCTAssertEqual(menu.reason?.action, .openAccessibilitySettings)
         XCTAssertEqual(menu.modelHint, .init(title: ModelHints.missing(download: .command("make model")),
-                                             action: .openSettings))
+                                             action: .openSettings(.speechModel)))
 
         let failed = content(.notReady(.microphoneDenied), microphone: .denied, engine: .failed(reason: "x"))
         XCTAssertEqual(failed.modelHint?.title, ModelHints.failed(download: .command("make model")))
@@ -244,9 +244,9 @@ final class StatusMenuContentTests: XCTestCase {
         XCTAssertNil(content(.ready, configIssues: [issue(.warning)]).configIssues)
         XCTAssertEqual(content(.ready, configIssues: [issue(.error), issue(.warning)]).configIssues,
                        .init(title: "Hold to talk has no keys set. Fix it in Settings › Dictation.",
-                             action: .openSettings))
+                             action: .openSettings(.dictation)))
         XCTAssertEqual(content(.ready, configIssues: [issue(.error), issue(.error)]).configIssues,
-                       .init(title: "2 hotkey problems. Fix them in Settings › Dictation.", action: .openSettings))
+                       .init(title: "2 hotkey problems. Fix them in Settings › Dictation.", action: .openSettings(.dictation)))
     }
 
 }

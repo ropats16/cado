@@ -12,7 +12,7 @@ import SwiftUI
 @MainActor
 final class HotkeyRecorder: ObservableObject {
 
-    /// Which binding is currently being recorded; drives per-row "Recording…" UI.
+    /// Which binding is currently being recorded; drives per-row capture UI.
     /// `nil` when no capture is in progress.
     @Published private(set) var captureTarget: HotkeyTarget?
 

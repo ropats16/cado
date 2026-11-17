@@ -157,7 +157,7 @@ struct StatusMenuContent: Equatable {
         let title = errors.count == 1
             ? "\(first.summary) Fix it in Settings › Dictation."
             : "\(errors.count) hotkey problems. Fix them in Settings › Dictation."
-        return Row(title: title, action: .openSettings)
+        return Row(title: title, action: .openSettings(.dictation))
     }
 }
 
@@ -227,7 +227,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         ]
         advanced.submenu = advancedMenu
         menu.items = [
-            header, reason, modelHint, .separator(),
+            header, reason, modelHint, configIssues, .separator(),
         ] + meeting.items + [
             microphone, accessibility, permissionSeparator,
             hold, toggle, .separator(),
@@ -241,7 +241,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             .separator(),
             checkForUpdates,
             item("About Cado", #selector(openAbout)),
-            configIssues, .separator(),
+            .separator(),
             NSMenuItem(title: "Quit Cado", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
         ]
         statusItem.menu = menu

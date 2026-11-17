@@ -317,7 +317,7 @@ final class SettingsViewModel: ObservableObject {
     // MARK: - Hotkey intent methods (Task 4b)
 
     /// Suspends the global event tap so keys pressed during capture don't fire
-    /// dictation. Sets `isCapturing` so the UI can show its "Recording…" state.
+    /// dictation. Sets `isCapturing` so the UI can show its capture state.
     func beginHotkeyCapture() {
         pauseHotkeys()
         isCapturing = true
@@ -390,6 +390,6 @@ final class SettingsViewModel: ObservableObject {
     private func updateHotkeyWarning() {
         let issues = ConfigValidator.validate(configStore.config)
         hotkeyWarning = issues.first { $0.topic == .hotkeys }
-            .map { "\($0.summary) Choose a different shortcut with Change…, or click Reset to Default." }
+            .map { "\($0.summary) Click Change… to choose a different shortcut, or Reset to Default." }
     }
 }
