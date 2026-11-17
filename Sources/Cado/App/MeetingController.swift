@@ -10,6 +10,8 @@ import Foundation
 final class MeetingController: MeetingActivity {
     /// Receives the meeting rows to show.
     var render: ((MeetingMenuContent) -> Void)?
+    /// Each status change (the Library's in-progress row, #42).
+    var onStatusChange: ((MeetingStatus) -> Void)?
 
     private let activity: MeetingActivity
     private let clock: Clock
@@ -44,6 +46,8 @@ final class MeetingController: MeetingActivity {
 
     var isIdle: Bool { session.status == .idle }
 
+    var status: MeetingStatus { session.status }
+
     /// The menu is opening: which apps could be recorded right now.
     func refreshApps() {
         if session.status == .idle {
@@ -70,6 +74,7 @@ final class MeetingController: MeetingActivity {
 
     func meetingStatusChanged(_ status: MeetingStatus) {
         activity.meetingStatusChanged(status)
+        onStatusChange?(status)
         if case .recording = status {
             if ticker == nil {
                 let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.renderNow() }

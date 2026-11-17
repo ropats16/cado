@@ -62,6 +62,21 @@ struct RecentDictations: Equatable {
     }
 }
 
+/// "Open Last Meeting Note" (#42): enabled when the notes folder holds a
+/// meeting note (read from the folder, so it survives a relaunch); its
+/// tooltip names the note. Pure.
+struct LastMeetingNoteRow: Equatable {
+    static let title = "Open Last Meeting Note"
+    var title: String { Self.title }
+    var isEnabled: Bool
+    var toolTip: String?
+
+    init(_ note: NoteSummary?) {
+        isEnabled = note != nil
+        toolTip = note?.title
+    }
+}
+
 /// What the menu-bar menu shows: the status header, why the app isn't ready
 /// (with a fix), a model problem the reason line doesn't already cover, the
 /// permission rows, the hotkeys and any config problem.
@@ -92,12 +107,15 @@ struct StatusMenuContent: Equatable {
     /// "Check for Updates…" / "Update Available (x)…"; nil (hidden) when
     /// the updater isn't running (#24).
     var update: UpdateMenuRow?
+    var lastMeetingNote: LastMeetingNoteRow
 
+    /// `lastMeetingNote`: the newest meeting note in the folder, if any.
     init(status: AppStatus, inputs: ReadinessInputs, hold: String, toggle: String,
          configIssues: [ConfigIssue], recentDictations: [DictationHistoryEntry] = [],
          historyEnabled: Bool = false, now: Date = Date(), calendar: Calendar = .current,
-         update: UpdateMenuRow? = nil) {
+         update: UpdateMenuRow? = nil, lastMeetingNote: NoteSummary? = nil) {
         self.update = update
+        self.lastMeetingNote = LastMeetingNoteRow(lastMeetingNote)
         recents = historyEnabled
             ? RecentDictations(entries: recentDictations, now: now, calendar: calendar) : nil
         header = status.headline
@@ -140,6 +158,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var onOpenOnboarding: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onOpenLibrary: (() -> Void)?
+    /// "Open Last Meeting Note" was clicked (#42).
+    var onOpenLastMeetingNote: (() -> Void)?
     var onOpenAcknowledgements: (() -> Void)?
     var onCheckForUpdates: (() -> Void)?
     var onOpenConfig: (() -> Void)?
@@ -164,6 +184,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private let recentsMenu = NSMenu()
     private let recentsSeparator = NSMenuItem.separator()
     private let checkForUpdates = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
+    private let lastMeetingNote = NSMenuItem(title: LastMeetingNoteRow.title, action: nil, keyEquivalent: "")
     private var shownRecents: [RecentDictations.Row]?
     private var glyph: StatusGlyph?
     private var readinessGlyph: StatusGlyph = .ready
@@ -180,6 +201,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
         checkForUpdates.target = self
         checkForUpdates.action = #selector(checkForUpdatesClicked)
+        lastMeetingNote.target = self
+        lastMeetingNote.action = #selector(openLastMeetingNote)
+        lastMeetingNote.isEnabled = false
         recentsMenu.autoenablesItems = false
         recents.submenu = recentsMenu
         menu.items = [
@@ -190,6 +214,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             recents,
             item("Set Up Cado…", #selector(openOnboarding)),
             item("Library…", #selector(openLibrary), key: "l"),
+            lastMeetingNote,
             item("Settings…", #selector(openSettings), key: ","),
             item("Acknowledgements…", #selector(openAcknowledgements)),
             checkForUpdates,
@@ -215,6 +240,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         checkForUpdates.isHidden = content.update == nil
         checkForUpdates.title = content.update?.title ?? "Check for Updates…"
         checkForUpdates.isEnabled = content.update?.isEnabled ?? false
+        lastMeetingNote.isEnabled = content.lastMeetingNote.isEnabled
+        lastMeetingNote.toolTip = content.lastMeetingNote.toolTip
         readinessGlyph = content.glyph
         renderGlyph()
     }
@@ -307,6 +334,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func openOnboarding() { onOpenOnboarding?() }
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openLibrary() { onOpenLibrary?() }
+    @objc private func openLastMeetingNote() { onOpenLastMeetingNote?() }
     @objc private func openAcknowledgements() { onOpenAcknowledgements?() }
     @objc private func checkForUpdatesClicked() { onCheckForUpdates?() }
     @objc private func openConfig() { onOpenConfig?() }

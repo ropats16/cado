@@ -90,6 +90,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// outside a release .app: `UpdaterAvailability`).
     private var updater: SparkleUpdater?
     private var libraryWindowController: LibraryWindowController?
+    /// The Library's state, made on first need and kept (it also follows
+    /// the meeting under way for its in-progress row).
+    private var libraryViewModel: LibraryViewModel?
+    /// The newest meeting note in the folder, for "Open Last Meeting Note";
+    /// re-read off main at launch, on menu open and after each meeting.
+    private var lastMeetingNote: NoteSummary?
+    /// Clicks on our notifications (the saved-meeting one opens its note).
+    private let notificationClicks = NotificationClicks()
     private var onboardingWindowController: OnboardingWindowController?
     private var onboardingModel: OnboardingViewModel?
     /// Launch opened onboarding instead of firing the system prompts; what's
@@ -101,6 +109,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Lifecycle
 
+    /// Before launch finishes, so a click that launched the app is delivered.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        notificationClicks.onRoute = { [weak self] route in self?.open(route) }
+        Notifier.handleClicks(with: notificationClicks)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)   // menu-bar only, no Dock icon
         MainMenu.install()   // ⌘C/⌘V/⌘W/⌘Q… in Cado's windows
@@ -111,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Off (also by a hand-edited config) = nothing kept.
         if !configStore.config.dictationHistory { recents.clear() }
         setupMenu()
+        refreshLastMeetingNote()
         startUpdater()
         wireMonitor()
         startEngine()
@@ -153,6 +168,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.onOpenSettings = { [weak self] in self?.openSettings() }
         menu.onOpenLibrary = { [weak self] in self?.openLibrary() }
+        menu.onOpenLastMeetingNote = { [weak self] in
+            self?.openLibrary { await $0.showLatestMeetingNote() }
+        }
         menu.onOpenAcknowledgements = { [weak self] in self?.openAcknowledgements() }
         menu.onCheckForUpdates = { [weak self] in
             MainActor.assumeIsolated { self?.updater?.checkForUpdates() }   // menu actions run on main
@@ -162,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.meeting.onAction = { [weak self] in self?.meetings.perform($0) }
         menu.meeting.onOpenSystemAudioSettings = { [weak self] in self?.permissions.openSystemAudioSettings() }
         meetings.render = { [weak self] in self?.menu.renderMeeting($0) }
+        meetings.onStatusChange = { [weak self] in self?.meetingStatusChanged($0) }
         // Re-read permissions on open: a mic change while Accessibility is
         // denied leaves the status alone but changes a row.
         menu.onWillOpen = { [weak self] in
@@ -169,6 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.refreshMenu()
             self?.meetings.refreshApps()
             self?.appleSpeechWatch.check()
+            self?.refreshLastMeetingNote()
         }
         meetings.refreshApps()
     }
@@ -190,7 +210,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                       configIssues: configIssues,
                                       recentDictations: recents.recent(),
                                       historyEnabled: config.dictationHistory,
-                                      update: MainActor.assumeIsolated { updater.flatMap(UpdateMenuRow.init) }))
+                                      update: MainActor.assumeIsolated { updater.flatMap(UpdateMenuRow.init) },
+                                      lastMeetingNote: lastMeetingNote))
         // Hotkeys rebound, models downloaded or the language changed.
         MainActor.assumeIsolated {
             if isOnboardingVisible { onboardingModel?.refresh() }
@@ -569,13 +590,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return vm
     }
 
-    private func openLibrary() {
-        MainActor.assumeIsolated {   // menu actions run on the main thread
+    /// Shows the Library, then runs `then` on its state (select a note).
+    private func openLibrary(then: (@MainActor (LibraryViewModel) async -> Void)? = nil) {
+        MainActor.assumeIsolated {   // menu actions and notification clicks run on the main thread
+            let viewModel = libraryModel()
             if libraryWindowController == nil {
-                libraryWindowController = LibraryWindowController(
-                    viewModel: LibraryViewModel(library: notesLibrary), dock: DockPresence())
+                libraryWindowController = LibraryWindowController(viewModel: viewModel, dock: DockPresence())
             }
             libraryWindowController?.show()
+            if let then { Task { await then(viewModel) } }
+        }
+    }
+
+    @MainActor private func libraryModel() -> LibraryViewModel {
+        if let libraryViewModel { return libraryViewModel }
+        let viewModel = LibraryViewModel(library: notesLibrary)
+        viewModel.meetingStatusChanged(meetings.status)
+        libraryViewModel = viewModel
+        return viewModel
+    }
+
+    /// A clicked notification (#42).
+    private func open(_ route: NotificationRoute) {
+        switch route {
+        case .openNote(let id): openLibrary { await $0.show(noteID: id) }
+        }
+    }
+
+    /// The Library's in-progress row follows the meeting; a finished one
+    /// may be the new last meeting note.
+    private func meetingStatusChanged(_ status: MeetingStatus) {
+        MainActor.assumeIsolated { libraryViewModel?.meetingStatusChanged(status) }
+        if status == .idle { refreshLastMeetingNote() }
+    }
+
+    /// Re-reads the newest meeting note off main; re-renders the menu if it
+    /// changed.
+    private func refreshLastMeetingNote() {
+        let library = notesLibrary
+        DispatchQueue.global(qos: .utility).async {
+            let latest = library.latestNote(kind: NoteKind.meeting)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, latest != lastMeetingNote else { return }
+                lastMeetingNote = latest
+                refreshMenu()
+            }
         }
     }
 

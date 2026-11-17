@@ -167,6 +167,28 @@ final class StatusMenuContentTests: XCTestCase {
 
     // MARK: - Check for Updates (#24)
 
+    // MARK: Open Last Meeting Note (#42)
+
+    func testLastMeetingNoteItemIsDisabledWithoutAMeetingNote() {
+        let row = content(.ready).lastMeetingNote
+        XCTAssertEqual(row.title, "Open Last Meeting Note")
+        XCTAssertFalse(row.isEnabled)
+        XCTAssertNil(row.toolTip)
+    }
+
+    func testLastMeetingNoteItemNamesTheNoteItOpens() {
+        let inputs = ReadinessInputs(
+            accessibility: .granted, microphone: .authorized,
+            engine: EngineReadiness(status: .ready, modelPath: "/m.bin", download: .command("make model")),
+            hotkeyTap: .installed)
+        let note = NoteSummary(id: "a.md", title: "Meeting with Zoom — 16 Nov 2026 at 14:32", date: Date(),
+                               kind: NoteKind.meeting, duration: 60, preview: "", url: URL(fileURLWithPath: "/a.md"))
+        let row = StatusMenuContent(status: .ready, inputs: inputs, hold: "", toggle: "", configIssues: [],
+                                    lastMeetingNote: note).lastMeetingNote
+        XCTAssertTrue(row.isEnabled)
+        XCTAssertEqual(row.toolTip, "Meeting with Zoom — 16 Nov 2026 at 14:32")
+    }
+
     /// No updater running (dev build, `swift run`): no item.
     func testUpdateItemHiddenByDefault() {
         XCTAssertNil(content(.ready).update)
