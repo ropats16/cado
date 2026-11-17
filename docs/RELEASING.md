@@ -58,12 +58,12 @@ Semantic versioning, `MAJOR.MINOR.PATCH`:
 - **MINOR** (0.x.0): new or changed features, UI or wording; note files written by older versions must still open.
 - **MAJOR** (x.0.0): breaking changes (a note or config format older data can't be read from, a raised macOS minimum). 1.0.0 = first release called stable.
 
-The version exists only as the `VERSION` given to `make release` and the `v<version>` tag; the build number is the git commit count. Before each release add a section to `CHANGELOG.md` (newest first, user-facing wording); it is the release's notes.
+The version exists only as the `VERSION` given to `make release` and the `v<version>` tag; the build number is the git commit count. The next release is **0.3.0**: 0.2.0 is the latest published version, and the accumulated meeting, calendar, language and summary features require a minor bump. The earlier 0.3.0 changelog entry was never published; its notes are consolidated with the remaining unreleased changes. A following release that only enables signed-feed enforcement is **0.3.1**. Before each release add a section to `CHANGELOG.md` (newest first, user-facing wording); it is the release's notes.
 
 ## Release
 
 ```sh
-make release VERSION=0.2.0
+make release VERSION=0.3.0
 ```
 
 Stages: preflight (fails early naming any missing variable, identity or notary
@@ -79,14 +79,14 @@ context:primary-signature`, mounted app + Applications link check) > appcast.
 A successful run ends with:
 
 ```
-✓ Release 0.2.0 (build 157)
-  DMG:    .../dist/Cado-0.2.0.dmg
+✓ Release 0.3.0 (build <commit count>)
+  DMG:    .../dist/Cado-0.3.0.dmg
   sha256: <64 hex chars>
 
-To publish (creates tag v0.2.0 at HEAD; ...):
-  gh release create v0.2.0 '.../dist/Cado-0.2.0.dmg' '.../dist/appcast.xml' --repo ropats16/cado \
-    --target <HEAD sha> --title 'Cado 0.2.0' --generate-notes --draft
-  gh release edit v0.2.0 --repo ropats16/cado --draft=false
+To publish (creates tag v0.3.0 at HEAD; ...):
+  gh release create v0.3.0 '.../dist/Cado-0.3.0.dmg' '.../dist/appcast.xml' --repo ropats16/cado \
+    --target <HEAD sha> --title 'Cado 0.3.0' --generate-notes --draft
+  gh release edit v0.3.0 --repo ropats16/cado --draft=false
 ```
 
 ### Appcast (Sparkle feed)
@@ -131,28 +131,43 @@ keychain): `python3 -m unittest discover -s scripts/tests`.
 `Resources/Info.plist` yet: an app that requires a signed feed rejects an
 unsigned one, so it must only ship after a signed feed is live.
 
+Verified on 2026-11-17 for #49: the public latest feed is still v0.2.0 and
+`verify_update_signature.swift --feed` rejects it with “no embedded signature”.
+Its SHA-256 is `cad46ee8a8af1dc99476af98d26e22e1e44e7475916fea41e48f3c7b89608e0b`.
+The prepared 0.3.0 release is the bootstrap release (N); do not enable either
+flag in it. Publish and verify its signed feed first, then enable **both** flags
+for 0.3.1 (N+1), assuming that release contains fixes/hardening only.
+
 1. Release N: run `make release` with this code, publish. The feed at
    `releases/latest/download/appcast.xml` is now signed (apps in the field ignore
    the signature; nothing changes for them).
 2. Check the published feed: download it and run
    `swift scripts/verify_update_signature.swift --feed "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' Resources/Info.plist)" appcast.xml`.
-3. Release N+1: add `<key>SURequireSignedFeed</key><true/>` to `Info.plist`. From
+3. Release N+1: add `<key>SURequireSignedFeed</key><true/>` and
+   `<key>SUVerifyUpdateBeforeExtraction</key><true/>` to `Resources/Info.plist`. From
    then on, copies of N+1 refuse an unsigned or edited feed. (Copies of N still
    accept anything; they only upgrade through the signed feed anyway.)
 
-**`SUVerifyUpdateBeforeExtraction`:** recommendation is to turn it on in the same
-release as `SURequireSignedFeed` (N+1), not before. It makes Sparkle check the
-EdDSA signature before it mounts/extracts the DMG, so a tampered download never
-reaches the DMG parser. The cost: with it on, an update must carry a valid EdDSA
-signature; the fallback where Sparkle accepts a matching Apple code signature
-instead (the recovery path if the EdDSA key were lost) is gone. Cado already
-signs every update with EdDSA, and the key backup (step 6 above) covers the
-loss case, so the trade is worth it. Verify the N to N+1 update once after
-turning it on (manual check above).
+**`SUVerifyUpdateBeforeExtraction` is required alongside signed feeds**, not
+optional: the pinned Sparkle 2.10.1 rejects its updater configuration if
+`SURequireSignedFeed` is on without it (`SPUUpdater.m`). It verifies the archive
+before mounting/extracting it. Sparkle still supports rotating EdDSA keys through
+an Apple Developer ID-signed disk image fallback; the earlier statement that
+pre-extraction verification removes every code-signing fallback was incorrect.
+See [Sparkle security settings](https://sparkle-project.org/documentation/customization/#security-settings).
+Verify the N to N+1 upgrade, then test **from the N+1 app itself**: a valid
+signed feed is accepted, unsigned or edited feeds are rejected, and a tampered
+archive is rejected before extraction. N performs the N to N+1 installation
+without either flag, so that upgrade alone cannot prove N+1's enforcement.
 
-### Repo settings (owner steps; not applied by any script)
+### Repo settings
 
-GitHub settings the code can't set. Run as the repo admin (`gh auth status`):
+Applied and checked through the GitHub API on 2026-11-17 for #49: immutable
+releases, Dependabot alerts/security updates, and the active `Protect main`
+ruleset (ID `27473892`). The ruleset blocks deletion/force pushes and requires
+PRs, with zero required approvals, resolved review threads, and no bypass actors.
+The commands below document setup for another repository; they are not build steps.
+Run as the repo admin (`gh auth status`):
 
 - **Immutable releases** (published assets and the tag can no longer be changed
   or swapped; protects the feed and DMG from a stolen token). UI: repo Settings >
@@ -165,8 +180,9 @@ GitHub settings the code can't set. Run as the repo admin (`gh auth status`):
 - **Branch protection on `main`:** UI: Settings > Rules > Rulesets > New branch
   ruleset, target `main`, enable "Restrict deletions", "Block force pushes",
   "Require a pull request before merging" (0 required approvals if you are the
-  only maintainer). Pushing the release tag/commit directly then needs a bypass
-  for you (Bypass list > Repository admin).
+  only maintainer). The configured ruleset has no bypass: merge changes through
+  a PR. Release tags do not target `main` and are not restricted by this branch
+  ruleset; immutable releases protect their tags after publication.
 - **Dependabot alerts + security updates:** UI: Settings > Advanced Security (or
   Code security) > enable "Dependabot alerts" and "Dependabot security updates".
   CLI: `gh api -X PUT repos/ropats16/cado/vulnerability-alerts` and
@@ -197,7 +213,7 @@ valid key (`UpdaterAvailability`).
 - **Pinned dependencies:** `Package.resolved` is committed and the release resolves and builds with `--force-resolved-versions`, so a DMG holds exactly the reviewed revisions of FluidAudio, WhisperKit and Sparkle, never a newer upstream release within `Package.swift`'s ranges (#27). To update one: `swift package update <name>`, review the upstream diff, commit `Package.resolved`.
 - **Clean tree:** the DMG is built from the working tree but `gh release create --target` tags HEAD, so a real release refuses uncommitted changes (tracked files, or untracked ones under `Sources`, `Resources`, `scripts`, `Package.swift`/`.resolved`, `Makefile`). A rehearsal lists them as a warning and goes on.
 - **Rehearsal** (no Apple credentials needed, any signing identity or `-`; result is *not* distributable):
-  `SKIP_NOTARIZE=1 CADO_SIGN_IDENTITY="-" make release VERSION=0.2.0`
+  `SKIP_NOTARIZE=1 CADO_SIGN_IDENTITY="-" make release VERSION=0.3.0`
   It runs the appcast stage too (signing with the keychain key) and prints, but
   never runs, the publish command. With `-` the app doesn't launch: under the
   Hardened Runtime, library validation rejects an ad-hoc Sparkle.framework

@@ -2,7 +2,7 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
-## Unreleased
+## 0.3.0 (unreleased)
 
 ### Added
 - "Record this meeting?": when a meeting app (Zoom, Teams, Slack, Webex, Discord, FaceTime, or a browser for Meet and other web calls) starts using the microphone, Cado asks, with Record and Not Now. It asks in a notification, in the menu (the menu bar shows "Record?") and with the mascot, so it works with notifications off too. Cado never records by itself. Needs macOS 14.4 or later; turn it off in Settings › Meetings.
@@ -24,6 +24,11 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - Record Meeting (from the menu, the meeting hotkey or the mascot) works while Cado is finishing a meeting from an earlier run: that recovery waits while you record and goes on after. While you record, the menu shows only the new meeting; the recovery's progress shows again once the new note is saved.
 - A meeting note's front matter has an `id` line, so if Cado stops right after saving a note, the next launch finds it and doesn't write a second one. It can still write a second one if the notes folder was changed in Settings in between, the note was moved into a subfolder, the Mac's clock was set back, or the note had gone to the Meeting Audio folder. Notes without it open as before. A note found this way keeps the meeting's audio in the Meeting Audio folder and gets its summary as usual. Part of a note left by a save that failed is never used or deleted: the whole note is written beside it (or, if a whole one is there too, that one is used).
 - A recording in Meetings In Progress whose details can't be read is no longer left there silently: its audio is kept as WAV files in the Meeting Audio folder, with the rest of the recording (the transcript so far included) next to them, and Cado tells you where, once.
+- Meetings are transcribed while you talk, so the note is ready shortly after you stop, even after an hour-long call (on a Mac that keeps up; a slower one finishes the rest after you stop).
+- A meeting interrupted by a crash, Force Quit or quitting Cado is finished the next time Cado starts, and its note says so. Up to about a second of audio just before a crash can be lost.
+- A meeting whose note can't be saved (the notes folder is unavailable or the disk is full) is kept and finished the next time Cado starts. Cado tells you once.
+- Settings › Meetings › Keep meeting audio: off by default, a meeting's audio is deleted once its note is saved; on, it's kept as WAV files in Cado's Meeting Audio folder. Audio is also kept when part of a meeting couldn't be transcribed.
+- Setup: an optional Notifications step, and "Almost there" now has a button for each step still to do.
 
 ### Changed
 - A hand-edited language in the config file that isn't a language code ("hindi", "en-US") is reported in Settings instead of giving garbled text.
@@ -38,6 +43,15 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - The Library and the menu's Open Last Meeting Note stay quick with a large notes folder: notes that haven't changed aren't read again, and the list is prepared in the background.
 - Updated the speech engine (whisper.cpp 1.9.5), which includes a fix for a crash on a damaged model file.
 - A hand-made WhisperKit model folder with a damaged tokenizer file (in any place WhisperKit looks) is refused instead of making Cado download a replacement.
+- A meeting no longer sits in memory: its audio and transcript so far are written to a private folder as it's recorded, and deleted once the note is safely saved.
+- Quitting Cado during a meeting no longer writes a partial note: the complete note is finished the next time Cado starts.
+- A full disk no longer stops a meeting recording: Cado says so and keeps recording, but audio held in memory is lost if Cado quits unexpectedly before the note is saved.
+- Messages in the menu, Settings, setup and notifications say what to do inside Cado; no more terminal commands or "see log".
+- Engine and download errors are in plain words, without file paths.
+- Settings: the model download list opens by itself while a download runs or fails, or when the chosen model is missing.
+- Hotkey clashes are explained in plain words.
+- One name per thing: "speech model", "the mascot", "Send anonymous usage count"; consistent button and notification titles.
+- Release update feeds are signed as well as the app download. Requiring signed feeds in installed apps is staged for the following release, after the first signed feed is published and verified.
 
 ### Fixed
 - Meetings on laptop speakers: what the other side says no longer shows up a second time under "Me" (a few garbled words can still slip through). Your replies stay, also ones that reuse their words, and "yeah"s over them. Saying the same words as them at the same moment, like both saying "thank you", is left out of "Me" on speakers. With headphones Cado normally leaves nothing out.
@@ -48,28 +62,6 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - A note is saved whole or not at all: a save that fails partway (a full disk) leaves no half-written note, and the meeting is finished later as when the note can't be saved.
 - Kept meeting audio is complete when Cado says it's kept: a copy that doesn't reach the disk whole is reported as not kept, and the recording stays until it can be copied. Only a recording whose own file was cut short is kept as far as it can be read, with a notice saying how much at the end is missing, instead of being retried on every launch.
 - Looking for a meeting's note never waits for a note in iCloud Drive (or another cloud folder) to download.
-
-## 0.3.0 - 2026-11-17
-
-### Added
-- Meetings are transcribed while you talk, so the note is ready shortly after you stop, even after an hour-long call (on a Mac that keeps up; a slower one finishes the rest after you stop).
-- A meeting interrupted by a crash, Force Quit or quitting Cado is finished the next time Cado starts, and its note says so. Up to about a second of audio just before a crash can be lost.
-- A meeting whose note can't be saved (the notes folder is unavailable or the disk is full) is kept and finished the next time Cado starts. Cado tells you once.
-- The menu shows "Recovering Meeting…" with progress while Cado finishes a meeting from an earlier run; Record Meeting waits until it's done.
-- Settings › Notes › Keep meeting audio: off by default, a meeting's audio is deleted once its note is saved; on, it's kept as WAV files in Cado's Meeting Audio folder. Audio is also kept when part of a meeting couldn't be transcribed.
-- Setup: an optional Notifications step, and "Almost there" now has a button for each step still to do.
-
-### Changed
-- A meeting no longer sits in memory: its audio and transcript so far are written to a private folder as it's recorded, and deleted once the note is safely saved.
-- Quitting Cado during a meeting no longer writes a partial note: the complete note is finished the next time Cado starts.
-- A full disk no longer stops a meeting recording: Cado says so and keeps recording, but audio held in memory is lost if Cado quits unexpectedly before the note is saved.
-- Messages in the menu, Settings, setup and notifications say what to do inside Cado; no more terminal commands or "see log".
-- Engine and download errors are in plain words, without file paths.
-- Settings: the model download list opens by itself while a download runs or fails, or when the chosen model is missing.
-- Hotkey clashes are explained in plain words.
-- One name per thing: "speech model", "the mascot", "Send anonymous usage count"; consistent button and notification titles.
-
-### Fixed
 - Two copies of Cado on one Mac never touch each other's meetings.
 - Green text (Recommended badge, links) is readable in light mode.
 - Outlines respect Increase Contrast.
