@@ -19,12 +19,40 @@ import Foundation
 /// Needs the microphone permission for whatever runs it (the terminal), and
 /// plays sound out loud.
 ///
-/// Exit status: 0 both recorded; 1 a recording failed; 2 bad usage.
+/// The printed dB difference is only a rough indication: voice processing
+/// also applies noise suppression and automatic gain, not just echo
+/// cancellation, so it mixes all three.
+///
+/// Exit status: 0 both recorded; 1 a recording failed, the mic was denied or
+/// heard nothing, or the WAV is missing or won't play; 2 bad usage.
 enum EchoSelfTest {
+    /// Below this the plain recording is treated as silence (no mic access,
+    /// muted or wrong input), so no comparison is meaningful.
+    static let silenceFloorDBFS = -60.0
+
+    enum Verdict: Equatable {
+        case silent
+        case lessBleed(dB: Double)
+    }
+
+    /// Pure decision from the two levels (plain, voice processing), in dBFS.
+    static func verdict(plain: Double, voiceProcessing: Double) -> Verdict {
+        guard plain.isFinite, plain >= silenceFloorDBFS else { return .silent }
+        return .lessBleed(dB: plain - voiceProcessing)
+    }
+
     static func run(arguments: [String]) -> Int32 {
         guard let wav = CommandLineSupport.value("--wav", in: arguments) else {
             err("usage: Cado --echo-test --wav <speech.wav> [--out <dir>]")
             return 2
+        }
+        guard FileManager.default.fileExists(atPath: wav) else {
+            err("no such file: \(wav)")
+            return 1
+        }
+        guard microphoneAllowed() else {
+            err("microphone access is off. Allow the microphone for this terminal app in System Settings › Privacy & Security › Microphone, then run again.")
+            return 1
         }
         let out = URL(fileURLWithPath: CommandLineSupport.value("--out", in: arguments)
                       ?? NSTemporaryDirectory() + "cado-echo-test-\(UUID().uuidString)")
@@ -38,12 +66,43 @@ enum EchoSelfTest {
                 levels.append(level)
                 err(String(format: "%@: %.1f dBFS (%@)", voiceProcessing ? "Voice processing" : "Plain", level, file.path))
             }
-            err(String(format: "Voice processing heard %.1f dB less of the speakers.", levels[0] - levels[1]))
-            return 0
+            switch verdict(plain: levels[0], voiceProcessing: levels[1]) {
+            case .silent:
+                err("the microphone heard nothing (plain recording below \(Int(silenceFloorDBFS)) dBFS). Check the input device and the terminal's microphone permission.")
+                return 1
+            case .lessBleed(let dB):
+                err(String(format: "Voice processing heard %.1f dB less of the speakers (rough indication: includes its noise suppression and automatic gain, not only echo cancellation).", dB))
+                return 0
+            }
         } catch {
             err("failed: \(error.localizedDescription)")
             return 1
         }
+    }
+
+    /// True when the mic may be used; asks (and waits) on first run so the
+    /// prompt doesn't land mid-recording.
+    private static func microphoneAllowed() -> Bool {
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: return true
+        case .notDetermined:
+            let done = DispatchSemaphore(value: 0)
+            let granted = LockedFlag()
+            AVCaptureDevice.requestAccess(for: .audio) { ok in
+                granted.set(ok)
+                done.signal()
+            }
+            done.wait()
+            return granted.value
+        default: return false
+        }
+    }
+
+    private final class LockedFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var flag = false
+        func set(_ v: Bool) { lock.withLock { flag = v } }
+        var value: Bool { lock.withLock { flag } }
     }
 
     /// Records the default mic while `afplay` plays `wav`; the recording's
@@ -79,8 +138,17 @@ enum EchoSelfTest {
         player.arguments = [wav]
         try player.run()
         player.waitUntilExit()
+        guard player.terminationStatus == 0 else {
+            throw PlaybackError(status: player.terminationStatus, wav: wav)
+        }
         Thread.sleep(forTimeInterval: 0.5)
         return meter.dBFS
+    }
+
+    private struct PlaybackError: LocalizedError {
+        let status: Int32
+        let wav: String
+        var errorDescription: String? { "afplay couldn't play \(wav) (exit \(status))" }
     }
 
     private final class Meter {
