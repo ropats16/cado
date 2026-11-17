@@ -57,13 +57,36 @@ extension NotesLibrary: MeetingNoteStore {
 /// `Meeting Audio`, not the notes folder (no 100 MB files in someone's vault).
 final class FolderMeetingArchive: MeetingArchive {
     private let root: URL
+    private let write: (Data, URL) throws -> Void
+    private let sync: (URL) throws -> Void
 
-    init(root: URL = Paths.appSupportDir.appendingPathComponent("Meeting Audio", isDirectory: true)) {
+    /// `write` and `sync` are seams for tests (the real ones write the bytes
+    /// and flush a file or folder to disk).
+    init(root: URL = Paths.appSupportDir.appendingPathComponent("Meeting Audio", isDirectory: true),
+         write: @escaping (Data, URL) throws -> Void = { try $0.write(to: $1) },
+         sync: @escaping (URL) throws -> Void = Durable.sync) {
         self.root = root
+        self.write = write
+        self.sync = sync
     }
 
+    /// Writes `Note.md` atomically (a temp file in the folder, flushed, then
+    /// renamed over any earlier `Note.md`): never a partial note, and a retry
+    /// replaces rather than adds a second one.
     func writeNote(_ markdown: String, into folder: URL) throws {
-        try Data(markdown.utf8).write(to: folder.appendingPathComponent("Note.md"))
+        let final = folder.appendingPathComponent("Note.md")
+        let temp = folder.appendingPathComponent(".Note-\(UUID().uuidString).tmp")
+        do {
+            try write(Data(markdown.utf8), temp)
+            do { try sync(temp) } catch { Log.error("Couldn't flush the meeting note to disk: \(error.localizedDescription)") }
+            guard rename(temp.path, final.path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: temp)
+            throw error
+        }
+        do { try sync(folder) } catch { Log.error("Couldn't flush the meeting folder to disk: \(error.localizedDescription)") }
     }
 
     func writeAudio(_ audio: SpoolAudio, into folder: URL) throws {
