@@ -2527,22 +2527,88 @@ extension MeetingSessionTests {
         XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting"])
     }
 
-    /// Two stalled attempts and a give-up the journal can't take: nothing is
-    /// written; it waits until the give-up can be journaled first.
-    func testAGiveUpTheJournalCantTakeWaitsForRoom() throws {
+    /// Two stalled attempts and a give-up the journal can't take: the name
+    /// says it (`gave-up`, a rename) and the note is written at once, where
+    /// the notes folder has room (#48: the note never waits on the journal).
+    func testAGiveUpTheJournalCantTakeIsMarkedAndItsNoteWrittenAtOnce() throws {
         let h = leftover(of: meetingWithZoom(), bothSides + [.recoveryStarted, .recoveryStarted])
+        var atSave: (events: [SpoolEvent], marks: Set<SpoolFolderMark>)?
+        notes.onSave = { atSave = (h.events, h.folderMarks) }
         try relaunch(h, stillFull: true)
-        XCTAssertTrue(notes.saved.isEmpty, "Not written where a death couldn't be told from a first try")
-        XCTAssertTrue(archive.kept.isEmpty)
-        XCTAssertTrue(h.hasFolder)
-        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting yet"])
+        let at = try XCTUnwrap(atSave, "Written at once")
+        XCTAssertEqual(at.marks, [.gaveUp])
+        let folded = at.events + SpoolFolderMark.events(for: at.marks)
+        XCTAssertTrue(RecoveryPlan.diedAfterGivingUp(folded), "Were Cado to die writing it, the next launch sets it aside")
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertTrue(notes.saved[0].body.contains("> Cado couldn't finish transcribing this meeting"))
+        XCTAssertFalse(feedback.titles.contains("Couldn't finish a meeting yet"))
+    }
 
+    /// The same, and Cado dies writing that note: the next launch sets it
+    /// aside, not gives up (and dies) again.
+    func testAMarkedGiveUpThatDiesWritingItsNoteIsSetAside() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides + [.recoveryStarted, .recoveryStarted])
+        var atSave: (events: [SpoolEvent], marks: Set<SpoolFolderMark>)?
+        notes.onSave = { atSave = atSave ?? (h.events, h.folderMarks) }
+        notes.error = Failure("Cado died here.")  // as good as dying: nothing is written
+        archive.noteError = Failure("Cado died here.")
+        try relaunch(h, stillFull: true)
+        let at = try XCTUnwrap(atSave)
+        XCTAssertEqual(at.marks, [.gaveUp])
+        notes.onSave = nil
+        notes.error = nil
+        archive.noteError = nil
+        let died = leftover(of: h.meeting, at.events, marks: at.marks)
+        spool.left = [try XCTUnwrap(died.leftover)]
+        makeSession().recoverLeftovers()
+        XCTAssertTrue(notes.saved.isEmpty, "Not given up on (and written) again")
+        XCTAssertNotNil(died.movedTo, "Set aside")
+    }
+
+    /// The marked give-up's journal takes events again (the rename reopened
+    /// its files): the give-up goes in first, so a later journaled event
+    /// (here the failed save of its note) is read after it, not before.
+    func testAMarkedGiveUpIsJournaledBeforeAnythingAfterIt() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides + [.recoveryStarted, .recoveryStarted])
+        h.reopen(refusing: { if case .recoveryGaveUp = $0 { return h.folderMarks.isEmpty } else { return false } })
+        spool.left = [try XCTUnwrap(h.leftover)]
+        notes.error = Failure("The disk is full.")
+        archive.noteError = Failure("The disk is full.")
+        makeSession().recoverLeftovers()
+        let gaveUp = try XCTUnwrap(h.events.firstIndex { if case .recoveryGaveUp = $0 { return true } else { return false } })
+        let failed = try XCTUnwrap(h.events.firstIndex { if case .noteSaveFailed = $0 { return true } else { return false } })
+        XCTAssertLessThan(gaveUp, failed)
+        XCTAssertEqual(h.folderMarks, [], "In the journal now")
+        XCTAssertFalse(RecoveryPlan.diedAfterGivingUp(h.events), "Its note failed: written again next launch")
+    }
+
+    /// A give-up after an earlier unsaved note's mark, the journal full,
+    /// waits: the name can't say which came first, so it can't count the
+    /// give-up (nothing is written where a death couldn't be told from a
+    /// first try). With room, the give-up is journaled first, then its note.
+    func testAGiveUpTheNameCantOrderWaitsForRoom() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides + [.recoveryStarted, .recoveryStarted, .recoveryStarted],
+                         marks: [.noteNotSaved])
+        try relaunch(h, stillFull: true)
+        XCTAssertTrue(notes.saved.isEmpty)
+        XCTAssertTrue(archive.kept.isEmpty)
+        XCTAssertEqual(h.folderMarks, [.noteNotSaved, .waited])
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting yet"])
         var atSave: [SpoolEvent] = []
         notes.onSave = { atSave = h.events }
         try relaunch(h)
         XCTAssertEqual(atSave.last, .recoveryGaveUp(reason: "recovery was begun 2 times without getting further"))
         XCTAssertEqual(notes.saved.count, 1)
-        XCTAssertTrue(notes.saved[0].body.contains("> Cado couldn't finish transcribing this meeting"))
+    }
+
+    /// One whose wait can't be marked either is set aside, its note unwritten.
+    func testAGiveUpNeitherTheJournalNorTheNameCanTakeIsSetAside() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides + [.recoveryStarted, .recoveryStarted])
+        h.canMark = false
+        try relaunch(h, stillFull: true)
+        XCTAssertTrue(notes.saved.isEmpty)
+        XCTAssertNotNil(h.movedTo)
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting"])
     }
 
     /// A clean quit during an attempt the journal can't take doesn't count.

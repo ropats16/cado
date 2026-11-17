@@ -61,6 +61,8 @@ final class MeetingSpoolMarksTests: XCTestCase {
         XCTAssertEqual(SpoolFolderMark.parse(folderName: id)?.marks, [])
         XCTAssertEqual(SpoolFolderMark.parse(folderName: id + ".unsaved")?.marks, [.noteNotSaved])
         XCTAssertEqual(SpoolFolderMark.parse(folderName: id + ".keep-audio")?.marks, [.audioPending])
+        XCTAssertEqual(SpoolFolderMark.parse(folderName: id + ".tried.gave-up")?.marks, [.tried, .gaveUp])
+        XCTAssertEqual(SpoolFolderMark.folderName(id, [.gaveUp, .noteNotSaved]), id + ".unsaved.gave-up")
         XCTAssertNil(SpoolFolderMark.parse(folderName: id + ".later"))
         XCTAssertNil(SpoolFolderMark.parse(folderName: id + "."))
     }
@@ -75,6 +77,34 @@ final class MeetingSpoolMarksTests: XCTestCase {
         XCTAssertEqual(RecoveryPlan(events: SpoolFolderMark.events(for: [.quit]), sampleCounts: [:]).reason, .quit)
         XCTAssertEqual(RecoveryPlan(events: [.recoveryStarted] + SpoolFolderMark.events(for: [.tried]),
                                     sampleCounts: [:]).stalledAttempts, 2, "A marked attempt counts like a journaled one")
+    }
+
+    /// A give-up the journal couldn't take (#48): after the attempt it ended,
+    /// before the note it then couldn't save. The name can't order a give-up
+    /// after an earlier unsaved note (`RecoverySpoolHandle.giveUp` never
+    /// marks one then), so with both, the give-up came first.
+    func testAGiveUpMarkStandsForItsEventInItsPlace() {
+        let gaveUp = SpoolFolderMark.gaveUp.event!
+        XCTAssertEqual(SpoolFolderMark.events(for: [.gaveUp, .tried, .quit]), [.appQuit, .recoveryStarted, gaveUp])
+        XCTAssertEqual(SpoolFolderMark.events(for: [.gaveUp, .noteNotSaved]), [gaveUp, SpoolFolderMark.noteNotSaved.event!])
+        XCTAssertEqual(SpoolFolderMark.events(for: [.noteNotSaved, .tried]),
+                       [SpoolFolderMark.noteNotSaved.event!, .recoveryStarted], "As before")
+        let marked = SpoolFolderMark.events(for: [.tried, .gaveUp])
+        XCTAssertTrue(RecoveryPlan(events: marked, sampleCounts: [:]).gaveUp)
+        XCTAssertTrue(RecoveryPlan.diedAfterGivingUp([.recoveryStarted] + marked), "Nothing after it: died writing its note")
+        XCTAssertFalse(RecoveryPlan.diedAfterGivingUp(SpoolFolderMark.events(for: [.gaveUp, .noteNotSaved])))
+    }
+
+    /// Older builds (one mark per name, three marks known) leave a name with
+    /// a mark they don't know as it is; a newer one reads `gave-up`.
+    func testAGaveUpNameIsFoundWithItsMarks() throws {
+        let m = meeting(1)
+        var h: MeetingSpoolHandle? = try FolderMeetingSpool(root: root).create(m)
+        h?.append([0.2], for: .them)
+        XCTAssertEqual(h?.setMarks([.tried, .gaveUp]), true)
+        XCTAssertEqual(h?.location?.lastPathComponent, m.id.uuidString + ".tried.gave-up")
+        h = nil
+        XCTAssertEqual(FolderMeetingSpool(root: root).leftovers().first?.marks, [.tried, .gaveUp])
     }
 
     /// #48: a folder set aside where it is (it couldn't be moved) is left

@@ -27,12 +27,18 @@ import Foundation
 /// tried again on each later write, and at a pause (`MeetingSession`'s
 /// `endAttemptMark`); an attempt begun with the journal working drops an
 /// earlier `.tried` too.
+///
+/// A give-up the journal can't take is said by the name the same way
+/// (`.gaveUp`, `giveUp`), so its note is written at once: it too goes into
+/// the journal ahead of anything written after it, and then off the name.
 final class RecoverySpoolHandle: MeetingSpoolHandle {
     let inner: MeetingSpoolHandle
     /// This attempt's start is in the name (`.tried`), not yet in the journal.
     private(set) var startOnlyInName = false
     /// The start is journaled, but the rename dropping `.tried` failed: tried again on the next write.
     private(set) var markToDrop = false
+    /// This attempt's give-up is in the name (`.gaveUp`), not yet in the journal: its reason.
+    private(set) var gaveUpOnlyInName: String?
 
     init(_ inner: MeetingSpoolHandle) { self.inner = inner }
 
@@ -51,15 +57,27 @@ final class RecoverySpoolHandle: MeetingSpoolHandle {
         return true
     }
 
-    /// The journal took what recovery must write first: no more waiting for room.
-    func journalWorks() {
-        if inner.folderMarks.contains(.waited) { inner.setMarks(inner.folderMarks.subtracting([.waited])) }
+    /// Journals that recovery gives up, else marks it `.gaveUp` (a rename:
+    /// no space needed); false if neither. Not marked after an unsaved
+    /// note's mark (the name can't say which came first) or a give-up's
+    /// mark (a second give-up the name can't count).
+    func giveUp(reason: String) -> Bool {
+        if record(.recoveryGaveUp(reason: reason)) {
+            markToDrop = true   // the journal works: no more waiting for room
+            dropMarks()
+            return true
+        }
+        guard inner.folderMarks.isDisjoint(with: [.gaveUp, .noteNotSaved]),
+              inner.setMarks(inner.folderMarks.union([.gaveUp])) else { return false }
+        gaveUpOnlyInName = reason
+        return true
     }
 
-    /// The start is journaled: `.tried` and `.waited` go from the name. If
-    /// the rename fails, `markToDrop` stays and the next write tries again.
+    /// The start (and a give-up) is journaled: `.tried`, `.gaveUp` and
+    /// `.waited` go from the name. If the rename fails, `markToDrop` stays
+    /// and the next write tries again.
     private func dropMarks() {
-        let stale = inner.folderMarks.intersection([.tried, .waited])
+        let stale = inner.folderMarks.intersection(gaveUpOnlyInName == nil ? [.tried, .gaveUp, .waited] : [.tried, .waited])
         if stale.isEmpty || inner.setMarks(inner.folderMarks.subtracting(stale)) {
             markToDrop = false
         } else {
@@ -67,11 +85,16 @@ final class RecoverySpoolHandle: MeetingSpoolHandle {
         }
     }
 
-    /// The start, if it's still only in the name: true once it's journaled.
+    /// The start (then a give-up), if still only in the name: true once journaled.
     private func journalStart() -> Bool {
         if startOnlyInName {
             guard inner.record(.recoveryStarted) else { return false }
             startOnlyInName = false
+            markToDrop = true
+        }
+        if let reason = gaveUpOnlyInName {
+            guard inner.record(.recoveryGaveUp(reason: reason)) else { return false }
+            gaveUpOnlyInName = nil
             markToDrop = true
         }
         if markToDrop { dropMarks() }
@@ -84,6 +107,7 @@ final class RecoverySpoolHandle: MeetingSpoolHandle {
     func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool {
         guard inner.setMarks(marks) else { return false }
         if !marks.contains(.tried) { startOnlyInName = false; markToDrop = false }
+        if !marks.contains(.gaveUp) { gaveUpOnlyInName = nil }
         return true
     }
 

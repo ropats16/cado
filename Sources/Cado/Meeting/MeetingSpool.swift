@@ -243,6 +243,12 @@ enum SpoolFolderMark: String, Equatable, CaseIterable {
     /// (#48): the crash-loop guard still counts it. Cleared when the attempt
     /// ends (a clean quit, a note saved or not).
     case tried = "tried"
+    /// Recovery gave up on the meeting and `.recoveryGaveUp` couldn't be
+    /// journaled (#48): its note is still written at once, and a death
+    /// writing it is still counted (the next launch sets it aside). Goes
+    /// into the journal ahead of anything else written after it
+    /// (`RecoverySpoolHandle`). Older builds leave a name with it as it is.
+    case gaveUp = "gave-up"
     /// Recovery waited a launch for room (#48): the journal couldn't take
     /// what it must write first because the disk was full; the user was told.
     /// Still full the next time, it's set aside, not waited for again. Goes
@@ -263,11 +269,19 @@ enum SpoolFolderMark: String, Equatable, CaseIterable {
     /// alone, without a word.
     case setAside = "set-aside"
 
-    /// How marks are written in a name, which is also the order what they
-    /// stand for happened in: a quit comes before the note that couldn't be
-    /// saved; an attempt that ends in a note clears `.tried`, so with both,
-    /// the attempt came after.
+    /// How marks are written in a name.
     static var order: [SpoolFolderMark] { allCases }
+
+    /// `marks` in the order what they stand for happened in: a quit comes
+    /// before the note that couldn't be saved; an attempt that ends in a
+    /// note clears `.tried`, so with both, the attempt came after. A give-up
+    /// comes after its attempt and before its note, which is the unsaved one
+    /// with both (a give-up is never marked after an unsaved note).
+    static func ordered(_ marks: Set<SpoolFolderMark>) -> [SpoolFolderMark] {
+        let journaled: [SpoolFolderMark] = marks.contains(.gaveUp) ? [.quit, .tried, .gaveUp, .noteNotSaved]
+            : [.quit, .noteNotSaved, .tried, .gaveUp]
+        return (journaled + order.filter { $0.event == nil }).filter(marks.contains)
+    }
 
     /// The journal event a mark stands for, if the plan reads it as one.
     var event: SpoolEvent? {
@@ -275,13 +289,14 @@ enum SpoolFolderMark: String, Equatable, CaseIterable {
         case .quit: return .appQuit
         case .noteNotSaved: return .noteSaveFailed(reason: "The note couldn't be saved (from the folder's name).")
         case .tried: return .recoveryStarted
+        case .gaveUp: return .recoveryGaveUp(reason: "Recovery gave up (from the folder's name).")
         case .waited, .audioPending, .writtenDown, .unidentified, .setAside: return nil
         }
     }
 
     /// The events `marks` stand for, in the order they happened.
     static func events(for marks: Set<SpoolFolderMark>) -> [SpoolEvent] {
-        order.filter(marks.contains).compactMap(\.event)
+        ordered(marks).compactMap(\.event)
     }
 
     /// `<base>.<mark>…` in `order`; `<base>` with none.

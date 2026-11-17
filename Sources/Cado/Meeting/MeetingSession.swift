@@ -1325,7 +1325,7 @@ final class MeetingSession {
         let marks = handle.folderMarks.filter { $0.event != nil }
         guard !marks.isEmpty, handle.setMarks(handle.folderMarks.subtracting(marks)) else { return }
         var left = Set(marks)
-        for mark in SpoolFolderMark.order where left.contains(mark) {
+        for mark in SpoolFolderMark.ordered(left) {
             guard let event = mark.event, handle.record(event) else { break }
             left.remove(mark)
         }
@@ -1340,9 +1340,12 @@ final class MeetingSession {
         (spool as? RecoverySpoolHandle)?.beginAttempt() ?? spool.record(.recoveryStarted)
     }
 
-    /// The attempt ended (a note saved or not, a clean quit): its mark goes.
+    /// The attempt ended (a note saved or not, a clean quit): its mark goes,
+    /// and a give-up's: journaled by then (`RecoverySpoolHandle`), or, if
+    /// not (a pause the journal can't take), the give-up is decided again.
     private func endAttemptMark(_ spool: MeetingSpoolHandle) {
-        if spool.folderMarks.contains(.tried) { spool.setMarks(spool.folderMarks.subtracting([.tried])) }
+        let marks = spool.folderMarks.intersection([.tried, .gaveUp])
+        if !marks.isEmpty { spool.setMarks(spool.folderMarks.subtracting(marks)) }
     }
 
     /// The journal can't take what recovery must write first: the meeting
@@ -1423,13 +1426,15 @@ final class MeetingSession {
 
     /// Recovery can't go on: the note is written from what was transcribed
     /// (saying so), and the audio kept with it, under the usual rule.
-    /// Journaled first: if Cado dies writing that note, the next launch sets
-    /// the meeting aside instead of dying the same way again.
+    /// Journaled first (or, the journal full, said by the folder's name:
+    /// `RecoverySpoolHandle.giveUp`): if Cado dies writing that note, the
+    /// next launch sets the meeting aside instead of dying the same way again.
     private func giveUp(_ meeting: Meeting, reason: String) {
         Log.error("Meeting recovery: can't finish the meeting with \(meeting.appName): \(reason).")
-        // Not journaled, a death writing the note would come back every launch.
-        guard meeting.spool.record(.recoveryGaveUp(reason: reason)) else { return waitForRoom(meeting) }
-        (meeting.spool as? RecoverySpoolHandle)?.journalWorks()
+        // Not counted, a death writing the note would come back every launch.
+        let counted = (meeting.spool as? RecoverySpoolHandle)?.giveUp(reason: reason)
+            ?? meeting.spool.record(.recoveryGaveUp(reason: reason))
+        guard counted else { return waitForRoom(meeting) }
         meeting.gaveUp = reason
         meeting.queue.removeAll()
         for side in meeting.sides.values { side.ended = true }
