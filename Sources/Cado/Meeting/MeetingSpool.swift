@@ -212,6 +212,11 @@ enum SpoolFolderMark: String, Equatable, CaseIterable {
     /// (#48): the crash-loop guard still counts it. Cleared when the attempt
     /// ends (a clean quit, a note saved or not).
     case tried = "tried"
+    /// Recovery waited a launch for room (#48): the journal couldn't take
+    /// what it must write first because the disk was full; the user was told.
+    /// Still full the next time, it's set aside, not waited for again. Goes
+    /// once the journal takes an attempt's start or a give-up.
+    case waited = "waited"
     /// The note is saved but `.noteSaved` couldn't be journaled, and the audio
     /// still has to be copied: only the copy is done again, never a note.
     case audioPending = "keep-audio"
@@ -221,6 +226,11 @@ enum SpoolFolderMark: String, Equatable, CaseIterable {
     /// either; the user was told where it is (#48): `leftovers()` leaves it
     /// alone, without a word.
     case unidentified = "unidentified"
+    /// Recovery stopped trying (#48: a give-up that died, a disk still full
+    /// or one Cado can't write to) and the folder couldn't be moved out of
+    /// the way; the user was told where it is: `leftovers()` leaves it
+    /// alone, without a word.
+    case setAside = "set-aside"
 
     /// How marks are written in a name, which is also the order what they
     /// stand for happened in: a quit comes before the note that couldn't be
@@ -234,7 +244,7 @@ enum SpoolFolderMark: String, Equatable, CaseIterable {
         case .quit: return .appQuit
         case .noteNotSaved: return .noteSaveFailed(reason: "The note couldn't be saved (from the folder's name).")
         case .tried: return .recoveryStarted
-        case .audioPending, .writtenDown, .unidentified: return nil
+        case .waited, .audioPending, .writtenDown, .unidentified, .setAside: return nil
         }
     }
 
@@ -387,6 +397,20 @@ protocol MeetingSpooling: AnyObject {
 }
 
 // MARK: - Shared helpers
+
+/// What a failed spool write says about the disk (#48).
+enum SpoolWriteFailure {
+    /// The disk (or the user's quota) is full: room may come back. Anything
+    /// else (permissions, a read-only disk, a locked file, a folder gone)
+    /// means Cado can't write there, however much room there is.
+    static func isDiskFull(_ error: Error?) -> Bool {
+        guard let error else { return false }
+        let ns = error as NSError
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOSPC) || ns.code == Int(EDQUOT) { return true }
+        if ns.domain == NSCocoaErrorDomain, ns.code == NSFileWriteOutOfSpaceError { return true }
+        return isDiskFull(ns.userInfo[NSUnderlyingErrorKey] as? Error)
+    }
+}
 
 /// Why a WAV copy of spooled audio isn't complete (`SpoolWAV.write`).
 enum SpoolWAVError: LocalizedError, Equatable {
@@ -702,7 +726,8 @@ final class FolderMeetingSpool: MeetingSpooling {
     /// locked), each now locked by its returned handle. A folder without a
     /// readable meeting.json is deleted if it holds no audio, else returned
     /// as unidentified (#48), unless a newer Cado wrote it (skipped) or it
-    /// was marked so already (skipped quietly). A folder marked written down
+    /// was marked so already (skipped quietly). One marked set aside is
+    /// skipped quietly too. A folder marked written down
     /// is deleted (its note is saved, nothing is left to keep); one with a
     /// mark this build doesn't know is skipped.
     func leftovers() -> [LeftoverMeeting] {
@@ -715,7 +740,7 @@ final class FolderMeetingSpool: MeetingSpooling {
                 Log.info("Meeting spool \(dir.lastPathComponent) has a name this Cado doesn't know; left as it is")
                 continue
             }
-            if marks.contains(.unidentified) { continue }   // the user was told where it is
+            if marks.contains(.unidentified) || marks.contains(.setAside) { continue }   // the user was told where it is
             guard let lock = SpoolLock.take(in: dir) else {
                 Log.info("Meeting spool \(dir.lastPathComponent) is in use by another Cado; skipped")
                 continue

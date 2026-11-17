@@ -44,8 +44,9 @@ import Foundation
 ///   events again. An attempt the journal can't count is marked `.tried`,
 ///   once, and its start is journaled before anything else of it once the
 ///   journal takes events (`RecoverySpoolHandle`); another, or a give-up it
-///   can't journal, waits for a launch with room: a full disk never
-///   switches off the crash-loop guard.
+///   can't journal, waits for a launch with room, once (`.waited`): a full
+///   disk never switches off the crash-loop guard. Still full the launch
+///   after, or a journal Cado can't write at all, sets it aside, told once.
 /// - A note carries its meeting's id (#48): a leftover without `.noteSaved`
 ///   whose note is in the notes folder anyway (Cado died in between) adopts
 ///   it, looked for off main; never a second note. Only a whole note, and
@@ -1188,7 +1189,7 @@ final class MeetingSession {
     // A full disk must not switch off the crash-loop guard (#48): an attempt
     // the journal can't count is counted by the folder's name (`.tried`),
     // once; one more, or a give-up the journal can't take, waits for a
-    // launch with room. And a mark has no place in time, so once the journal
+    // launch with room, once, then is set aside (`waitForRoom`). And a mark has no place in time, so once the journal
     // takes events again the marks go into it and the name goes back to
     // plain: a later `.recoveryGaveUp` is then read in its right place.
 
@@ -1219,21 +1220,34 @@ final class MeetingSession {
         if spool.folderMarks.contains(.tried) { spool.setMarks(spool.folderMarks.subtracting([.tried])) }
     }
 
-    /// The journal can't take what recovery must write first (the disk is
-    /// full): the meeting waits, untouched, for a launch with room, rather
-    /// than run where the crash-loop guard can't count it. Said unless the
-    /// user heard of this meeting already ("the meeting is safe"); the
-    /// journal can't remember saying it, so a later launch says it again.
+    /// The journal can't take what recovery must write first: the meeting
+    /// isn't run where the crash-loop guard can't count it, and it's never
+    /// touched. What the write's error says decides what then (bounded, #48):
+    /// - The disk is full: it waits, once, for a launch with room (`.waited`,
+    ///   a rename: no space needed). Said unless the user heard of this
+    ///   meeting already ("the meeting is safe").
+    /// - Still full a launch later, the wait can't be marked, or Cado can't
+    ///   write there at all (permissions, a read-only disk: room won't help):
+    ///   it's set aside, moved as it is into the archive (`setAside`), and
+    ///   the user is told once where. Not tried again.
     private func waitForRoom(_ meeting: Meeting) {
-        let title = title(meeting)
-        Log.error("Meeting recovery: the spool's journal can't be written (the disk may be full); "
-                  + "“\(title)” waits for a launch with room.")
+        let title = title(meeting), spool = meeting.spool
         meeting.queue.removeAll()
-        if !meeting.toldMeetingIsSafe {
-            feedback.notify(title: "Couldn't finish a meeting yet",
-                            body: "Your Mac's disk may be full, so Cado can't finish “\(title)” yet. Its recording is safe; "
-                                + "Cado will try again the next time it starts.")
+        let diskFull = SpoolWriteFailure.isDiskFull(spool.writeError)
+        if diskFull, !spool.folderMarks.contains(.waited), spool.setMarks(spool.folderMarks.union([.waited])) {
+            Log.error("Meeting recovery: the disk is full, so the spool's journal can't be written; "
+                      + "“\(title)” waits for a launch with room, once.")
+            if !meeting.toldMeetingIsSafe {
+                feedback.notify(title: "Couldn't finish a meeting yet",
+                                body: "Your Mac's disk is full, so Cado can't finish “\(title)” yet. Its recording is safe; "
+                                    + "Cado will try again the next time it starts.")
+            }
+            return end()
         }
+        Log.error("Meeting recovery: the spool's journal can't be written ("
+                  + "\(spool.writeError?.localizedDescription ?? "no error given")); setting “\(title)” aside.")
+        setAside(spool, title: title, why: diskFull ? "Your Mac's disk is still full, so Cado couldn't finish “\(title)”"
+                    : "Cado can't write to its Meetings In Progress folder, so it couldn't finish “\(title)”")
         end()
     }
 
@@ -1290,6 +1304,7 @@ final class MeetingSession {
         Log.error("Meeting recovery: can't finish the meeting with \(meeting.appName): \(reason).")
         // Not journaled, a death writing the note would come back every launch.
         guard meeting.spool.record(.recoveryGaveUp(reason: reason)) else { return waitForRoom(meeting) }
+        (meeting.spool as? RecoverySpoolHandle)?.journalWorks()
         meeting.gaveUp = reason
         meeting.queue.removeAll()
         for side in meeting.sides.values { side.ended = true }
@@ -1383,20 +1398,30 @@ final class MeetingSession {
     }
 
     /// A leftover that already killed a launch while its note was written:
-    /// not transcribed, not rendered, never deleted. Its folder is moved, as
-    /// it is, into a new archive folder, and the user is told once where it
-    /// is. If it can't be moved it stays in the spool, and later launches
-    /// leave it there without a word.
+    /// not transcribed, not rendered, never deleted: set aside.
     private func putAside(_ handle: MeetingSpoolHandle, _ events: [SpoolEvent], title: String) {
         guard !events.contains(.toldUser(.recordingSetAside)) else {
             return Log.error("Meeting recovery: “\(title)” was set aside already; left where it is.")
         }
         Log.error("Meeting recovery: “\(title)” stopped Cado last time; setting its recording aside, untouched.")
+        setAside(handle, title: title, why: "Cado couldn't finish “\(title)”")
+    }
+
+    /// Recovery stops trying: the folder is moved, as it is, into a new
+    /// archive folder (no journal needed), and the user is told once where
+    /// (`why` starts the notice). If it can't be moved it stays in the
+    /// spool, named so later launches leave it there without a word
+    /// (`.setAside`), and journaled so too; only if neither can be written
+    /// is the user told again on a later launch.
+    private func setAside(_ handle: MeetingSpoolHandle, title: String, why: String) {
         let folder = newArchiveFolder(title)
         let moved = folder.flatMap { handle.moveFolder(into: $0) } != nil
+        if !moved, !handle.setMarks(handle.folderMarks.union([.setAside])) {
+            Log.error("Meeting recovery: couldn't mark “\(title)” as set aside either.")
+        }
         let place = moved ? folder?.path : handle.location?.path
         feedback.notify(title: "Couldn't finish a meeting",
-                        body: "Cado couldn't finish “\(title)” and has stopped trying. Its recording is kept, unchanged, in "
+                        body: "\(why) and has stopped trying. Its recording is kept, unchanged, in "
                             + "\(place ?? "Cado's Meetings In Progress folder").")
         if !moved { handle.record(.toldUser(.recordingSetAside)) }   // after telling: twice is better than never
     }

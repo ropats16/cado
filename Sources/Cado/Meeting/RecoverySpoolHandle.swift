@@ -17,6 +17,9 @@ import Foundation
 /// as on a full disk, and the caller falls back as it would there). Marks
 /// set without `.tried` end the attempt (a note saved or not, a pause), and
 /// with it the retry.
+///
+/// Once an attempt's start (or a give-up) is journaled the journal works
+/// again, so a `.waited` mark from an earlier launch goes (`journalWorks`).
 final class RecoverySpoolHandle: MeetingSpoolHandle {
     let inner: MeetingSpoolHandle
     /// This attempt's start is in the name (`.tried`), not yet in the journal.
@@ -27,10 +30,18 @@ final class RecoverySpoolHandle: MeetingSpoolHandle {
     /// Journals that an attempt begins, else marks it `.tried`; false if
     /// neither (or it was marked already: an attempt the guard can't count).
     func beginAttempt() -> Bool {
-        if inner.record(.recoveryStarted) { return true }
+        if inner.record(.recoveryStarted) {
+            journalWorks()
+            return true
+        }
         guard !inner.folderMarks.contains(.tried), inner.setMarks(inner.folderMarks.union([.tried])) else { return false }
         startOnlyInName = true
         return true
+    }
+
+    /// The journal took what recovery must write first: no more waiting for room.
+    func journalWorks() {
+        if inner.folderMarks.contains(.waited) { inner.setMarks(inner.folderMarks.subtracting([.waited])) }
     }
 
     /// The start, if it's still only in the name: true once it's journaled.
@@ -38,7 +49,7 @@ final class RecoverySpoolHandle: MeetingSpoolHandle {
         guard startOnlyInName else { return true }
         guard inner.record(.recoveryStarted) else { return false }
         startOnlyInName = false
-        if !inner.setMarks(inner.folderMarks.subtracting([.tried])) {
+        if !inner.setMarks(inner.folderMarks.subtracting([.tried, .waited])) {
             Log.error("Meeting recovery: couldn't rename the spool back after journaling its attempt.")
         }
         return true

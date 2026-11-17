@@ -1333,7 +1333,9 @@ final class DurableSpoolHandle: MeetingSpoolHandle {
         folderMarks = marks
     }
     var meeting: SpooledMeeting { inner.meeting }
-    var writeError: Error? { journalFailed ? FullDiskSpoolHandle.DiskFull() : nil }
+    /// What a refused write says (a full disk unless set).
+    var journalError: Error = POSIXError(.ENOSPC)
+    var writeError: Error? { journalFailed ? journalError : nil }
     var events: [SpoolEvent] { inner.events }
     func append(_ samples: [Float], for speaker: MeetingSpeaker) { inner.append(samples, for: speaker) }
     func record(_ event: SpoolEvent) -> Bool {
@@ -1374,9 +1376,9 @@ final class DurableSpoolHandle: MeetingSpoolHandle {
         refuses = refusing
     }
     /// What the next launch finds of it: its folder, unless gone, moved or
-    /// marked written down.
+    /// marked written down, without its details or set aside.
     var leftover: LeftoverMeeting? {
-        guard hasFolder, !folderMarks.contains(.writtenDown) else { return nil }
+        guard hasFolder, folderMarks.isDisjoint(with: [.writtenDown, .unidentified, .setAside]) else { return nil }
         return LeftoverMeeting(handle: self, events: events, marks: folderMarks)
     }
 }
@@ -1893,8 +1895,10 @@ extension MeetingSessionTests {
         h.canMove = false
         session.recoverLeftovers()
         XCTAssertEqual(feedback.notices.map(\.body), ["Cado couldn't finish “\(meetingTitle)” and has stopped trying. "
-                       + "Its recording is kept, unchanged, in /spool/\(h.meeting.id.uuidString)."])
+                       + "Its recording is kept, unchanged, in /spool/\(h.meeting.id.uuidString).set-aside."])
         XCTAssertEqual(h.events.last, .toldUser(.recordingSetAside))
+        XCTAssertNil(h.leftover, "Named so later launches leave it alone (`leftovers()`)")
+        h.setMarks([])                           // the name lost: the journal still says it
         for _ in 0..<2 {
             spool.left = [try XCTUnwrap(h.leftover)]
             makeSession().recoverLeftovers()
@@ -2156,7 +2160,8 @@ extension MeetingSessionTests {
     // MARK: Box 3: a full journal can't switch the crash-loop guard off
 
     /// An attempt the journal can't count is counted by the name, once;
-    /// another waits for room (and says so); with room it goes on as usual.
+    /// another waits for room, once (and says so); still full the launch
+    /// after, the meeting is set aside, never tried again (#48: bounded).
     func testAnAttemptTheJournalCantTakeIsCountedByTheFolderName() throws {
         let h = leftover(of: meetingWithZoom(), bothSides)
         try relaunch(h, stillFull: true)          // runs, unjournaled, and dies
@@ -2164,25 +2169,64 @@ extension MeetingSessionTests {
         let jobs = engine.jobs.count
         XCTAssertGreaterThan(jobs, 0)
 
-        for _ in 0..<3 {                          // the disk is still full: no attempt the guard can't count
-            try relaunch(h, stillFull: true)
-            XCTAssertEqual(engine.jobs.count, jobs, "Not tried again")
-            XCTAssertEqual(h.folderMarks, [.tried])
-            XCTAssertTrue(h.hasFolder)
-        }
-        XCTAssertEqual(feedback.titles, Array(repeating: "Couldn't finish a meeting yet", count: 3),
-                       "Said on each launch it waits: the journal can't remember saying it")
-        XCTAssertEqual(feedback.notices[0].body, "Your Mac's disk may be full, so Cado can't finish “\(meetingTitle)” yet. "
+        try relaunch(h, stillFull: true)          // no attempt the guard can't count: it waits
+        XCTAssertEqual(engine.jobs.count, jobs, "Not tried again")
+        XCTAssertEqual(h.folderMarks, [.tried, .waited])
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting yet"])
+        XCTAssertEqual(feedback.notices[0].body, "Your Mac's disk is full, so Cado can't finish “\(meetingTitle)” yet. "
                        + "Its recording is safe; Cado will try again the next time it starts.")
         UserFacingCopy.assertPlain(feedback.notices[0].body)
 
+        try relaunch(h, stillFull: true)          // still full: set aside, as it is
+        XCTAssertEqual(engine.jobs.count, jobs)
+        XCTAssertEqual(h.movedTo, URL(fileURLWithPath: archiveFolder).appendingPathComponent(h.meeting.id.uuidString))
+        XCTAssertFalse(h.inner.isDiscarded, "Never deleted")
+        XCTAssertNil(h.leftover, "Not found again")
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting yet", "Couldn't finish a meeting"])
+        XCTAssertEqual(feedback.notices[1].body, "Your Mac's disk is still full, so Cado couldn't finish “\(meetingTitle)” "
+                       + "and has stopped trying. Its recording is kept, unchanged, in \(archiveFolder).")
+        UserFacingCopy.assertPlain(feedback.notices[1].body)
+        XCTAssertTrue(notes.saved.isEmpty)
+    }
+
+    /// Waited once, then room: it goes on as usual, and the wait is forgotten.
+    func testAMeetingThatWaitedForRoomGoesOnOnceThereIsRoom() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides, marks: [.tried])
+        try relaunch(h, stillFull: true)
+        XCTAssertEqual(h.folderMarks, [.tried, .waited])
         let next = try relaunch(h)                // room again
-        XCTAssertEqual(h.folderMarks, [])
+        XCTAssertEqual(h.folderMarks, [], "The attempt is journaled; the wait is over")
         XCTAssertEqual(h.events.filter { $0 == .recoveryStarted }.count, 2, "The marked attempt, then this one")
         engine.finishAll()
         XCTAssertEqual(notes.saved.count, 1)
         XCTAssertTrue(notes.saved[0].body.hasSuffix(allTurns))
         XCTAssertEqual(next.status, .idle)
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting yet", "Meeting note recovered"])
+    }
+
+    /// The journal refuses for a reason room won't fix (no permission, a
+    /// read-only disk): not waited for, set aside at once, and it says why.
+    func testAJournalCadoCantWriteToIsSetAsideAtOnce() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides, marks: [.tried])
+        h.journalError = POSIXError(.EACCES)
+        try relaunch(h, stillFull: true)
+        XCTAssertTrue(engine.jobs.isEmpty)
+        XCTAssertNotNil(h.movedTo)
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting"])
+        XCTAssertEqual(feedback.notices[0].body, "Cado can't write to its Meetings In Progress folder, so it couldn't "
+                       + "finish “\(meetingTitle)” and has stopped trying. Its recording is kept, unchanged, in \(archiveFolder).")
+        UserFacingCopy.assertPlain(feedback.notices[0].body)
+    }
+
+    /// A wait that can't even be marked (the folder can't be renamed) can't
+    /// be counted: set aside at once, not waited for on every launch.
+    func testAWaitThatCantBeMarkedIsSetAsideAtOnce() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides)
+        h.canMark = false
+        try relaunch(h, stillFull: true)
+        XCTAssertTrue(engine.jobs.isEmpty, "An attempt neither the journal nor the name can count isn't run")
+        XCTAssertNotNil(h.movedTo)
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting"])
     }
 
     /// Two stalled attempts and a give-up the journal can't take: nothing is

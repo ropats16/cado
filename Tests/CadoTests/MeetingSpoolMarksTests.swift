@@ -77,6 +77,38 @@ final class MeetingSpoolMarksTests: XCTestCase {
                                     sampleCounts: [:]).stalledAttempts, 2, "A marked attempt counts like a journaled one")
     }
 
+    /// #48: a folder set aside where it is (it couldn't be moved) is left
+    /// alone, kept as it is; one that waited for room is found as usual.
+    func testASetAsideFolderIsLeftAloneAndAWaitedOneIsFound() throws {
+        var open: [MeetingSpoolHandle] = []
+        let a = meeting(1), b = meeting(2)
+        for (m, marks) in [(a, [SpoolFolderMark.tried, .waited]), (b, [.setAside])] {
+            let h = try FolderMeetingSpool(root: root).create(m)
+            h.append([0.2], for: .them)
+            XCTAssertTrue(h.setMarks(Set(marks)))
+            open.append(h)
+        }
+        XCTAssertEqual(open[0].location?.lastPathComponent, a.id.uuidString + ".tried.waited")
+        open = []
+        let left = FolderMeetingSpool(root: root).leftovers()
+        XCTAssertEqual(left.map(\.handle.meeting), [a])
+        XCTAssertEqual(left.first?.marks, [.tried, .waited])
+        XCTAssertTrue(fm.fileExists(atPath: root.appendingPathComponent(b.id.uuidString + ".set-aside").path), "Kept")
+    }
+
+    /// Only a full disk is worth waiting for.
+    func testOnlyAFullDiskIsWorthWaitingFor() {
+        XCTAssertTrue(SpoolWriteFailure.isDiskFull(POSIXError(.ENOSPC)))
+        XCTAssertTrue(SpoolWriteFailure.isDiskFull(POSIXError(.EDQUOT)))
+        XCTAssertTrue(SpoolWriteFailure.isDiskFull(CocoaError(.fileWriteOutOfSpace)))
+        XCTAssertTrue(SpoolWriteFailure.isDiskFull(NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError,
+                                                           userInfo: [NSUnderlyingErrorKey: POSIXError(.ENOSPC)])))
+        XCTAssertFalse(SpoolWriteFailure.isDiskFull(POSIXError(.EROFS)))
+        XCTAssertFalse(SpoolWriteFailure.isDiskFull(POSIXError(.EACCES)))
+        XCTAssertFalse(SpoolWriteFailure.isDiskFull(CocoaError(.fileWriteNoPermission)))
+        XCTAssertFalse(SpoolWriteFailure.isDiskFull(nil))
+    }
+
     func testInMemorySpoolsHaveNoName() {
         let h = InMemorySpoolHandle(meeting(1))
         XCTAssertFalse(h.setMarks([.quit]))
