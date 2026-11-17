@@ -376,26 +376,74 @@ protocol MeetingSpooling: AnyObject {
 
 // MARK: - Shared helpers
 
-private enum SpoolWAV {
+/// Why a WAV copy of spooled audio isn't complete (`SpoolWAV.write`).
+enum SpoolWAVError: LocalizedError, Equatable {
+    /// The spool gave fewer samples than it said it has (a file cut short).
+    case shortRead(expected: Int, got: Int)
+    /// The finished file doesn't hold every sample (its header or data didn't reach it).
+    case incomplete(expected: Int, got: Int)
+    case noBuffer
+
+    var errorDescription: String? {
+        switch self {
+        case let .shortRead(expected, got):
+            return "Only \(got) of \(expected) samples of the recording could be read."
+        case let .incomplete(expected, got):
+            return "Only \(got) of \(expected) samples of the recording reached the audio file."
+        case .noBuffer: return "There wasn't enough memory to copy the recording."
+        }
+    }
+}
+
+enum SpoolWAV {
     static let chunk = 1 << 16
 
     /// Streams `count` samples, fetched `chunk` at a time by `read`, into a
-    /// 16-bit WAV at `url`.
+    /// 16-bit WAV at `url` (replacing a file there). Returns only when the
+    /// copy is whole and on the disk itself (#48): every sample read and
+    /// written (a short read throws `shortRead`), the file closed and read
+    /// back holding `count` samples (`incomplete` if not), and the file and
+    /// its folder flushed (`Durable`). On any failure the partial file is
+    /// removed, so a WAV that's there is a complete one.
     static func write(count: Int, to url: URL, read: (Range<Int>) throws -> [Float]) throws {
+        try? FileManager.default.removeItem(at: url)
+        do {
+            // In pools, so neither file outlives its use (an autoreleased
+            // writer would finish its header only later).
+            try autoreleasepool { try writeSamples(count: count, to: url, read: read) }
+            // Closed now: what a reader sees is what reached the file.
+            let written = try autoreleasepool { try AVAudioFile(forReading: url).length }
+            guard written == AVAudioFramePosition(count) else {
+                throw SpoolWAVError.incomplete(expected: count, got: Int(written))
+            }
+            try Durable.sync(all: [url, url.deletingLastPathComponent()])
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            throw error
+        }
+    }
+
+    /// The writing part of `write`; the file is closed when it returns.
+    private static func writeSamples(count: Int, to url: URL, read: (Range<Int>) throws -> [Float]) throws {
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: AudioCapture.sampleRate,
             AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false,
         ]
-        try? FileManager.default.removeItem(at: url)
         let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32,
                                    interleaved: false)
+        defer { if #available(macOS 15, *) { file.close() } }   // older: closed when released, on return
         var offset = 0
         while offset < count {
-            let slice = try read(offset..<min(offset + chunk, count))
-            if slice.isEmpty { break }
+            let want = min(chunk, count - offset)
+            let slice = try read(offset..<(offset + want))
+            guard !slice.isEmpty, slice.count <= want else {
+                throw SpoolWAVError.shortRead(expected: count, got: offset)
+            }
             guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
-                                                frameCapacity: AVAudioFrameCount(slice.count)) else { break }
+                                                frameCapacity: AVAudioFrameCount(slice.count)) else {
+                throw SpoolWAVError.noBuffer
+            }
             buffer.frameLength = AVAudioFrameCount(slice.count)
             slice.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: slice.count) }
             try file.write(from: buffer)

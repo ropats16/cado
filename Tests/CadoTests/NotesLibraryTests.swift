@@ -525,13 +525,28 @@ final class NotesLibraryTests: XCTestCase {
         NoteDraft(title: title, date: t0, kind: NoteKind.meeting, duration: 60, body: "Hello")
     }
 
-    func testCreateWritesCompleteFileAndFlushesFileThenFolder() throws {
-        var synced: [URL] = []
+    /// Everything in the folder, hidden files too.
+    private func everything() throws -> [String] {
+        (try? fm.contentsOfDirectory(atPath: dir.path))?.sorted() ?? []
+    }
+
+    /// The text is flushed while still in its hidden temporary, then put in
+    /// place, then the folder entry is flushed.
+    func testCreateFlushesTheTemporaryBeforeItIsInPlaceThenTheFolder() throws {
+        var synced: [(name: String, text: String?, notes: [String])] = []
         let lib = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
-                               timeZone: utc, sync: { synced.append($0) })
+                               timeZone: utc, sync: { [unowned self] url in
+            synced.append((url.lastPathComponent, try? String(contentsOf: url, encoding: .utf8),
+                           try self.everything().filter { $0.hasSuffix(".md") }))
+        })
         let note = try lib.create(durableDraft())
-        XCTAssertEqual(try String(contentsOf: note.summary.url, encoding: .utf8).contains("Hello"), true)
-        XCTAssertEqual(synced.map(\.lastPathComponent), [note.summary.id, dir.lastPathComponent])
+        XCTAssertEqual(synced.count, 2)
+        XCTAssertTrue(synced[0].name.hasPrefix(".cado-note-") && synced[0].name.hasSuffix(".tmp"), synced[0].name)
+        XCTAssertEqual(synced[0].text, try String(contentsOf: note.summary.url, encoding: .utf8))
+        XCTAssertEqual(synced[0].notes, [], "Not in place before it's flushed")
+        XCTAssertEqual(synced[1].name, dir.lastPathComponent)
+        XCTAssertEqual(synced[1].notes, [note.summary.id])
+        XCTAssertEqual(try everything(), [note.summary.id], "No temporary left")
         XCTAssertEqual(note.body.contains("Hello"), true)
     }
 
@@ -540,14 +555,77 @@ final class NotesLibraryTests: XCTestCase {
         let note = try lib.create(durableDraft())
         XCTAssertNoThrow(try Durable.sync(note.summary.url))
         XCTAssertNoThrow(try Durable.sync(dir))
+        XCTAssertNoThrow(try Durable.sync(all: [note.summary.url, dir]))
     }
 
-    func testFlushFailureDoesNotFailTheSave() throws {
+    /// A full disk partway through the write (#48): it throws, and neither a
+    /// note nor the temporary is left, so recovery can't find half a note.
+    func testAWriteThatFailsPartwayLeavesNothing() throws {
+        let lib = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
+                               timeZone: utc, writeNew: { data, url in
+            try data.prefix(data.count / 2).write(to: url)   // the front matter, id included, and half the body
+            throw POSIXError(.ENOSPC)
+        })
+        var draft = durableDraft()
+        draft.id = UUID().uuidString
+        XCTAssertThrowsError(try lib.create(draft)) { XCTAssertEqual(($0 as? POSIXError)?.code, .ENOSPC) }
+        XCTAssertEqual(try everything(), [])
+        XCTAssertTrue(lib.list().isEmpty)
+        XCTAssertNil(lib.note(withID: draft.id!, changedSince: .distantPast))
+    }
+
+    func testTheRealWriterRefusesAnExistingFileAndWritesEveryByte() throws {
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("x.tmp")
+        let data = Data((0..<300_000).map { UInt8($0 % 251) })
+        try NotesLibrary.writeNewFile(data, to: url)
+        XCTAssertEqual(try Data(contentsOf: url), data)
+        XCTAssertThrowsError(try NotesLibrary.writeNewFile(Data("other".utf8), to: url)) {
+            XCTAssertEqual(($0 as? POSIXError)?.code, .EEXIST)
+        }
+        XCTAssertEqual(try Data(contentsOf: url), data, "Never overwritten")
+    }
+
+    func testAnExclusiveMoveNeverReplacesAFile() throws {
+        try write("a.md", "existing")
+        try write(".t.tmp", "new")
+        XCTAssertThrowsError(try NotesLibrary.moveExclusively(dir.appendingPathComponent(".t.tmp"),
+                                                              to: dir.appendingPathComponent("a.md"))) {
+            XCTAssertEqual(($0 as? POSIXError)?.code, .EEXIST)
+        }
+        XCTAssertEqual(try raw("a.md"), "existing")
+        XCTAssertThrowsError(try NotesLibrary.moveExclusively(dir.appendingPathComponent(".t.tmp"),
+                                                              to: dir.appendingPathComponent("A.MD")),
+                             "A case-insensitive volume: the same name")
+        try NotesLibrary.moveExclusively(dir.appendingPathComponent(".t.tmp"), to: dir.appendingPathComponent("b.md"))
+        XCTAssertEqual(try raw("b.md"), "new")
+        XCTAssertFalse(fm.fileExists(atPath: dir.appendingPathComponent(".t.tmp").path))
+    }
+
+    /// The temporary can't be flushed: the note isn't known to be on disk, so it isn't saved.
+    func testAFlushFailureBeforeTheNoteIsInPlaceFailsTheSaveAndLeavesNothing() throws {
         struct Boom: Error {}
         let lib = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
                                timeZone: utc, sync: { _ in throw Boom() })
+        XCTAssertThrowsError(try lib.create(durableDraft())) { XCTAssertTrue($0 is Boom) }
+        XCTAssertEqual(try everything(), [])
+    }
+
+    /// A volume that can't flush at all (some network volumes) still takes notes.
+    func testAVolumeThatCantFlushStillSaves() throws {
+        let lib = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
+                               timeZone: utc, sync: { _ in throw POSIXError(.ENOTSUP) })
         let note = try lib.create(durableDraft())
-        XCTAssertTrue(fm.fileExists(atPath: note.summary.url.path))
+        XCTAssertEqual(try everything(), [note.summary.id])
+    }
+
+    /// Once the note is in place nothing throws: the caller would save it twice.
+    func testAFolderFlushFailureDoesNotFailTheSave() throws {
+        struct Boom: Error {}
+        let lib = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
+                               timeZone: utc, sync: { [unowned self] url in if url == self.dir { throw Boom() } })
+        let note = try lib.create(durableDraft())
+        XCTAssertEqual(try everything(), [note.summary.id])
     }
 
     func testNoOverwriteAndNumberingStillWork() throws {
@@ -555,13 +633,34 @@ final class NotesLibraryTests: XCTestCase {
         let a = try lib.create(durableDraft()), b = try lib.create(durableDraft())
         XCTAssertEqual(b.summary.id, a.summary.id.replacingOccurrences(of: ".md", with: " 2.md"))
         XCTAssertEqual(try fm.contentsOfDirectory(atPath: dir.path).count, 2)
+        try write(a.summary.id, "edited elsewhere")
+        let c = try lib.create(durableDraft())
+        XCTAssertEqual(c.summary.id, a.summary.id.replacingOccurrences(of: ".md", with: " 3.md"))
+        XCTAssertEqual(try raw(a.summary.id), "edited elsewhere")
     }
 
-    /// The file becomes unreadable right after the write: create still succeeds, one file.
+    /// A crash mid-write leaves a temporary: never listed, and swept by a
+    /// later save once it's an hour old (a younger one may be another Cado's).
+    func testLeftoverTemporariesAreNeverListedAndOldOnesAreSwept() throws {
+        let old = Date().addingTimeInterval(-2 * 3_600)
+        try write(".cado-note-OLD.tmp", "---\ntitle: \"Half\"\n---\n", modified: old)
+        try write(".cado-note-NEW.tmp", "---\ntitle: \"Writing\"\n---\n")
+        try write(".other.tmp", "someone else's", modified: old)
+        let lib = makeLibrary()
+        XCTAssertTrue(lib.list().isEmpty)
+        let note = try lib.create(durableDraft())
+        XCTAssertEqual(try everything(), [".cado-note-NEW.tmp", ".other.tmp", note.summary.id])
+        XCTAssertEqual(lib.list().map(\.id), [note.summary.id])
+    }
+
+    /// The file becomes unreadable right after it's in place: create still succeeds, one file.
     func testCreateDoesNotThrowWhenReadBackWouldFail() throws {
         let lib = NotesLibrary(folder: { [unowned self] in self.dir }, trasher: trasher, watcher: watcher,
-                               timeZone: utc, sync: { url in
-            if url.pathExtension == "md" { chmod(url.path, 0) }
+                               timeZone: utc, sync: { [unowned self] url in
+            guard url == self.dir else { return }
+            for name in try self.everything() where name.hasSuffix(".md") {
+                chmod(self.dir.appendingPathComponent(name).path, 0)
+            }
         })
         let note = try lib.create(durableDraft())
         XCTAssertEqual(note.summary.title, "Sync")

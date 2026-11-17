@@ -567,3 +567,55 @@ final class FallbackSpoolHandleTests: XCTestCase {
         XCTAssertFalse(h.isHoldingAudioInMemory)
     }
 }
+
+/// A WAV copy of spooled audio is whole and on disk, or it throws and isn't there (#48).
+final class MeetingSpoolWAVTests: XCTestCase {
+    private var dir: URL!
+    private let fm = FileManager.default
+
+    override func setUpWithError() throws {
+        dir = fm.temporaryDirectory.appendingPathComponent("wav-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    override func tearDownWithError() throws { try? fm.removeItem(at: dir) }
+
+    private func source(_ n: Int) -> [Float] { (0..<n).map { Float($0 % 1_000) / 2_000 } }
+
+    func testAWholeCopyHoldsEverySample() throws {
+        let samples = source(SpoolWAV.chunk * 2 + 123)
+        let url = dir.appendingPathComponent("Me.wav")
+        try SpoolWAV.write(count: samples.count, to: url) { Array(samples[$0]) }
+        XCTAssertEqual(try AVAudioFile(forReading: url).length, AVAudioFramePosition(samples.count))
+    }
+
+    /// The spool's file is shorter than it said (cut short): it throws, and no WAV is left.
+    func testAShortSourceThrowsAndLeavesNoFile() throws {
+        let samples = source(SpoolWAV.chunk + 500)
+        let url = dir.appendingPathComponent("Me.wav")
+        XCTAssertThrowsError(try SpoolWAV.write(count: samples.count + 10_000, to: url) { r in
+            Array(samples[r.clamped(toCount: samples.count)])
+        }) { XCTAssertEqual($0 as? SpoolWAVError, .shortRead(expected: samples.count + 10_000, got: samples.count)) }
+        XCTAssertFalse(fm.fileExists(atPath: url.path))
+    }
+
+    func testAReadFailureThrowsAndLeavesNoFile() throws {
+        struct Boom: Error {}
+        let url = dir.appendingPathComponent("Me.wav")
+        var calls = 0
+        XCTAssertThrowsError(try SpoolWAV.write(count: SpoolWAV.chunk * 3, to: url) { r in
+            calls += 1
+            if calls == 2 { throw Boom() }
+            return [Float](repeating: 0.1, count: r.count)
+        }) { XCTAssertTrue($0 is Boom) }
+        XCTAssertFalse(fm.fileExists(atPath: url.path))
+    }
+
+    /// The export loop stops at the first side that can't be copied, with its error.
+    func testAnExportOfAShortSideThrows() throws {
+        let audio = SpoolAudio(counts: [.me: 1_000, .them: 2_000]) { speaker, r in
+            speaker == .me ? [Float](repeating: 0.2, count: r.count) : []
+        }
+        XCTAssertThrowsError(try audio.exportWAVs(to: dir) { $0.spoolKey })
+        XCTAssertFalse(fm.fileExists(atPath: dir.appendingPathComponent("them.wav").path))
+    }
+}

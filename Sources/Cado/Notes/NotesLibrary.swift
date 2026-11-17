@@ -128,6 +128,10 @@ final class NotesLibrary {
     private let timeZone: TimeZone
     /// Makes a new file or folder entry durable (see `Durable.sync`); a seam for tests.
     private let sync: (URL) throws -> Void
+    /// Writes bytes to a new file, failing if one is there (`writeNewFile`); a seam for tests.
+    private let writeNew: (Data, URL) throws -> Void
+    /// The file's bytes are on this Mac (`contentIsLocal`); a seam for tests.
+    private let isLocal: (URL) -> Bool
     private let fileManager = FileManager.default
 
     /// Parsed summaries by file path, valid while the file's modification date
@@ -154,8 +158,12 @@ final class NotesLibrary {
          watcher: FolderWatching = FSEventsFolderWatcher(),
          timeZone: TimeZone = .current,
          currentZone: @escaping () -> String = { TimeZone.autoupdatingCurrent.identifier },
-         sync: @escaping (URL) throws -> Void = Durable.sync) {
+         sync: @escaping (URL) throws -> Void = Durable.sync,
+         writeNew: @escaping (Data, URL) throws -> Void = NotesLibrary.writeNewFile,
+         isLocal: @escaping (URL) -> Bool = NotesLibrary.contentIsLocal) {
         self.sync = sync
+        self.writeNew = writeNew
+        self.isLocal = isLocal
         self.folder = folder
         self.trasher = trasher
         self.watcher = watcher
@@ -170,32 +178,129 @@ final class NotesLibrary {
 
     /// Writes the draft as a new file named `yyyy-MM-dd Title.md` (sanitised,
     /// ` 2`, ` 3`... on collision; never overwrites) and returns it as stored.
+    ///
+    /// All or nothing (#48): the text goes to a hidden temporary file in the
+    /// same folder (`.cado-note-<uuid>.tmp`: never listed, never a note),
+    /// which is flushed to the disk and only then renamed to the first free
+    /// name. A write or flush that fails (a full disk) throws and leaves no
+    /// file behind, so a half-written note, front matter and `id` included,
+    /// can never be found and taken for a meeting's. Once the file is in place
+    /// nothing throws.
     @discardableResult
     func create(_ draft: NoteDraft) throws -> Note {
         let dir = folder()
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        removeStaleTemporaries(in: dir)
         let text = NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind,
                                           duration: draft.duration, body: draft.body, id: draft.id)
         let data = Data(text.utf8)
+        let temp = dir.appendingPathComponent(Self.temporaryPrefix + UUID().uuidString + Self.temporarySuffix)
+        do {
+            try writeNew(data, temp)
+            do { try sync(temp) } catch let error as POSIXError where Self.cannotFlush(error) {
+                Log.info("The notes folder can't be flushed to disk (\(error.localizedDescription)); saved without")
+            }
+        } catch {
+            try? fileManager.removeItem(at: temp)
+            throw error
+        }
         let stem = baseName(date: draft.date, title: draft.title)
         for n in 1... {
-            let name = (n == 1 ? stem : "\(stem) \(n)") + ".md"
+            let url = dir.appendingPathComponent((n == 1 ? stem : "\(stem) \(n)") + ".md")
             do {
-                let url = dir.appendingPathComponent(name)
-                try data.write(to: url, options: .withoutOverwriting)
-                // The file exists now: nothing below may throw, or the caller
-                // would save the meeting a second time.
-                for target in [url, dir] {
-                    do { try sync(target) } catch {
-                        Log.error("Couldn't flush \(target.lastPathComponent) to disk: \(error.localizedDescription)")
-                    }
-                }
-                return Self.parse(url: url, data: data, modified: draft.date)
-            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                try Self.moveExclusively(temp, to: url)
+            } catch let error as POSIXError where error.code == .EEXIST {
                 continue
+            } catch {
+                try? fileManager.removeItem(at: temp)
+                throw error
             }
+            // The file is in place now: nothing below may throw, or the
+            // caller would save the meeting a second time.
+            do { try sync(dir) } catch {
+                Log.error("Couldn't flush \(dir.lastPathComponent) to disk: \(error.localizedDescription)")
+            }
+            return Self.parse(url: url, data: data, modified: draft.date)
         }
         fatalError("unreachable")
+    }
+
+    /// A note being written (`create`): hidden, and not `.md`, so never listed.
+    static let temporaryPrefix = ".cado-note-"
+    static let temporarySuffix = ".tmp"
+    /// A temporary older than this was left by a crash (a write takes
+    /// milliseconds), so it can go; a younger one may be another Cado's.
+    static let staleTemporaryAge: TimeInterval = 3_600
+
+    /// Deletes temporaries a crash left in `dir` (only regular files named
+    /// like ours, an hour old or more). Best effort; never throws.
+    private func removeStaleTemporaries(in dir: URL) {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .contentModificationDateKey]
+        guard let urls = try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys) else { return }
+        let cutoff = Date().addingTimeInterval(-Self.staleTemporaryAge)
+        for url in urls {
+            let name = url.lastPathComponent
+            guard name.hasPrefix(Self.temporaryPrefix), name.hasSuffix(Self.temporarySuffix),
+                  let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true,
+                  let modified = values.contentModificationDate, modified < cutoff else { continue }
+            do { try fileManager.removeItem(at: url) } catch {
+                Log.info("Couldn't remove a leftover temporary note file: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// A flush the volume doesn't support (some network or FAT volumes): not
+    /// a failed write, so the note is saved without it.
+    private static func cannotFlush(_ error: POSIXError) -> Bool {
+        [.ENOTSUP, .EINVAL, .ENOTTY].contains(error.code)
+    }
+
+    /// Creates `url` (failing with `EEXIST` if anything is there) and writes
+    /// every byte of `data`, or throws. The bytes may still be in the OS's
+    /// cache: flush them (`Durable.sync`) before relying on them.
+    static func writeNewFile(_ data: Data, to url: URL) throws {
+        let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o666)
+        guard fd >= 0 else { throw Durable.posixError(errno) }
+        var failure: Int32 = 0
+        data.withUnsafeBytes { raw in
+            var done = 0
+            while done < raw.count {
+                let n = Darwin.write(fd, raw.baseAddress! + done, raw.count - done)
+                if n < 0 {
+                    if errno == EINTR { continue }
+                    failure = errno
+                    return
+                }
+                done += n
+            }
+        }
+        if close(fd) != 0, failure == 0 { failure = errno }
+        if failure != 0 { throw Durable.posixError(failure) }
+    }
+
+    /// Renames `from` to `to` only if nothing is at `to` (`EEXIST` if
+    /// something is, case-insensitively on such a volume): never over an
+    /// existing note. `RENAME_EXCL` where the volume has it (APFS, HFS+); else
+    /// a hard link, which fails on an existing name just the same; else (no
+    /// hard links: FAT, exFAT) a check and a rename, which only another writer
+    /// at the same instant could race.
+    static func moveExclusively(_ from: URL, to: URL) throws {
+        if renamex_np(from.path, to.path, UInt32(RENAME_EXCL)) == 0 { return }
+        var code = errno
+        if code == ENOTSUP || code == EINVAL {
+            if link(from.path, to.path) == 0 {
+                unlink(from.path)   // if this fails, the stale-temporary sweep removes it
+                return
+            }
+            code = errno
+            if code == ENOTSUP || code == EPERM || code == EMLINK {
+                var st = stat()
+                guard lstat(to.path, &st) != 0 else { throw Durable.posixError(EEXIST) }
+                if Darwin.rename(from.path, to.path) == 0 { return }
+                code = errno
+            }
+        }
+        throw Durable.posixError(code)
     }
 
     // MARK: Read
@@ -276,22 +381,54 @@ final class NotesLibrary {
     /// is in the folder. Bounded: only files changed at or after `since` (the
     /// meeting's start: its note can't be older) are opened, and only their
     /// first 16 KB is read; nothing is cached or rewritten.
+    ///
+    /// Safe on any thread: it reads no cache or other state of the library
+    /// (the folder is resolved once, through `folder`, which in the app hops
+    /// to the main thread: don't call it from a queue the main thread waits
+    /// on). It never waits for a download: a file whose bytes aren't on this
+    /// Mac (an iCloud Drive or other cloud placeholder) is skipped, and the
+    /// reads run with this thread's "materialize dataless files" policy off,
+    /// so one evicted after the check fails to open instead of downloading.
     func note(withID id: String, changedSince since: Date) -> URL? {
-        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey]
+        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey]
         let urls = (try? fileManager.contentsOfDirectory(at: folder(), includingPropertiesForKeys: keys,
                                                          options: [.skipsHiddenFiles])) ?? []
-        for url in urls where url.pathExtension.lowercased() == "md" {
-            let values = try? url.resourceValues(forKeys: Set(keys))
-            guard values?.isDirectory == false, let modified = values?.contentModificationDate,
-                  modified >= since.addingTimeInterval(-60) else { continue }   // a minute's slack for the clock
-            guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
-            let head = (try? handle.read(upToCount: 16 * 1024)) ?? nil
-            try? handle.close()
-            guard let head else { continue }
-            let found = NoteFrontMatter.parse(String(decoding: head, as: UTF8.self)).value(for: "id")
-            if found?.caseInsensitiveCompare(id) == .orderedSame { return url }
+        return Self.withoutMaterializing {
+            for url in urls where url.pathExtension.lowercased() == "md" {
+                let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey])
+                guard values?.isDirectory == false, let modified = values?.contentModificationDate,
+                      modified >= since.addingTimeInterval(-60) else { continue }   // a minute's slack for the clock
+                guard isLocal(url), let handle = try? FileHandle(forReadingFrom: url) else { continue }
+                let head = (try? handle.read(upToCount: 16 * 1024)) ?? nil
+                try? handle.close()
+                guard let head else { continue }
+                let found = NoteFrontMatter.parse(String(decoding: head, as: UTF8.self)).value(for: "id")
+                if found?.caseInsensitiveCompare(id) == .orderedSame { return url }
+            }
+            return nil
         }
-        return nil
+    }
+
+    /// The file's bytes are on this Mac: not a dataless placeholder (iCloud
+    /// Drive "optimise storage", Dropbox, OneDrive…) that opening would
+    /// download. False if it can't be told (gone, unreadable).
+    static func contentIsLocal(_ url: URL) -> Bool {
+        var st = stat()
+        guard stat(url.path, &st) == 0 else { return false }
+        if st.st_flags & UInt32(SF_DATALESS) != 0 { return false }
+        guard let status = (try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?
+            .ubiquitousItemDownloadingStatus else { return true }   // not in iCloud Drive
+        return status == .current || status == .downloaded
+    }
+
+    /// Runs `body` with this thread's policy set so that opening a dataless
+    /// file fails rather than downloading it, then restores the policy.
+    private static func withoutMaterializing<T>(_ body: () -> T) -> T {
+        let type = Int32(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES), scope = Int32(IOPOL_SCOPE_THREAD)
+        let before = getiopolicy_np(type, scope)
+        let changed = setiopolicy_np(type, scope, Int32(IOPOL_MATERIALIZE_DATALESS_FILES_OFF)) == 0
+        defer { if changed, before >= 0 { setiopolicy_np(type, scope, before) } }
+        return body()
     }
 
     // MARK: Change
@@ -467,9 +604,27 @@ enum Durable {
     /// `F_FULLFSYNC` (to the platter), else `fsync`. Works on a directory too.
     static func sync(_ url: URL) throws {
         let fd = open(url.path, O_RDONLY)
-        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        guard fd >= 0 else { throw posixError(errno) }
         defer { close(fd) }
         if fcntl(fd, F_FULLFSYNC) == 0 { return }
-        if fsync(fd) != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        if fsync(fd) != 0 { throw posixError(errno) }
     }
+
+    /// Several new files and folder entries at once (#48): each `fsync`ed to
+    /// the drive, then one `F_FULLFSYNC` (on the last) flushes the drive's
+    /// cache with all of them in it; cheaper than one `sync` each. Throws the
+    /// first failure, after trying them all.
+    static func sync(all urls: [URL]) throws {
+        var first: Error?
+        for (i, url) in urls.enumerated() {
+            let fd = open(url.path, O_RDONLY)
+            guard fd >= 0 else { first = first ?? posixError(errno); continue }
+            defer { close(fd) }
+            if i == urls.count - 1, fcntl(fd, F_FULLFSYNC) == 0 { continue }
+            if fsync(fd) != 0 { first = first ?? posixError(errno) }
+        }
+        if let first { throw first }
+    }
+
+    static func posixError(_ code: Int32) -> POSIXError { POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
 }
