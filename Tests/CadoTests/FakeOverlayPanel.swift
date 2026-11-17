@@ -26,9 +26,11 @@ final class FakeOverlayPanel: MascotSurface {
     var orderOuts: Int { calls.filter { $0 == .orderOut }.count }
 
     var onClick: (() -> Void)?
+    var onSecondaryClick: (() -> Void)?
     var showsInScreenShares = false
     /// A click on the mascot's body, as the real panel reports one.
     func click() { onClick?() }
+    func secondaryClick() { onSecondaryClick?() }
 
     func show() { calls.append(.show); isOnScreen = true }
     func setAlpha(_ alpha: Double, duration: TimeInterval) {

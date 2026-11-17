@@ -296,6 +296,30 @@ final class MascotOverlayPanelTests: XCTestCase {
         XCTAssertEqual(store.positions, [:])
     }
 
+    /// #32: a right- or Control-click is its own click; the asking look.
+    func testASecondaryClickReportsSeparately() throws {
+        let adapter = try makeAdapter()
+        var clicks = 0, secondary = 0
+        adapter.onClick = { clicks += 1 }
+        adapter.onSecondaryClick = { secondary += 1 }
+        adapter.render(.asking)
+        XCTAssertTrue(adapter.model.isAsking)
+        XCTAssertFalse(adapter.model.isMini)
+        XCTAssertEqual(adapter.model.pose, .idle)
+        adapter.show()
+        let window = try XCTUnwrap(adapter.window)
+        let body = try screenPoint(centre(MascotMotion.hitRect(mini: false)), in: window)
+
+        adapter.pointerDown(at: body, secondary: true)
+        adapter.pointerUp(at: body)
+        XCTAssertEqual([clicks, secondary], [0, 1])
+        adapter.pointerDown(at: body)
+        adapter.pointerUp(at: body)
+        XCTAssertEqual([clicks, secondary], [1, 1])
+        adapter.render(.meeting)
+        XCTAssertFalse(adapter.model.isAsking)
+    }
+
     func testDragMovesTheWindowAndSavesTheSpot() throws {
         let (left, right) = try halves()
         let adapter = try makeAdapter(displays: [left, right])

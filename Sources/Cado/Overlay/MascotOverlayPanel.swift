@@ -10,7 +10,7 @@ extension Brand.Pose {
         case .listening: self = .listening
         case .thinking: self = .thinking
         case .done: self = .done
-        case .resting, .meeting, .hidden: self = .idle
+        case .resting, .meeting, .asking, .hidden: self = .idle
         }
     }
 }
@@ -39,6 +39,7 @@ extension Brand.Pose {
 /// and the view's tracking area (over this panel). A press on the body is a
 /// click or a drag (`MascotGesture`); a drag moves the window by hand
 /// (`performDrag` would swallow the mouse-up) and saves the spot it ends at.
+/// A right- or Control-click is `onSecondaryClick` (#32).
 /// Never key, main or activating: focus stays in the text field being
 /// dictated into.
 ///
@@ -54,6 +55,7 @@ final class MascotOverlayPanel: MascotSurface {
     /// The window, once shown and until discarded.
     private(set) var window: NSPanel?
     var onClick: (() -> Void)?
+    var onSecondaryClick: (() -> Void)?
     /// Applied live, and re-asserted on every show.
     var showsInScreenShares = false {
         didSet { if let window { applySharing(window) } }
@@ -64,8 +66,9 @@ final class MascotOverlayPanel: MascotSurface {
     /// The last alpha asked for, applied to a panel built after it was set
     /// (the director sets 0 just before the first `show`).
     private var alpha: Double = 1
-    /// The press under way and the window's origin at it; nil between presses.
-    private var press: (gesture: MascotGesture, origin: CGPoint)?
+    /// The press under way, the window's origin at it, and whether it's a
+    /// right- or Control-click; nil between presses.
+    private var press: (gesture: MascotGesture, origin: CGPoint, secondary: Bool)?
     /// Pointer moves over other apps, while on screen.
     private var mouseMonitor: Any?
     /// The same over Cado's own windows.
@@ -132,6 +135,7 @@ final class MascotOverlayPanel: MascotSurface {
     func render(_ visual: OverlayVisual) {
         model.pose = Brand.Pose(visual)
         model.isMini = visual == .resting
+        model.isAsking = visual == .asking
         // The body just changed size under a pointer that may not move again.
         pointerMoved(to: mouseLocation())
     }
@@ -158,9 +162,9 @@ final class MascotOverlayPanel: MascotSurface {
         pointerMoved(to: point)
     }
 
-    func pointerDown(at point: CGPoint) {
+    func pointerDown(at point: CGPoint, secondary: Bool = false) {
         guard let window else { return }
-        press = (MascotGesture(down: point), window.frame.origin)
+        press = (MascotGesture(down: point), window.frame.origin, secondary)
     }
 
     func pointerDragged(to point: CGPoint) {
@@ -174,7 +178,7 @@ final class MascotOverlayPanel: MascotSurface {
         self.press = nil
         switch press.gesture.ended(at: point) {
         case .click:
-            onClick?()
+            press.secondary ? onSecondaryClick?() : onClick?()
         case .drag(let offset):
             window.setFrameOrigin(press.origin.offset(by: offset))
             let settled = placement.remember(windowFrame: window.frame)
@@ -298,7 +302,13 @@ final class MascotHostingView: NSHostingView<MascotView> {
     /// The app is never active, so every click is a first click.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override func mouseDown(with event: NSEvent) { owner?.pointerDown(at: NSEvent.mouseLocation) }
+    override func mouseDown(with event: NSEvent) {
+        owner?.pointerDown(at: NSEvent.mouseLocation, secondary: event.modifierFlags.contains(.control))
+    }
+    /// A right-click starts or stops a meeting (#32); it can drag too.
+    override func rightMouseDown(with event: NSEvent) { owner?.pointerDown(at: NSEvent.mouseLocation, secondary: true) }
+    override func rightMouseDragged(with event: NSEvent) { owner?.pointerDragged(to: NSEvent.mouseLocation) }
+    override func rightMouseUp(with event: NSEvent) { owner?.pointerUp(at: NSEvent.mouseLocation) }
     override func mouseDragged(with event: NSEvent) { owner?.pointerDragged(to: NSEvent.mouseLocation) }
     override func mouseUp(with event: NSEvent) { owner?.pointerUp(at: NSEvent.mouseLocation) }
     override func mouseMoved(with event: NSEvent) { owner?.pointerMovedFreely(to: NSEvent.mouseLocation) }

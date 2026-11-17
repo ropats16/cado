@@ -11,6 +11,9 @@ final class MascotModel: ObservableObject {
     /// The small, still resting look (#20), in the same fixed frame.
     @Published var isMini: Bool
 
+    /// Asking "Record this meeting?" (#32): a record badge by its head.
+    @Published var isAsking = false
+
     /// Raw live mic level, 0...1, at audio-callback rate. Not published: it
     /// feeds `displayLevel`, which only republishes on a visible change, so a
     /// stream of near-identical levels doesn't redraw the view each time.
@@ -91,6 +94,10 @@ struct MascotView: View {
                     LevelRings(level: model.displayLevel)
                         .frame(width: Self.artSide, height: Self.artSide)
                 }
+                if model.isAsking {
+                    RecordBadge()
+                        .frame(width: Self.artSide, height: Self.artSide, alignment: .topTrailing)
+                }
             }
             .scaleEffect(bodyScale, anchor: MascotMotion.unitPoint(MascotMotion.feet))
             // Glides between level updates, which arrive in uneven bursts.
@@ -114,12 +121,29 @@ struct MascotView: View {
     }
 
     private var accessibilityLabel: String {
+        if model.isAsking { return "Cado: record this meeting?" }
         switch model.pose {
-        case .idle: "Cado"
-        case .listening: "Cado is listening"
-        case .thinking: "Cado is transcribing"
-        case .done: "Cado is done"
+        case .idle: return "Cado"
+        case .listening: return "Cado is listening"
+        case .thinking: return "Cado is transcribing"
+        case .done: return "Cado is done"
         }
+    }
+}
+
+/// The asking mascot's badge (#32): a record button by its head, in the
+/// palette's pulse colour on a white ring so it reads on any background.
+private struct RecordBadge: View {
+    static let side: CGFloat = 20
+
+    var body: some View {
+        ZStack {
+            Circle().fill(.white)
+            Circle().fill(Brand.Palette.pulse).padding(4)
+        }
+        .frame(width: Self.side, height: Self.side)
+        .shadow(color: .black.opacity(0.25), radius: 1.5, y: 1)
+        .offset(x: 4, y: -4)
     }
 }
 

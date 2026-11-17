@@ -6,6 +6,8 @@ import AppKit
 protocol MascotSurface: OverlayPanel {
     /// A click (not a drag) on the mascot's body.
     var onClick: (() -> Void)? { get set }
+    /// A right- or Control-click (not a drag) on the mascot's body (#32).
+    var onSecondaryClick: (() -> Void)? { get set }
     /// Let screen shares and recordings capture the panel. Applies live.
     var showsInScreenShares: Bool { get set }
 }
@@ -27,14 +29,19 @@ final class MascotOverlay {
     private let panel: MascotSurface
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
 
-    /// `onToggleDictation`: a click meant start/stop dictation (see
-    /// `OverlayDirector.clicked`).
+    /// `onToggleDictation`: a click meant start/stop dictation;
+    /// `onRecordMeeting`: record the meeting asked about; `onToggleMeeting`:
+    /// start or stop a meeting (see `OverlayDirector.clicked`).
     init(feed: AppActivityFeed, panel: MascotSurface, clock: Clock = SystemClock(),
-         settings: Settings = Settings(), onToggleDictation: @escaping () -> Void = {}) {
+         settings: Settings = Settings(), onToggleDictation: @escaping () -> Void = {},
+         onRecordMeeting: @escaping () -> Void = {}, onToggleMeeting: @escaping () -> Void = {}) {
         self.panel = panel
         director = OverlayDirector(panel: panel, clock: clock)
         director.onToggleDictation = onToggleDictation
+        director.onRecordMeeting = onRecordMeeting
+        director.onToggleMeeting = onToggleMeeting
         panel.onClick = { [weak director] in director?.clicked() }
+        panel.onSecondaryClick = { [weak director] in director?.secondaryClicked() }
         apply(settings)
         feed.observe { [weak self] signal in self?.receive(signal) }
 
@@ -56,6 +63,11 @@ final class MascotOverlay {
     func apply(_ settings: Settings) {
         panel.showsInScreenShares = settings.inScreenShares
         director.alwaysVisible = settings.alwaysVisible
+    }
+
+    /// "Record this meeting?" is open, or not (#32): the asking mascot.
+    func setAsking(_ asking: Bool) {
+        director.asking = asking
     }
 
     private func receive(_ signal: AppActivityFeed.Signal) {
