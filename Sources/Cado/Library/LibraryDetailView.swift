@@ -38,8 +38,9 @@ struct LibraryDetailView: View {
     private func note(_ reading: NoteReading) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             header(reading.header)
-            // The calendar event's title and a summary go here, between the
-            // meta line and the actions, when notes have them (later).
+            // The calendar event's title goes here, between the meta line
+            // and the actions, when notes have it (later). The summary
+            // (#34) sits above the transcript.
             actions.padding(.top, 14)
             Divider().padding(.top, 20).padding(.bottom, 20)
             if !reading.notices.isEmpty {
@@ -48,6 +49,7 @@ struct LibraryDetailView: View {
                 }
                 .padding(.bottom, 20)
             }
+            LibrarySummarySlot(viewModel: viewModel)   // LibrarySummaryView.swift (#34)
             ForEach(Array(reading.items.enumerated()), id: \.offset) { index, item in
                 Group {
                     switch item {

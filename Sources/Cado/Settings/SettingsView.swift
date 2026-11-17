@@ -136,6 +136,8 @@ struct SettingsView: View {
                         .padding(.bottom, 8)
                 }
 
+                summariesSection   // SettingsView+Summaries.swift (#34)
+
                 // MARK: Microphone
                 SettingsSection(title: "Microphone", systemImage: "mic.fill") {
                     SettingsRow("Microphone") {
