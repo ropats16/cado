@@ -6,6 +6,9 @@ enum NoteKind {
     /// A plain note; also what a file without a `kind` is.
     static let note = "note"
     static let meeting = "meeting"
+
+    /// `kind` names a meeting note, ignoring case ("Meeting" too).
+    static func isMeeting(_ kind: String) -> Bool { kind.lowercased() == meeting }
 }
 
 /// What a caller hands over to make a note.
@@ -275,7 +278,7 @@ final class NotesLibrary {
             ?? values?.contentModificationDate ?? Date(timeIntervalSince1970: 0)
         let kind = parsed.value(for: "kind").flatMap { $0.isEmpty ? nil : $0 } ?? NoteKind.note
         let duration = parsed.value(for: "duration").flatMap { TimeInterval($0) }.flatMap { $0 >= 0 ? $0 : nil }
-        let app = kind.lowercased() == NoteKind.meeting ? MeetingNote.recordedApp(inBody: parsed.body) : nil
+        let app = NoteKind.isMeeting(kind) ? MeetingNote.recordedApp(inBody: parsed.body) : nil
         let summary = NoteSummary(id: filename, title: title, date: date, kind: kind, duration: duration,
                                   preview: Self.preview(app == nil ? parsed.body : Self.afterIntro(parsed.body)),
                                   url: url, recordedApp: app)

@@ -156,7 +156,7 @@ enum LibrarySections {
             return LibraryNoteRow(
                 id: note.id, title: note.title, time: time, day: day,
                 duration: seconds.map(NoteRowText.durationText), app: app,
-                isMeeting: note.kind.lowercased() == NoteKind.meeting, preview: preview,
+                isMeeting: NoteKind.isMeeting(note.kind), preview: preview,
                 accessibilityLabel: spoken.joined(separator: ". "))
         }
     }

@@ -66,8 +66,8 @@ enum Brand {
     enum Typography {
         /// Window and section titles.
         static let title = font(.title2, weight: .semibold)
-        /// Page titles (Settings header, onboarding, a note's header): one
-        /// style, `.title` bold. `title` is for smaller, in-page titles.
+        /// Page titles, `.title` bold: the Library's note header and its
+        /// empty state. `title` is for smaller, in-page titles.
         static let pageTitle = font(.title, weight: .bold)
         /// Group headers, emphasised labels.
         static let headline = font(.headline, weight: .semibold)

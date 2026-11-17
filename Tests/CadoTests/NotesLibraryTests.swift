@@ -237,6 +237,12 @@ final class NotesLibraryTests: XCTestCase {
         XCTAssertEqual(summary.preview, "**Me:** Hello there. **Them:** Hi.")
     }
 
+    func testIsMeetingIgnoresCase() {
+        XCTAssertTrue(NoteKind.isMeeting("meeting"))
+        XCTAssertTrue(NoteKind.isMeeting("Meeting"))
+        XCTAssertFalse(NoteKind.isMeeting("note"))
+    }
+
     func testThePreviewSkipsHeadingsAndRules() throws {
         let lib = makeLibrary()
         let intro = "Recorded from Zoom (Them) and your microphone (Me).\n\n> Recording stopped at the 2-hour limit.\n\n"

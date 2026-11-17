@@ -75,7 +75,7 @@ struct NoteReading: Equatable {
 
     init(_ note: Note, calendar: Calendar) {
         let summary = note.summary
-        let isMeeting = summary.kind.lowercased() == NoteKind.meeting
+        let isMeeting = NoteKind.isMeeting(summary.kind)
         var blocks = MarkdownBlock.parse(note.body)
 
         var app: String?
