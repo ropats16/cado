@@ -245,6 +245,32 @@ the code's designated requirement, so macOS treats the release as a different
 app: Microphone and Accessibility grants reset once for anyone moving from a dev
 install, and persist across later releases signed with the same Developer ID.
 
+## Dev signing keychain (from-source builds, #46)
+
+`scripts/create_signing_cert.sh` makes the `Cado Self-Signed` identity in
+`~/Library/Keychains/cado-signing.keychain-db`. Its password is random per Mac
+and stored in your login keychain (generic password, service
+`cado-signing-keychain`), and the key can be used by `/usr/bin/codesign` only
+(it was a fixed password and any app before). `make package` / `make install`
+read the password with `security find-generic-password`.
+
+**If you already have the old keychain** (fixed password `cado-local`): nothing to
+do by hand. The next `make package` / `make install` finds no stored password,
+opens the keychain with the old one and changes it to a random one in place. Same
+certificate, so Microphone and Accessibility grants persist. The first run may ask
+for your login password once, for the new login-keychain item (choose Always Allow
+for `security`). To also drop the old key's "any application" access list, start
+clean instead (the certificate changes, so grants reset once):
+
+```sh
+security delete-keychain ~/Library/Keychains/cado-signing.keychain-db
+security delete-generic-password -s cado-signing-keychain   # if present
+tccutil reset Accessibility com.ropats16.Cado
+make install   # recreates the identity, then grant again
+```
+
+Tests (fake `security`, no keychain): `python3 -m unittest discover -s scripts/tests`.
+
 ## Homebrew tap
 
 The cask lives in `packaging/homebrew/Casks/cado.rb` (template, `sha256 :no_check`).
