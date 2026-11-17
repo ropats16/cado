@@ -28,7 +28,7 @@ fixed meetings but also moved dictation off Turbo.
 - **Recovery** uses the language the meeting started with: it's in the
   spool's `meeting.json` (`language`; absent in older spools = dictation
   model, as they were recorded).
-- **Output:** what the engine writes. Hindi in Devanagari, no romanising,
+- **Output:** what the engine writes. Hindi in Devanagari with small or larger (base can write Urdu script), no romanising,
   no translation.
 - **Settings warnings:** Speech Model › Language warns when the model is
   English-only and the language isn't English; Meeting Language says which
@@ -39,8 +39,8 @@ fixed meetings but also moved dictation off Turbo.
 | Option | Cost | Verdict |
 | --- | --- | --- |
 | Switch the one engine to a multilingual model during meetings | dictation reloads after every meeting, readiness/menus flip to "Loading", dictation during the tail runs on the wrong model | no |
-| Second engine, kept loaded like the dictation one | ~0.7 GB more for good (small-q5_1), worst on 8 GB Macs | no |
-| **Second engine, loaded only for meetings, unloaded 2 min after** | ~0.7 GB more only while a meeting is transcribed; ~1 s load once per meeting (absorbed: the first passage waits, the backlog catches up) | **chosen** |
+| Second engine, kept loaded like the dictation one | roughly 0.7 GB more for good (small-q5_1; peak of the whole bench process, not a measured increase), worst on 8 GB Macs | no |
+| **Second engine, loaded only for meetings, unloaded 2 min after** | roughly 0.7 GB more only while a meeting is transcribed; one load per meeting, measured 1.6 s to 18.7 s (about a minute for WhisperKit's first Core ML compile; absorbed: the first passage waits, the backlog catches up) | **chosen** |
 
 Dictation is refused while a meeting records, so the two models are only
 busy together during the tail/recovery; each engine has its own queue, so a
@@ -84,7 +84,7 @@ dictation model):
 | Meeting language | Model(s) | WER (both sides) | Time for the meeting |
 | --- | --- | --- | --- |
 | Same as dictation (English) | Turbo | 58% (Hindi romanised) | — |
-| Auto-detect | Turbo + meeting model whisper small-q5_1 | **30%** (English exact, Hindi in Devanagari) | 3.7 s for 24 s per side |
+| Auto-detect | Turbo + meeting model whisper small-q5_1 | **30%** (English exact, Hindi in Devanagari) | 3.7 s for 24 s per side (excludes loading the meeting model: the self-test waits for the load before it starts) |
 | Auto-detect, 0.3 s gaps (no pause to cut at) | same | 91% | — |
 | Auto-detect, 0.3 s gaps, max passage 8 s instead of 25 s (experiment, not shipped) | same | 78% | — |
 | Auto-detect, 1.2 s gaps, max passage 8 s (experiment) | same | 30% (no change) | — |
@@ -92,7 +92,7 @@ dictation model):
 ### Findings
 
 1. Per-passage detection is what makes mixed meetings work: the same model on
-   the same audio goes from 78% (one job) to ~34% (one job per sentence),
+   the same audio goes from 78% (one 39 s job) to 30% (one job per passage, the meeting-path run above),
    with English exact.
 2. Forcing `hi` breaks the English parts (105%). Auto is the right default
    for mixed meetings, not "Hindi".
@@ -120,9 +120,9 @@ dictation model):
   script (base). An initial prompt in Devanagari could steer it; not done.
 - **Translation to English** (Whisper's `translate`) could be a later option
   for meetings; not built.
-- The meeting model's first load waits on the first passage (~1–2 s for
-  whisper small; a Core ML model's first-ever load compiles for about a
-  minute).
+- The meeting model's first load waits on the first passage (measured loads:
+  1.6 s, 11.5 s and 18.7 s for whisper small, small `hi` (noisy) and Turbo;
+  a Core ML model's first-ever load compiles for about a minute).
 
 ## Owner steps
 

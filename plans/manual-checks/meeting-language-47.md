@@ -46,7 +46,7 @@ A multilingual whisper model must be downloaded for Auto-detect meetings
    meeting, dictate a sentence: it comes out on Turbo, in English, without
    waiting for the meeting.
 4. **Memory (8 GB Mac if available).** Activity Monitor › Memory for Cado:
-   during an Auto-detect meeting it rises (~0.7 GB with small) and drops
+   during an Auto-detect meeting it rises (roughly 0.7 GB with small; not measured precisely) and drops
    about 2 minutes after the note is saved.
 5. **Missing model.** Remove every multilingual `ggml-*.bin` (not `.en`) from
    the models folder (menu › Advanced › Open Models Folder). Meeting Language on Auto-detect: the line is a
@@ -63,3 +63,11 @@ A multilingual whisper model must be downloaded for Auto-detect meetings
 8. **Mid-sentence switch (known limit).** Say one sentence that switches
    language halfway without pausing ("हमें client को Friday तक report
    भेजनी है"). It comes out in one script; note how readable it is.
+9. **Bad language in the config file.** Hand-edit `config.json`:
+   `"meetingLanguage": "hindi"`, relaunch. The Meetings tab says the language
+   isn't one Cado knows and to pick one; same for `"language": "en-US"` on the
+   Speech Model tab. Pick a language in Settings: the warning goes.
+10. **Meeting download leaves dictation alone.** Dictation on English with
+    Whisper Automatic and an English-only model (e.g. base.en) downloaded;
+    download the meeting's multilingual model. Dictation's model in Settings
+    is still the English-only one.

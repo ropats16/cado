@@ -292,23 +292,29 @@ and says why).
   dictation** by default, so meetings use the dictation model and language,
   exactly as before. For meetings that mix languages (say Hindi and English),
   choose **Auto-detect**: Cado detects the language of each passage on its own
-  and writes it in its own script (Hindi in Devanagari, English in Latin
-  letters; nothing is translated or romanised). Or choose one language. When
-  the dictation model can't do that (Turbo, or an English-only `.en` model),
-  meetings get a multilingual Whisper model of their own, Whisper's Automatic
-  pick for your Mac among the models you've downloaded. It's loaded only while
+  and writes it in its own script (Hindi in Devanagari with the `small` model or
+  larger, English in Latin letters; nothing is translated or romanised). Or
+  choose one language. Meetings use the dictation model when it can do that.
+  When it can't (an English-only `.en` model, or an engine that doesn't know
+  the language), they get a model of their own: first what Automatic would
+  pick for that language (Turbo for the European languages it supports, Apple
+  Speech where it supports the language, or the model you named for an
+  engine), else a multilingual Whisper model (Whisper's Automatic pick for
+  your Mac among the models you've downloaded). It's loaded only while
   a meeting is transcribed (the first passage waits a second or so for it) and
   let go two minutes after the last one, whatever **Keep model loaded** says
   (that setting is the dictation model's), so dictation keeps its own model and
-  speed. While both are loaded a meeting takes more memory: about 0.7 GB more
-  with `small` (measured). If no multilingual model is downloaded, the card
+  speed. While both are loaded a meeting takes more memory: roughly 0.7 GB
+  with `small` (the whole benchmark process peaked near 0.7 GB with only
+  `small` loaded; the increase itself wasn't measured). If no multilingual model is downloaded, the card
   says so with a **Download** button, and meetings use the dictation model
-  meanwhile. A meeting keeps the language it started with, also when it's
-  recovered after a crash. Limits: a passage that switches language
-  mid-sentence comes out in one language (passages are cut at pauses, so
-  people taking turns are fine); smaller models are weaker at Hindi (`base`
-  writes it in Urdu script; `small` is readable; larger ones are much better,
-  see `plans/meeting-languages-47.md`).
+  meanwhile, and the note says so. A meeting keeps the language it started
+  with, also when it's recovered after a crash. Limits: a sentence that
+  switches language midway comes out in one language (passages are cut at
+  pauses, so people taking turns are fine); under Auto-detect a very short
+  reply can still be written in the wrong language or script; smaller models
+  are weaker at Hindi (`base` may write it in Urdu script; `small` is
+  readable; larger ones are much better, see `plans/meeting-languages-47.md`).
 - **Stop:** click **Stop Recording**. Only the last passage or two (what was
   being said as you stopped) is left to transcribe, so on a Mac that keeps up
   the note is ready shortly after, however long the meeting was. A Mac that
