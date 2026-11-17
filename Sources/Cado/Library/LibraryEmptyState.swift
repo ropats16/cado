@@ -47,7 +47,7 @@ struct LibraryPlaceholder<Art: View>: View {
             art.frame(width: circle * 0.68, height: circle * 0.68)
                 .frame(width: circle, height: circle)
                 .background(Brand.Palette.surface, in: Circle())
-                .overlay(Circle().strokeBorder(Brand.Palette.ink.opacity(contrast == .increased ? 0.45 : 0.1)))
+                .overlay(Circle().strokeBorder(Brand.Palette.outline(contrast)))
                 .accessibilityHidden(true)
             Text(title)
                 .font(size == .window ? Brand.Typography.pageTitle : Brand.Typography.headline)

@@ -204,6 +204,9 @@ struct OnboardingView: View {
             Button("More Models in Settings…") { viewModel.perform(.readiness(.openSettings)) }
                 .buttonStyle(.link)
                 .font(Brand.Typography.caption)
+                // Green as text: accentText passes AA on the window (BrandTests).
+                .tint(Brand.Palette.accentText)
+                .foregroundStyle(Brand.Palette.accentText)
         }
     }
 }

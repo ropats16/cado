@@ -74,7 +74,8 @@ final class BrandTests: XCTestCase {
     }
 
     /// Green text (the onboarding Recommended badge on its green tint, links
-    /// in Acknowledgements and notes) reaches WCAG AA (4.5:1) on every
+    /// in Acknowledgements and notes, onboarding's More Models link on the
+    /// window) reaches WCAG AA (4.5:1) on every
     /// background it sits on, in light and dark.
     func testGreenTextPassesAAOnItsBackgrounds() {
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {

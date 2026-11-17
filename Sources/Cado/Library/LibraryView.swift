@@ -149,7 +149,7 @@ private struct LibraryInset: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: LibraryStyle.insetRadius)
         content
             .background(Brand.Palette.surface, in: shape)
-            .overlay { if contrast == .increased { shape.strokeBorder(Brand.Palette.ink.opacity(0.45)) } }
+            .overlay { if contrast == .increased { shape.strokeBorder(Brand.Palette.outline(contrast)) } }
     }
 }
 
