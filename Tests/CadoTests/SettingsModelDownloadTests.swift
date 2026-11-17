@@ -379,6 +379,41 @@ final class SettingsModelDownloadTests: XCTestCase {
         XCTAssertTrue(vm.isDownloadListExpanded, "a failure is")
     }
 
+    /// Only what this list shows counts: another engine's failed download
+    /// (not listed here) doesn't hold whisper's long list open.
+    func testAnotherEnginesFailureDoesntOpenTheList() {
+        let vm = makeVM(engine: .whisper)
+        vm.modelStatusChanged(.ready)
+        vm.modelDownloads[key("big")] = .failed("Download failed: offline")
+        XCTAssertFalse(vm.inAppDownloadableModels.contains { $0.key == key("big") })
+        XCTAssertFalse(vm.isDownloadListExpanded)
+    }
+
+    /// Closed while one model was missing; then another missing model is
+    /// picked: that's news, so the list opens for its hint.
+    func testAnotherMissingModelReopensTheList() {
+        let vm = makeVM(engine: .whisper)
+        engineModel = .file(modelsDir.appendingPathComponent("ggml-tiny.en.bin").path)
+        vm.modelStatusChanged(.missing)
+        XCTAssertTrue(vm.isDownloadListExpanded)
+        vm.setDownloadListExpanded(false)
+        XCTAssertFalse(vm.isDownloadListExpanded)
+
+        engineModel = .file(modelsDir.appendingPathComponent("ggml-base.en.bin").path)
+        vm.modelStatusChanged(.missing)
+        XCTAssertTrue(vm.isDownloadListExpanded)
+    }
+
+    /// The selected model is installed but was just reported missing (the
+    /// engine hasn't caught up): no row to point at, and nothing false said.
+    func testAMissingReportForAnInstalledModelSaysNothing() {
+        let vm = makeVM(model: .named("fast"))   // installed
+        engineModel = ModelSpec(path: modelsDir.appendingPathComponent("fake/fast").path, sha256: nil,
+                                language: "en", engine: .whisperKit)
+        vm.modelStatusChanged(.missing)
+        XCTAssertNil(vm.modelStatusHint)
+    }
+
     // MARK: - Progress
 
     /// A fast download reports every chunk; Settings redraws at most ~1% or

@@ -231,15 +231,17 @@ extension SettingsViewModel {
             let spec = currentModel()
             switch engines.downloadHint(for: spec) {
             case .inApp?, .command?:
-                // Named only when its row is in the list (not, say, a model
-                // that's there but reported missing a moment ago).
-                if let model = downloadableModel(for: spec),
-                   inAppDownloadableModels.contains(where: { $0.key == ModelDownloadKey(engine: engine, id: model.id) }) {
-                    // Under way: its row shows the progress.
-                    if isDownloadingModel(ModelDownloadKey(engine: engine, id: model.id)) { return nil }
+                if let model = downloadableModel(for: spec) {
+                    guard let key = listedModelKey(for: spec) else {
+                        return nil   // installed after all: the engine is about to load it
+                    }
+                    if isDownloadingModel(key) { return nil }   // its row shows the progress
                     return "Not downloaded. Click Download next to \(model.label) in “\(Self.downloadListTitle)”."
                 }
-                return "Not downloaded, and Cado can't download it. Choose another in the Model menu."
+                if case .command? = engines.downloadHint(for: spec) {
+                    return "Not downloaded, and Cado can't download it. Choose another in the Model menu."
+                }
+                return "Not downloaded. Choose another in the Model menu."
             case .instructions(let text)?:
                 // Apple Speech: its own row in this section downloads it.
                 if canDownloadSpeechModel { return "Not downloaded. Click Download next to \(Self.appleSpeechRow)." }

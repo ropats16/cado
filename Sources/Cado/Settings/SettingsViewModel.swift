@@ -108,7 +108,7 @@ final class SettingsViewModel: ObservableObject {
     @Published var modelDownloads: [ModelDownloadKey: ModelDownloadState] = [:]
     /// The user's last open or close of the Download list; nil = untouched
     /// (`isDownloadListExpanded`).
-    @Published var downloadListChoice: DownloadListChoice?
+    @Published private(set) var downloadListChoice: DownloadListChoice?
     /// The tasks behind `modelDownloads`' downloads, for Cancel.
     var modelDownloadTasks: [ModelDownloadKey: Task<Void, Never>] = [:]
 
@@ -368,6 +368,12 @@ final class SettingsViewModel: ObservableObject {
         reloadHotkeys()
         onNeedsMenuRefresh()
         updateHotkeyWarning()
+    }
+
+    /// The user opened or closed the Download list
+    /// (`isDownloadListExpanded`, SettingsViewModel+ModelDownloads.swift).
+    func setDownloadListExpanded(_ expanded: Bool) {
+        downloadListChoice = DownloadListChoice(expanded: expanded, seen: downloadListAttention)
     }
 
     // MARK: - Private helpers

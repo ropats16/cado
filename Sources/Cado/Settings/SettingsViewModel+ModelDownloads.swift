@@ -28,7 +28,7 @@ struct DownloadListChoice: Equatable {
     enum Attention: Hashable {
         case downloading(ModelDownloadKey)
         case failed(ModelDownloadKey)
-        case selectedMissing
+        case selectedMissing(ModelDownloadKey)
     }
     var expanded: Bool
     var seen: Set<Attention>
@@ -186,19 +186,26 @@ extension SettingsViewModel {
         return !attention.isEmpty || inAppDownloadableModels.count <= Self.downloadListShortLength
     }
 
-    /// The user opened or closed the list.
-    func setDownloadListExpanded(_ expanded: Bool) {
-        downloadListChoice = DownloadListChoice(expanded: expanded, seen: downloadListAttention)
-    }
-
-    /// What in the list needs the user now.
-    private var downloadListAttention: Set<DownloadListChoice.Attention> {
-        var attention = Set(modelDownloads.map { key, state -> DownloadListChoice.Attention in
+    /// What in the list, as shown now, needs the user: only its own rows
+    /// (another engine's failed download isn't listed, so it doesn't count),
+    /// and the selected model by key, so picking another missing one is news.
+    var downloadListAttention: Set<DownloadListChoice.Attention> {
+        let listed = Set(inAppDownloadableModels.map(\.key))
+        var attention = Set(modelDownloads.filter { listed.contains($0.key) }.map { key, state -> DownloadListChoice.Attention in
             if case .failed = state { return .failed(key) }
             return .downloading(key)
         })
-        if modelStatus == .missing, isDownloadableInApp(currentModel()) { attention.insert(.selectedMissing) }
+        if modelStatus == .missing, let missing = listedModelKey(for: currentModel()) {
+            attention.insert(.selectedMissing(missing))
+        }
         return attention
+    }
+
+    /// The Download list row for `spec`'s model, if it has one now.
+    func listedModelKey(for spec: ModelSpec) -> ModelDownloadKey? {
+        guard let model = downloadableModel(for: spec) else { return nil }
+        let key = ModelDownloadKey(engine: engine, id: model.id)
+        return inAppDownloadableModels.contains { $0.key == key } ? key : nil
     }
 
     // MARK: - Private
