@@ -79,4 +79,39 @@ final class RecoveryPlanTests: XCTestCase {
                        .init(note: nil, audioPending: false, audioFolder: "/a/M", keepFailures: 0))
         XCTAssertNil(concluded([.noteSaveFailed(reason: "full")]))
     }
+
+    func testAFailedNoteSaveIsNotAStalledAttempt() {
+        func plan(_ events: [SpoolEvent]) -> RecoveryPlan { RecoveryPlan(events: events, sampleCounts: full) }
+        let fail = SpoolEvent.noteSaveFailed(reason: "full")
+        let one = plan([.recoveryStarted, fail])
+        XCTAssertEqual(one.stalledAttempts, 0)
+        XCTAssertFalse(one.shouldGiveUp)
+        let five = plan(Array(repeating: [SpoolEvent.recoveryStarted, fail], count: 5).flatMap { $0 })
+        XCTAssertEqual(five.stalledAttempts, 0)
+        XCTAssertFalse(five.shouldGiveUp)
+        let original = plan([hello, fail, .recoveryStarted, fail, .recoveryStarted, fail])
+        XCTAssertEqual(original.stalledAttempts, 0)
+        XCTAssertFalse(original.shouldGiveUp)
+    }
+
+    func testEarlierStallsStillCountAroundAFailedNoteSave() {
+        func plan(_ events: [SpoolEvent]) -> RecoveryPlan { RecoveryPlan(events: events, sampleCounts: full) }
+        let fail = SpoolEvent.noteSaveFailed(reason: "full")
+        let mix = plan([.recoveryStarted, .recoveryStarted, .recoveryStarted, fail])
+        XCTAssertEqual(mix.stalledAttempts, 2)
+        XCTAssertTrue(mix.shouldGiveUp)
+        let between = plan([.recoveryStarted, .recoveryStarted, fail, .recoveryStarted])
+        XCTAssertEqual(between.stalledAttempts, 2)
+        XCTAssertTrue(between.shouldGiveUp)
+    }
+
+    func testTranscriptionCompleteOnceNoteSavingWasReached() {
+        func complete(_ events: [SpoolEvent]) -> Bool { RecoveryPlan(events: events, sampleCounts: full).transcriptionComplete }
+        XCTAssertTrue(complete([.recoveryStarted, .noteSaveFailed(reason: "full")]))
+        XCTAssertTrue(complete([hello, .noteSaveFailed(reason: "full")]))
+        XCTAssertTrue(complete([hello, .noteSaved(note: "/n/M.md", keepAudio: false, audioFolder: nil)]))
+        XCTAssertFalse(complete([]))
+        XCTAssertFalse(complete([hello, .recoveryStarted, .recoveryStarted]), "Crashed mid-transcription")
+        XCTAssertFalse(complete([.stopped(at: 1, capReached: false), .recoveryStarted, .recoveryPaused]))
+    }
 }

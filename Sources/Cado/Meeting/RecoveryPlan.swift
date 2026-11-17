@@ -15,6 +15,8 @@ import Foundation
 ///   on forever; an attempt that makes progress can't repeat forever either
 ///   (the journal only moves forward), so a healthy recovery is never given
 ///   up on.
+/// - An attempt that ended in `.noteSaveFailed` (or `.noteSaved`) isn't
+///   stalled: it did its job, saving failed for an outside reason.
 /// - `.noteSaved` means the meeting is written down already: only a pending
 ///   audio copy is left.
 struct RecoveryPlan: Equatable {
@@ -59,6 +61,12 @@ struct RecoveryPlan: Equatable {
     var duration: TimeInterval = 0
     var stalledAttempts = 0
     var reason: Reason = .crashed
+    /// Transcription had finished: the journal shows note saving was reached
+    /// (`.noteSaved` or `.noteSaveFailed`, which only happen after every
+    /// passage is done), so nothing is left to transcribe. A failed note save
+    /// then is an outside problem, not unfinished transcription. The plan
+    /// can't tell otherwise from events and sample counts alone.
+    var transcriptionComplete = false
     var concluded: Concluded?
 
     var shouldGiveUp: Bool { stalledAttempts >= Self.maxStalledAttempts }
@@ -70,11 +78,11 @@ struct RecoveryPlan: Equatable {
         var seen = Set<String>()
         var stoppedAt: TimeInterval?
         var quit = false, saveFailed = false
-        var attemptOpen = false, progressed = false, paused = false
+        var attemptOpen = false, progressed = false, paused = false, reachedSaving = false
         var concluded: Concluded?
 
         func closeAttempt() {
-            if attemptOpen && !progressed && !paused { stalledAttempts += 1 }
+            if attemptOpen && !progressed && !paused && !reachedSaving { stalledAttempts += 1 }
         }
         func result(_ speaker: MeetingSpeaker, _ range: Range<Int>) -> Bool {
             guard seen.insert("\(speaker.spoolKey) \(range.lowerBound) \(range.upperBound)").inserted else { return false }
@@ -113,9 +121,12 @@ struct RecoveryPlan: Equatable {
                 attemptOpen = true
                 progressed = false
                 paused = false
+                reachedSaving = false
             case .recoveryPaused:
                 paused = true
             case let .noteSaved(note, keepAudio, folder):
+                reachedSaving = true
+                transcriptionComplete = true
                 concluded = Concluded(note: note, audioPending: keepAudio, audioFolder: folder, keepFailures: 0)
             case let .audioKept(folder):
                 concluded?.audioPending = false
@@ -124,6 +135,10 @@ struct RecoveryPlan: Equatable {
                 concluded?.keepFailures += 1
             case .noteSaveFailed:
                 saveFailed = true
+                reachedSaving = true
+                transcriptionComplete = true
+            default:
+                break
             }
         }
         closeAttempt()
