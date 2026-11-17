@@ -20,10 +20,12 @@ import Foundation
 /// The spool is the last copy of the meeting. It also journals each side's
 /// start, failure and loss, every chunk's transcript (or failure), how far
 /// each side is settled, the stop, a quit, and once the meeting is written
-/// down, `.noteSaved` (`SpoolEvent`). It is deleted only once the note is
-/// saved (in the notes library, or the archive when that fails) AND any
-/// audio that has to be kept was copied; until then it stays on disk and a
-/// later launch finishes the job (`recoverLeftovers`, `RecoveryPlan`):
+/// down, `.noteSaved` (`SpoolEvent`). A spool with a folder on disk
+/// (`hasFolder`: what's physically there, whatever write failed) is deleted
+/// only once the note is saved (in the notes library, or the archive when
+/// that fails) AND any audio that has to be kept was copied; until then it
+/// stays on disk and a later launch finishes the job (`recoverLeftovers`,
+/// `RecoveryPlan`):
 /// - no `.noteSaved` (a crash, a quit, a note that couldn't be saved
 ///   anywhere): the meeting is rebuilt from the journal, the audio not yet
 ///   transcribed is chunked and transcribed the same way, and the note says
@@ -31,6 +33,27 @@ import Foundation
 ///   `.recovering`, oldest leftover first.
 /// - `.noteSaved` with an audio copy pending: only the copy is done again;
 ///   never a second note.
+/// - A milestone the journal can't take (the disk is full) goes into the
+///   folder's name instead (`SpoolFolderMark`, a rename in place: no space
+///   needed): a note saved but not journaled marks it written down (the next
+///   launch just deletes it) or audio pending (only the copy is redone, into
+///   a new folder: the note's isn't known); a note that couldn't be saved
+///   marks it so, and the late note says that, not "quit unexpectedly".
+/// - Only a spool with no folder (the disk spool couldn't be made: all in
+///   memory) is dropped when its note can't be saved anywhere; the notice
+///   says the meeting is lost.
+/// - "The meeting is safe" is said once per meeting (`.toldUser`); if even
+///   that can't be journaled, a later launch says it again.
+///
+/// Half on disk (`FallbackSpoolHandle`: the disk filled up mid-meeting, the
+/// rest is in memory): the note is written from both parts. Once it's
+/// saved, `.noteSaved` goes to the part on disk (or its mark), so a later
+/// launch never writes a second, partial note; it names no audio folder, so
+/// a pending copy is redone from the disk part into a folder of its own,
+/// never over the complete copy. Until the note is saved the disk part is
+/// never deleted; if Cado dies first, the next launch recovers it: a partial
+/// note is the most there is. Quitting writes such a meeting down at once
+/// (the memory part can't wait), journaled the same way.
 ///
 /// Rules worth knowing:
 /// - Start is ignored unless idle; during a recovery the user is told why.
@@ -67,16 +90,19 @@ import Foundation
 ///   it if no job followed.
 /// - A meeting where no speech was transcribed writes no note; a notice says
 ///   so. Failed chunks don't lose the meeting: the note keeps what was
-///   transcribed, and the audio is kept (`MeetingArchive`) and named in it.
+///   transcribed, and the audio is kept (`MeetingArchive`). The note names
+///   its folder only when all the audio is on disk (so it's there, or still
+///   in the spool for the next launch to copy); audio held in memory could
+///   still be lost, so a notice names the folder once it's there.
 ///   A note the notes library won't take goes to the archive with the audio.
 /// - Retention: with `keepAudio` (read when the meeting ends) the audio is
 ///   copied to the archive, also when nothing was said. Failures and a note
 ///   that couldn't be saved keep the audio whatever the setting.
 /// - `quit` (the app is quitting) stops the streams, journals the quit and
 ///   leaves the spool: the next launch writes the complete note. Only a
-///   meeting held in memory (no durable spool) is written down on the way
-///   out, with what there is, its audio kept. Quitting during a recovery
-///   pauses it (`.recoveryPaused`, not counted as a failed attempt).
+///   meeting with audio held in memory is written down on the way out, with
+///   what there is, its audio kept. Quitting during a recovery pauses it
+///   (`.recoveryPaused`, not counted as a failed attempt).
 /// - Each meeting (recovered ones too) gets an id; callbacks for any other
 ///   meeting are ignored.
 ///
@@ -164,6 +190,8 @@ final class MeetingSession {
         var prewarmed = false
         /// The user was told the spool stopped taking audio.
         var toldSpoolFailed = false
+        /// An earlier launch said "the meeting is safe" (`.toldUser`).
+        var toldMeetingIsSafe = false
 
         init(id: Int, appName: String, startedAt: TimeInterval, startDate: Date, spool: MeetingSpoolHandle,
              me: MeetingStream?, them: MeetingStream?, recovery: RecoveryPlan.Reason? = nil) {
@@ -339,14 +367,14 @@ final class MeetingSession {
             end()
             whenCopiesAreSafe(done)
         case .recording(let meeting):
-            if meeting.spool.legacyDurable { meeting.spool.record(.appQuit) }
+            if meeting.spool.hasFolder { meeting.spool.record(.appQuit) }
             meeting.quit = done
             finish(meeting)
         case .finishing(let meeting):
-            if meeting.spool.legacyDurable { meeting.spool.record(.appQuit) }
+            if meeting.spool.hasFolder { meeting.spool.record(.appQuit) }
             meeting.quit = done
         case .transcribing(let meeting):
-            if meeting.spool.legacyDurable { meeting.spool.record(.appQuit) }
+            if meeting.spool.hasFolder { meeting.spool.record(.appQuit) }
             meeting.quit = done
             leaveForNextLaunch(meeting)
         }
@@ -433,9 +461,11 @@ final class MeetingSession {
 
     /// The disk stopped taking the meeting's audio (full, folder gone): the
     /// spool now holds the rest in memory, so the meeting and its note go
-    /// on; only crash recovery is lost. Said once.
+    /// on; only crash recovery is lost. Said once. A journal append that
+    /// failed alone loses nothing a recovery needs: not said.
     private func checkSpool(_ meeting: Meeting) {
-        guard !meeting.toldSpoolFailed, let error = meeting.spool.writeError else { return }
+        guard !meeting.toldSpoolFailed, let error = meeting.spool.writeError,
+              !meeting.spool.hasAllAudioOnDisk else { return }
         meeting.toldSpoolFailed = true
         Log.error("Meeting: the on-disk recording failed (\(error.localizedDescription)); "
                   + "the rest of the meeting is held in memory and can't be recovered if Cado quits unexpectedly.")
@@ -641,7 +671,7 @@ final class MeetingSession {
                 + (silence.map { " " + $0.detail } ?? "")
             let someoneRecorded = meeting.sides.values.contains { $0.startError == nil }
             guard mustKeep else {
-                spool.discard()
+                spool.discard()   // no note needed, nothing to keep
                 if meeting.isRecovery {
                     Log.info("Meeting recovery: no speech in the meeting with \(app); nothing to keep.")
                 } else if someoneRecorded {   // else already told
@@ -652,7 +682,7 @@ final class MeetingSession {
             }
             // Keep meeting audio is on: the audio is kept, nothing heard or not.
             let folder = newArchiveFolder(title)
-            spool.record(.noteSaved(note: nil, keepAudio: true, audioFolder: folder?.path))
+            journalWrittenDown(spool, note: nil, keepAudio: true, folder: folder)
             copyAudioThenDiscard(spool, into: folder, title: title, failuresSoFar: 0) { [feedback] kept in
                 let whereItIs = kept.map { " Its audio is kept in \($0.path)." } ?? ""
                 feedback.notify(title: "Nothing recorded", body: saidNothing + whereItIs)
@@ -662,23 +692,28 @@ final class MeetingSession {
 
         var caveats = caveats(meeting)
         let folder = mustKeep ? newArchiveFolder(title) : nil
-        if failed, let folder { caveats.append(.audioKept(folder)) }
+        // The note names the folder only if the audio can't be lost: all on
+        // disk, it's either copied there or still in the spool for the next
+        // launch (the caveat says both). Held in memory, a notice says where.
+        let noteNamesFolder = failed && spool.hasAllAudioOnDisk
+        if noteNamesFolder, let folder { caveats.append(.audioKept(folder)) }
         let note = MeetingNote(appName: app, start: meeting.startDate, duration: meeting.duration,
                                turns: turns, caveats: caveats)
         let draft = note.draft(locale: locale, timeZone: timeZone)
         do {
             let url = try notes.save(draft)
             Log.info("Meeting note saved: \(url.path)")
-            spool.record(.noteSaved(note: url.path, keepAudio: mustKeep, audioFolder: folder?.path))
+            journalWrittenDown(spool, note: url.path, keepAudio: mustKeep, folder: folder)
             var body = draft.title
             if silence != nil { body += " — no sound came from \(app); see the note." }
             if failed { body += " Some of it couldn't be transcribed; see the note." }
             let titled = meeting.recovery == .crashed ? "Meeting note recovered" : "Meeting note saved"
             feedback.noteSaved(url, title: titled, body: body)
             if mustKeep {
-                copyAudioThenDiscard(spool, into: folder, title: title, failuresSoFar: 0, then: { _ in })
+                copyAudioThenDiscard(spool, into: folder, title: title, failuresSoFar: 0,
+                                     then: failed && !noteNamesFolder ? tellWhereTheAudioIs(title) : { _ in })
             } else {
-                spool.discard()
+                spool.discard()   // saved, nothing to keep
             }
         } catch {
             noteNotSaved(draft, error, meeting, folder: folder, hasAudio: hasAudio)
@@ -686,9 +721,37 @@ final class MeetingSession {
         end()
     }
 
+    /// Journals that the meeting is written down (`.noteSaved`) before
+    /// anything else, so no later launch writes it again. If the journal
+    /// can't take it (the disk is full), the folder's name says it instead
+    /// (a rename in place: no space needed); a later launch then only
+    /// deletes it, or finishes the copy (`SpoolFolderMark`). With audio held
+    /// in memory, no folder is journaled: a retry copies only the disk part,
+    /// and must not land on top of the complete copy.
+    private func journalWrittenDown(_ spool: MeetingSpoolHandle, note: String?, keepAudio: Bool, folder: URL?) {
+        let retryFolder = spool.hasAllAudioOnDisk ? folder?.path : nil
+        guard !spool.record(.noteSaved(note: note, keepAudio: keepAudio, audioFolder: retryFolder)), spool.hasFolder else {
+            return
+        }
+        Log.error("Meeting: the note is saved but the spool's journal didn't take it; marking the spool instead.")
+        if !spool.mark(keepAudio ? .audioPending : .writtenDown) {
+            Log.error("Meeting: the spool couldn't be marked either; a later launch may write this meeting's note again.")
+        }
+    }
+
+    /// "Meeting audio kept" naming the folder, once the copy is there (a
+    /// failure is said by `audioNotCopied`).
+    private func tellWhereTheAudioIs(_ title: String) -> (URL?) -> Void {
+        { [feedback] kept in
+            guard let kept else { return }
+            feedback.notify(title: "Meeting audio kept", body: "The audio of “\(title)” is in \(kept.path).")
+        }
+    }
+
     /// The notes library wouldn't take the note: into the archive with the
-    /// audio; if even that fails, the spool stays and the next launch
-    /// finishes the meeting.
+    /// audio; if even that fails, a spool with a folder stays (whatever
+    /// failed to write) and the next launch finishes the meeting. Only one
+    /// with no folder (all in memory) is lost, and the notice says so.
     private func noteNotSaved(_ draft: NoteDraft, _ error: Error, _ meeting: Meeting, folder: URL?, hasAudio: Bool) {
         Log.error("Couldn't save the meeting note: \(error.localizedDescription)")
         let spool = meeting.spool, title = title(meeting)
@@ -696,64 +759,72 @@ final class MeetingSession {
                                               duration: draft.duration, body: draft.body)
         let reason = error.localizedDescription
         if let folder = folder ?? newArchiveFolder(title), (try? archive.writeNote(markdown, into: folder)) != nil {
-            spool.record(.noteSaved(note: folder.appendingPathComponent("Note.md").path, keepAudio: hasAudio,
-                                    audioFolder: folder.path))
+            journalWrittenDown(spool, note: folder.appendingPathComponent("Note.md").path, keepAudio: hasAudio, folder: folder)
             guard hasAudio else {
-                spool.discard()
+                spool.discard()   // saved (in the archive), no audio to keep
                 return feedback.notify(title: "Couldn't save the meeting note",
                                        body: "\(reason) The transcript is in \(folder.path).")
             }
+            let allOnDisk = spool.hasAllAudioOnDisk, partOnDisk = spool.hasFolder   // before the copy
             copyAudioThenDiscard(spool, into: folder, title: title, failuresSoFar: 0, quietOnFailure: true) { [feedback] kept in
                 let audio = kept != nil ? "The transcript and audio are in \(folder.path)."
-                    : spool.legacyDurable ? "The transcript is in \(folder.path); the audio is safe and Cado copies it there "
+                    : allOnDisk ? "The transcript is in \(folder.path); the audio is safe and Cado copies it there "
                         + "the next time it starts."
+                    : partOnDisk ? "The transcript is in \(folder.path). The first part of the audio is safe and Cado "
+                        + "copies it to its Meeting Audio folder the next time it starts; the rest couldn't be kept."
                     : "The transcript is in \(folder.path); the audio couldn't be kept."
                 feedback.notify(title: "Couldn't save the meeting note", body: "\(reason) \(audio)")
             }
-        } else if spool.legacyDurable {
-            spool.record(.noteSaveFailed(reason: reason))
+        } else if spool.hasFolder {
+            // Stays, whatever failed to write: the next launch finishes it.
+            if !spool.record(.noteSaveFailed(reason: reason)), !spool.mark(.noteNotSaved) {
+                Log.error("Meeting: couldn't note in the spool that the note wasn't saved.")
+            }
             Log.error("Meeting: the note couldn't be saved anywhere; the meeting stays in its spool for the next launch.")
-            feedback.notify(title: "Couldn't save the meeting note",
-                            body: "\(reason) The meeting is safe: Cado will finish it the next time it starts.")
+            guard !meeting.toldMeetingIsSafe else { return }   // said on an earlier launch
+            let safe = spool.hasAllAudioOnDisk ? "The meeting is safe: Cado will finish it the next time it starts."
+                : "Only the first part of the meeting is safe: Cado will finish it the next time it starts. "
+                    + "The rest couldn't be kept."
+            feedback.notify(title: "Couldn't save the meeting note", body: "\(reason) \(safe)")
+            spool.record(.toldUser(.meetingIsSafe))   // if this fails, the next launch says it again
         } else {
-            spool.discard()
-            feedback.notify(title: "Couldn't save the meeting", body: reason)
+            spool.discard()   // no folder: nothing outlives the app anyway
+            feedback.notify(title: "Couldn't save the meeting",
+                            body: "\(reason) The meeting couldn't be saved anywhere, so it is lost.")
         }
     }
 
     /// Cado is quitting mid-meeting: the spool (with `.appQuit`) is left for
-    /// the next launch to finish. A meeting held only in memory can't wait:
-    /// it's written down now with what there is, its audio kept.
+    /// the next launch to finish. A meeting with audio held in memory can't
+    /// wait: it's written down now with what there is, its audio kept, the
+    /// same way as any note (journaled; a disk part kept if it can't be saved).
     private func leaveForNextLaunch(_ meeting: Meeting) {
         guard let done = meeting.quit else { return }
         endPrewarmIfHeld(meeting)
-        guard !meeting.spool.legacyDurable else {
+        guard !meeting.spool.hasAllAudioOnDisk else {
             Log.info("Meeting: Cado is quitting; the meeting with \(meeting.appName) is finished next launch.")
             end()
             return whenCopiesAreSafe(done)
         }
         lastThemWasSilent = themSilence(meeting) != nil
-        let title = title(meeting)
-        let folder = meeting.spool.audio().isEmpty ? nil : newArchiveFolder(title)
+        let spool = meeting.spool, title = title(meeting)
+        let hasAudio = !spool.audio().isEmpty
+        let folder = hasAudio ? newArchiveFolder(title) : nil
         var caveats = caveats(meeting)
         caveats.append(.quitBeforeTranscribing)
-        if let folder { caveats.append(.audioKept(folder)) }
         let draft = MeetingNote(appName: meeting.appName, start: meeting.startDate, duration: meeting.duration,
                                 turns: MeetingTranscript.turns(meeting.pieces), caveats: caveats)
             .draft(locale: locale, timeZone: timeZone)
         do {
-            _ = try notes.save(draft)
-        } catch {
-            Log.error("Couldn't save the meeting note: \(error.localizedDescription)")
-            if let folder {
-                try? archive.writeNote(NoteFrontMatter.render(title: draft.title, date: draft.date, kind: draft.kind,
-                                                              duration: draft.duration, body: draft.body), into: folder)
+            let url = try notes.save(draft)
+            journalWrittenDown(spool, note: url.path, keepAudio: hasAudio, folder: folder)
+            if hasAudio {
+                copyAudioThenDiscard(spool, into: folder, title: title, failuresSoFar: 0, then: tellWhereTheAudioIs(title))
+            } else {
+                spool.discard()   // saved, no audio
             }
-        }
-        if folder != nil {
-            copyAudioThenDiscard(meeting.spool, into: folder, title: title, failuresSoFar: 0, then: { _ in })
-        } else {
-            meeting.spool.discard()
+        } catch {
+            noteNotSaved(draft, error, meeting, folder: folder, hasAudio: hasAudio)
         }
         end()
         whenCopiesAreSafe(done)
@@ -769,11 +840,12 @@ final class MeetingSession {
         }
     }
 
-    /// Copies the spool's audio into `folder` (nil: a new one) off main; on
-    /// success journals `.audioKept` and deletes the spool, else journals
-    /// `.audioKeepFailed` and leaves it (a durable one is copied again next
-    /// launch). The user hears of a failure once (`failuresSoFar` 0), unless
-    /// `quietOnFailure` (the caller says it). `then` gets the folder on success.
+    /// Copies the spool's audio into `folder` (nil: a new one) off main. Call
+    /// only once the note is saved: on success it journals `.audioKept` and
+    /// deletes the spool, else journals `.audioKeepFailed` and leaves a spool
+    /// with a folder (copied again next launch). The user hears of a failure
+    /// once (`failuresSoFar` 0), unless `quietOnFailure` (the caller says
+    /// it). `then` gets the folder on success.
     private func copyAudioThenDiscard(_ spool: MeetingSpoolHandle, into folder: URL?, title: String,
                                       failuresSoFar: Int, quietOnFailure: Bool = false,
                                       then: @escaping (URL?) -> Void) {
@@ -781,7 +853,7 @@ final class MeetingSession {
             return audioNotCopied(spool, NoFolder(), title: title, tell: failuresSoFar == 0 && !quietOnFailure, then: then)
         }
         let audio = spool.audio()
-        let fragile = !spool.legacyDurable
+        let fragile = !spool.hasAllAudioOnDisk
         if fragile { fragileCopies += 1 }
         var failure: Error?
         let archive = self.archive
@@ -791,8 +863,9 @@ final class MeetingSession {
             if let failure {
                 self?.audioNotCopied(spool, failure, title: title, tell: failuresSoFar == 0 && !quietOnFailure, then: then)
             } else {
-                spool.record(.audioKept(folder: folder.path))
-                spool.discard()
+                // Copied: if the journal can't say so, the name does, so a failed delete isn't copied again.
+                if !spool.record(.audioKept(folder: folder.path)), spool.hasFolder { spool.mark(.writtenDown) }
+                spool.discard()   // saved and copied
                 Log.info("Meeting audio kept in \(folder.path)")
                 then(folder)
             }
@@ -805,13 +878,17 @@ final class MeetingSession {
         Log.error("Couldn't keep the meeting's audio: \(error.localizedDescription)")
         spool.record(.audioKeepFailed(reason: error.localizedDescription))
         if tell {
-            let body = spool.legacyDurable
+            let place = spool.location?.path ?? "Cado's Meetings In Progress folder"
+            let body = spool.hasAllAudioOnDisk
                 ? "The audio of “\(title)” couldn't be copied to Cado's Meeting Audio folder yet. It's safe in "
-                    + "\(spool.location?.path ?? "Cado's Meetings In Progress folder"); Cado will try again the next time it starts."
+                    + "\(place); Cado will try again the next time it starts."
+                : spool.hasFolder
+                ? "The audio of “\(title)” couldn't be copied to Cado's Meeting Audio folder. The first part of it is safe in "
+                    + "\(place); Cado will try again the next time it starts. The rest couldn't be kept."
                 : "The audio of “\(title)” couldn't be copied to Cado's Meeting Audio folder, so it couldn't be kept."
             feedback.notify(title: "Couldn't keep the meeting's audio", body: body)
         }
-        if !spool.legacyDurable { spool.discard() }
+        if !spool.hasFolder { spool.discard() }   // no folder: the audio can't outlive the app anyway
         then(nil)
     }
 
@@ -887,8 +964,21 @@ final class MeetingSession {
         let handle = leftover.handle
         let info = handle.meeting
         let counts = handle.audio().counts
-        let plan = RecoveryPlan(events: leftover.events, sampleCounts: counts)
+        var plan = RecoveryPlan(events: leftover.events, sampleCounts: counts)
         let title = MeetingNote.title(appName: info.appName, start: info.startDate, locale: locale, timeZone: timeZone)
+        if plan.concluded == nil {
+            // What the journal couldn't take, the folder's name says.
+            switch leftover.mark {
+            case .audioPending?:
+                // Written down; the note's folder wasn't journaled: a new one, and the user is told where.
+                let copied = leftover.events.contains { if case .audioKept = $0 { return true } else { return false } }
+                plan.concluded = .init(note: nil, audioPending: !copied, audioFolder: nil, keepFailures: 1)
+            case .noteNotSaved?:
+                plan.reason = .noteNotSaved
+            case .writtenDown?, nil:
+                break
+            }
+        }
         if let concluded = plan.concluded {
             return finishCopy(handle, concluded, title: title)
         }
@@ -910,6 +1000,7 @@ final class MeetingSession {
         meeting.total = plan.done
         meeting.capReached = plan.capReached
         meeting.recoveredDuration = plan.duration
+        meeting.toldMeetingIsSafe = leftover.events.contains(.toldUser(.meetingIsSafe))
         state = .finishing(meeting)
         report()
         Log.info("Meeting recovery: the meeting with \(info.appName) from \(info.startDate) "
@@ -1025,9 +1116,4 @@ final class MeetingSession {
 
 private extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
-}
-
-private extension MeetingSpoolHandle {
-    /// The old `isDurable`: on disk and nothing failed to write.
-    var legacyDurable: Bool { writeError == nil && hasAllAudioOnDisk }
 }

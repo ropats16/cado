@@ -482,7 +482,9 @@ final class FullDiskSpoolHandle: MeetingSpoolHandle {
     func audio() -> SpoolAudio { inner.audio() }
     var hasFolder: Bool { onDisk && !inner.isDiscarded }
     var hasAllAudioOnDisk: Bool { hasFolder }
-    var location: URL? { onDisk ? URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)") : nil }
+    var location: URL? {
+        onDisk ? URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)" + (marks.last.map { "." + $0.rawValue } ?? "")) : nil
+    }
     func mark(_ mark: SpoolFolderMark) -> Bool {
         guard hasFolder else { return false }
         marks.append(mark)
