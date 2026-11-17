@@ -2,7 +2,12 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
-## 0.4.0 (unreleased)
+## 0.4.1 (unreleased)
+
+### Security
+- Updates require a signed feed and verify downloaded archives before extraction.
+
+## 0.4.0 - 2026-11-17
 
 ### Added
 - "Record this meeting?": when a meeting app (Zoom, Teams, Slack, Webex, Discord, FaceTime, or a browser for Meet and other web calls) starts using the microphone, Cado asks, with Record and Not Now. It asks in a notification, in the menu (the menu bar shows "Record?") and with the mascot, so it works with notifications off too. Cado never records by itself. Needs macOS 14.4 or later; turn it off in Settings › Meetings.

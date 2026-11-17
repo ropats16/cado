@@ -60,11 +60,9 @@ Semantic versioning, `MAJOR.MINOR.PATCH`:
 
 The version exists only as the `VERSION` given to `make release` and the
 `v<version>` tag; the build number is the git commit count. The next release is
-**0.4.0**. Although the latest published release is 0.2.0, 0.3.0 was already
-prepared as a milestone; the meeting detection, calendar, language, summary and
-recovery features added since it warrant the next minor version. Preserve the
-0.3.0 notes as that milestone's history. A following release that only enables
-signed-feed enforcement is **0.4.1**. Before each release add a section to
+**0.4.1**, containing signed-feed enforcement only. Published 0.4.0 includes
+both the prepared 0.3.0 milestone and subsequent features; the 0.3.0 notes
+remain as historical context. Before each release add a section to
 `CHANGELOG.md` (newest first, user-facing wording); it is the release's notes.
 
 ## Release
@@ -134,26 +132,19 @@ afterwards. A base feed that is already signed is fine: `make_appcast.py` drops
 the old comments and the new feed is signed afresh. Tests (throwaway key, no
 keychain): `python3 -m unittest discover -s scripts/tests`.
 
-**Rollout order matters.** `SURequireSignedFeed` is deliberately NOT in
-`Resources/Info.plist` yet: an app that requires a signed feed rejects an
-unsigned one, so it must only ship after a signed feed is live.
+**Rollout order matters.** The bootstrap release
+[0.4.0](https://github.com/ropats16/cado/releases/tag/v0.4.0) was published on
+2026-11-17 without enforcement. Its public latest feed was downloaded and
+verified with `verify_update_signature.swift --feed` and the checked-in public
+key. SHA-256: `0a8d4ae49334faeaff5644a84e3b82d44b2376c52004a5560f34c252084b27a1`.
+The earlier 0.2.0 feed was unsigned. With the signed bootstrap now live,
+`Resources/Info.plist` enables both `SURequireSignedFeed` and
+`SUVerifyUpdateBeforeExtraction` for 0.4.1.
 
-Verified on 2026-11-17 for #49: the public latest feed is still v0.2.0 and
-`verify_update_signature.swift --feed` rejects it with “no embedded signature”.
-Its SHA-256 is `cad46ee8a8af1dc99476af98d26e22e1e44e7475916fea41e48f3c7b89608e0b`.
-The prepared 0.4.0 release is the bootstrap release (N); do not enable either
-flag in it. Publish and verify its signed feed first, then enable **both** flags
-for 0.4.1 (N+1), assuming that release contains fixes/hardening only.
-
-1. Release N: run `make release` with this code, publish. The feed at
-   `releases/latest/download/appcast.xml` is now signed (apps in the field ignore
-   the signature; nothing changes for them).
-2. Check the published feed: download it and run
-   `swift scripts/verify_update_signature.swift --feed "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' Resources/Info.plist)" appcast.xml`.
-3. Release N+1: add `<key>SURequireSignedFeed</key><true/>` and
-   `<key>SUVerifyUpdateBeforeExtraction</key><true/>` to `Resources/Info.plist`. From
-   then on, copies of N+1 refuse an unsigned or edited feed. (Copies of N still
-   accept anything; they only upgrade through the signed feed anyway.)
+For every release, verify the published feed after downloading it:
+`swift scripts/verify_update_signature.swift --feed "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' Resources/Info.plist)" appcast.xml`.
+Keep publishing signed feeds: installed copies of 0.4.1 and later will reject
+unsigned or edited feeds.
 
 **`SUVerifyUpdateBeforeExtraction` is required alongside signed feeds**, not
 optional: the pinned Sparkle 2.10.1 rejects its updater configuration if

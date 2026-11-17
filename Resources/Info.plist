@@ -42,6 +42,11 @@
     <string>https://github.com/ropats16/cado/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>rdsAG+/pd7Ht6XqvSHktNN79TMYuWJHVRfzD8PEyOpE=</string>
+    <!-- Enabled after the public 0.4.0 signed feed was verified (#49). -->
+    <key>SURequireSignedFeed</key>
+    <true/>
+    <key>SUVerifyUpdateBeforeExtraction</key>
+    <true/>
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUScheduledCheckInterval</key>
