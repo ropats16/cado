@@ -68,7 +68,7 @@ remain as historical context. Before each release add a section to
 ## Release
 
 ```sh
-make release VERSION=0.4.0
+make release VERSION=0.4.1
 ```
 
 Stages: preflight (fails early naming any missing variable, identity or notary
@@ -84,14 +84,14 @@ context:primary-signature`, mounted app + Applications link check) > appcast.
 A successful run ends with:
 
 ```
-✓ Release 0.4.0 (build <commit count>)
-  DMG:    .../dist/Cado-0.4.0.dmg
+✓ Release 0.4.1 (build <commit count>)
+  DMG:    .../dist/Cado-0.4.1.dmg
   sha256: <64 hex chars>
 
-To publish (creates tag v0.4.0 at HEAD; ...):
-  gh release create v0.4.0 '.../dist/Cado-0.4.0.dmg' '.../dist/appcast.xml' --repo ropats16/cado \
-    --target <HEAD sha> --title 'Cado 0.4.0' --generate-notes --draft
-  gh release edit v0.4.0 --repo ropats16/cado --draft=false
+To publish (creates tag v0.4.1 at HEAD; ...):
+  gh release create v0.4.1 '.../dist/Cado-0.4.1.dmg' '.../dist/appcast.xml' --repo ropats16/cado \
+    --target <HEAD sha> --title 'Cado 0.4.1' --generate-notes --draft
+  gh release edit v0.4.1 --repo ropats16/cado --draft=false
 ```
 
 ### Appcast (Sparkle feed)
@@ -211,7 +211,7 @@ valid key (`UpdaterAvailability`).
 - **Pinned dependencies:** `Package.resolved` is committed and the release resolves and builds with `--force-resolved-versions`, so a DMG holds exactly the reviewed revisions of FluidAudio, WhisperKit and Sparkle, never a newer upstream release within `Package.swift`'s ranges (#27). To update one: `swift package update <name>`, review the upstream diff, commit `Package.resolved`.
 - **Clean tree:** the DMG is built from the working tree but `gh release create --target` tags HEAD, so a real release refuses uncommitted changes (tracked files, or untracked ones under `Sources`, `Resources`, `scripts`, `Package.swift`/`.resolved`, `Makefile`). A rehearsal lists them as a warning and goes on.
 - **Rehearsal** (no Apple credentials needed, any signing identity or `-`; result is *not* distributable):
-  `SKIP_NOTARIZE=1 CADO_SIGN_IDENTITY="-" make release VERSION=0.4.0`
+  `SKIP_NOTARIZE=1 CADO_SIGN_IDENTITY="-" make release VERSION=0.4.1`
   It runs the appcast stage too (signing with the keychain key) and prints, but
   never runs, the publish command. With `-` the app doesn't launch: under the
   Hardened Runtime, library validation rejects an ad-hoc Sparkle.framework
