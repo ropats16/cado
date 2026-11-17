@@ -1,4 +1,5 @@
 # Weekly, grouped, capped: one PR per ecosystem at most per week.
+# No gitsubmodule entry on purpose: whisper.cpp is bumped by hand to release tags.
 # Security alerts/updates are a repo setting (docs/RELEASING.md, "Repo settings").
 version: 2
 updates:
@@ -18,8 +19,3 @@ updates:
     groups:
       swift-packages:
         patterns: ["*"]
-  - package-ecosystem: gitsubmodule
-    directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 1

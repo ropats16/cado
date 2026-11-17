@@ -37,7 +37,7 @@ MERGED_DIR="$OUTDIR/metal-embed"
 ASM="$OUTDIR/ggml-metal-embed.s"
 
 if [[ ! -f "$CMAKE" ]]; then
-  echo "error: $CMAKE not found. Run 'git submodule update --init' (or 'make setup')." >&2
+  echo "error: $CMAKE not found. Run 'git submodule update --init --recursive' (or 'make setup')." >&2
   exit 1
 fi
 
@@ -46,9 +46,12 @@ KINDS=()
 while IFS= read -r kind; do KINDS+=("$kind"); done < <(
   sed -n '/^set(METALLIB_KERNEL_SOURCES/,/^)/p' "$CMAKE" | sed -n 's|^ *kernels/\(.*\)\.metal$|\1|p')
 if ((${#KINDS[@]} == 0)); then
-  echo "error: no kernels found in $CMAKE (METALLIB_KERNEL_SOURCES changed shape?)" >&2
+  echo "error: no kernels found in $CMAKE (METALLIB_KERNEL_SOURCES changed shape, or the submodule is missing/stale: git submodule update --init --recursive)" >&2
   exit 1
 fi
+
+# Pre-v1.9.5 layout wrote one merged ggml-metal-embed.metal; nothing uses it now.
+rm -f "$OUTDIR/ggml-metal-embed.metal"
 
 if [[ -f "$ASM" ]] && ! find "$M/kernels" "$COMMON" "$IMPL" "$CMAKE" "$0" -newer "$ASM" 2>/dev/null | grep -q .; then
   echo "✓ embedded Metal shader already up to date"
@@ -66,6 +69,7 @@ trap 'rm -rf "$TMP"' EXIT
   for kind in "${KINDS[@]}"; do
     src="$M/kernels/$kind.metal"
     merged="$MERGED_DIR/ggml-metal-embed-$kind.metal"
+    kind_sym="${kind//-/_}"   # '-' is illegal in symbols (as upstream's cmake does)
     # only prepend the headers this source actually includes (as the cmake does)
     headers=("$M/kernels/common.h")
     grep -q '#include "dequantize\.h"' "$src" && headers+=("$M/kernels/dequantize.h")
@@ -81,11 +85,11 @@ trap 'rm -rf "$TMP"' EXIT
     sed -e "/__embed_ggml-common.h__/r ${COMMON}" -e "/__embed_ggml-common.h__/d" < "$TMP/2" > "$TMP/3"
     sed -e "/#include \"ggml-metal-impl.h\"/r ${IMPL}" -e "/#include \"ggml-metal-impl.h\"/d" < "$TMP/3" > "$merged"
     # absolute path, like the upstream cmake build, so .incbin resolves regardless of compiler CWD
-    echo ".globl _ggml_metallib_${kind}_start"
-    echo "_ggml_metallib_${kind}_start:"
+    echo ".globl _ggml_metallib_${kind_sym}_start"
+    echo "_ggml_metallib_${kind_sym}_start:"
     echo ".incbin \"${merged}\""
-    echo ".globl _ggml_metallib_${kind}_end"
-    echo "_ggml_metallib_${kind}_end:"
+    echo ".globl _ggml_metallib_${kind_sym}_end"
+    echo "_ggml_metallib_${kind_sym}_end:"
   done
 } > "$ASM"
 

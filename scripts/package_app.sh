@@ -100,10 +100,21 @@ if security find-identity -p codesigning 2>/dev/null | grep -q "Cado Self-Signed
   # shellcheck source=lib/signing_keychain.sh
   source "$ROOT/scripts/lib/signing_keychain.sh"
   KEYCHAIN="$SIGNING_KEYCHAIN"
-  SIGNING_PASS="$(sk_stored_pass)"
-  [[ -n "$SIGNING_PASS" ]] || SIGNING_PASS="$(sk_prepare || true)"   # migrates an old keychain
-  security unlock-keychain -p "$SIGNING_PASS" "$SIGNING_KEYCHAIN" 2>/dev/null || true
-  echo "==> Codesigning with '$SIGN_ID' (identifier $BUNDLE_ID) — grants persist across rebuilds"
+  # No keychain file: the identity lives elsewhere (login keychain...); sign as is.
+  if [[ -f "$SIGNING_KEYCHAIN" ]]; then
+    prep_rc=0; SIGNING_PASS="$(sk_prepare)" || prep_rc=$?   # also migrates an old keychain
+    if [[ "$prep_rc" == 0 ]] && security unlock-keychain -p "$SIGNING_PASS" "$SIGNING_KEYCHAIN" 2>/dev/null; then
+      # Leave it locked afterwards (a stale unlocked keychain is the F-05 exposure).
+      trap 'security lock-keychain "$SIGNING_KEYCHAIN" >/dev/null 2>&1 || true' EXIT
+    else
+      echo "warning: cannot unlock the dev signing keychain (login keychain locked, or password mismatch; docs/RELEASING.md 'Dev signing keychain')." >&2
+      echo "warning: falling back to AD-HOC signing: Accessibility grants will not survive this rebuild." >&2
+      SIGN_ID="-"
+    fi
+  fi
+  if [[ "$SIGN_ID" != "-" ]]; then
+    echo "==> Codesigning with '$SIGN_ID' (identifier $BUNDLE_ID) — grants persist across rebuilds"
+  fi
 else
   echo "==> Ad-hoc codesigning (identifier $BUNDLE_ID) — grants will NOT survive rebuilds"
 fi

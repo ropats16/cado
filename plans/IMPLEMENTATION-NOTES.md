@@ -10,6 +10,11 @@ re-derived. Reflects the working state of Phase 1.
 - whisper.cpp vendored as submodule at **`Sources/CWhisper/whisper.cpp`**, pinned to
   tag **v1.9.5**, commit `d1be6fde11ac6e0407606b4e42fe72d34add8037` (was v1.9.1-75 `0ae02cd`; bumped in #46 for CVE-2026-110810). The submodule lives *inside* the
   CWhisper target dir because SwiftPM only compiles sources under a target's path.
+- whisper.cpp is bumped BY HAND to release tags (checklist in the whisper.cpp
+  sections below / docs/RELEASING.md "Pinned dependencies"); no Dependabot
+  gitsubmodule entry (it would track untagged master). The repo has no CI, so
+  every Dependabot PR (Actions, Swift packages) must be built and tested locally
+  before merging.
 - Models + config live in `~/Library/Application Support/VoiceType/`.
 
 ## whisper.cpp + Metal via SwiftPM (the hard part — DONE & verified)

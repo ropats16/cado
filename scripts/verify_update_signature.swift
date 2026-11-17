@@ -31,7 +31,7 @@ guard let keyData = Data(base64Encoded: args[0]), let key = try? Curve25519.Sign
 var signedBytes = file
 var signatureB64 = feedMode ? "" : args[1]
 if feedMode {
-    let marker = "<!-- sparkle-signatures:".data(using: .utf8)!
+    let marker = "<!-- sparkle-signatures:\n".data(using: .utf8)!
     guard let r = file.range(of: marker, options: .backwards) else {
         fail("error: the feed carries no embedded signature (sign_update on the XML)", 1)
     }

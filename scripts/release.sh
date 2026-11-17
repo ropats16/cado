@@ -276,10 +276,12 @@ stage_publish_hint() {
     echo "Rehearsal: do NOT publish. A real release would print:"
   else
     echo "To publish (creates tag v$VERSION at HEAD; the DMG and appcast.xml become"
-    echo "this release's assets, and 'latest/download/appcast.xml' then serves this feed):"
+    echo "this release's assets). Create it as a DRAFT, check it, then publish (immutable"
+    echo "releases can't be edited after; 'latest/download/appcast.xml' serves it once published):"
   fi
   echo "  gh release create v$VERSION '$DMG' '$APPCAST' --repo $REPO \\"
-  echo "    --target $(git -C "$ROOT" rev-parse HEAD) --title 'Cado $VERSION' --generate-notes"
+  echo "    --target $(git -C "$ROOT" rev-parse HEAD) --title 'Cado $VERSION' --generate-notes --draft"
+  echo "  gh release edit v$VERSION --repo $REPO --draft=false"
 }
 
 stage_homebrew() {

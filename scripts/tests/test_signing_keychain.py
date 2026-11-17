@@ -18,7 +18,7 @@ set -u
 cmd="$1"; shift
 echo "$cmd $*" >> "$FAKE_DIR/calls"
 case "$cmd" in
-  find-generic-password) [[ -f "$FAKE_DIR/item" ]] && cat "$FAKE_DIR/item" || exit 44 ;;
+  find-generic-password) [[ -f "$FAKE_DIR/find-fails" ]] && exit 36; [[ -f "$FAKE_DIR/item" ]] && cat "$FAKE_DIR/item" || exit 44 ;;
   add-generic-password)
     [[ -f "$FAKE_DIR/store-fails" ]] && exit 1
     while [[ $# -gt 0 ]]; do [[ "$1" == "-w" ]] && { printf '%s' "$2" > "$FAKE_DIR/item"; break; }; shift; done ;;
@@ -32,6 +32,7 @@ case "$cmd" in
     done
     [[ "$(cat "$kc")" == "$old" ]] || exit 51
     printf '%s' "$new" > "$kc" ;;
+  set-keychain-settings|lock-keychain) ;;
   *) exit 99 ;;
 esac
 '''
@@ -110,6 +111,56 @@ class SigningKeychainTests(unittest.TestCase):
         self.assertFalse(os.path.exists(self.path("item")))
 
 
+    def test_a_failed_store_on_a_fresh_machine_stops_before_anything_is_created(self):
+        open(self.path("store-fails"), "w").close()
+        r = self.prepare()
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("not creating the keychain", r.stderr)
+        self.assertFalse(os.path.exists(self.path("item")))
+        self.assertNotIn("create-keychain", self.calls())
+
+    def test_a_failed_store_during_migration_is_reported_as_login_keychain_trouble(self):
+        open(self.keychain, "w").write("cado-local")
+        open(self.path("store-fails"), "w").close()
+        self.assertEqual(self.prepare().returncode, 2)
+
+    def test_only_not_found_means_absent(self):
+        # A locked/denied login keychain must not look like "nothing stored":
+        # no new random password, no migration attempt on the existing keychain.
+        open(self.keychain, "w").write("cado-local")
+        open(self.path("find-fails"), "w").close()
+        r = self.prepare()
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("login keychain", r.stderr)
+        self.assertEqual(open(self.keychain).read(), "cado-local")
+        self.assertNotIn("set-keychain-password", self.calls())
+        self.assertFalse(os.path.exists(self.path("item")))
+
+    def test_a_locked_login_keychain_does_not_create_a_fresh_keychain_password(self):
+        open(self.path("find-fails"), "w").close()
+        r = self.prepare()
+        self.assertEqual(r.returncode, 2)
+        self.assertNotIn("add-generic-password", self.calls())
+
+    def test_migration_turns_on_auto_lock(self):
+        open(self.keychain, "w").write("cado-local")
+        self.assertEqual(self.prepare().returncode, 0)
+        self.assertIn("set-keychain-settings -lut 300", self.calls())
+
+    def test_stored_pass_status_codes(self):
+        def run():
+            env = dict(os.environ, PATH=self.bin + ":" + os.environ["PATH"], FAKE_DIR=self.tmp.name, KEYCHAIN=self.keychain)
+            return subprocess.run(["bash", "-c", f'source "{LIB}"; sk_stored_pass'], env=env,
+                                  capture_output=True, text=True).returncode
+        self.assertEqual(run(), 44)
+        open(self.path("item"), "w").write("x")
+        self.assertEqual(run(), 0)
+        open(self.path("find-fails"), "w").close()
+        self.assertEqual(run(), 2)
+
+
 class ScriptShapeTests(unittest.TestCase):
     """The scripts no longer carry the fixed password or -A."""
 
@@ -120,6 +171,16 @@ class ScriptShapeTests(unittest.TestCase):
     def test_no_fixed_password_outside_the_migration_constant(self):
         for name in ("create_signing_cert.sh", "package_app.sh"):
             self.assertNotIn("cado-local", self.read(name), name)
+
+    def test_package_locks_the_dev_keychain_on_exit_and_does_not_swallow_errors(self):
+        script = self.read("package_app.sh")
+        self.assertIn("lock-keychain", script)
+        self.assertNotIn("sk_prepare || true", script)
+        self.assertIn('SIGN_ID="-"', script)
+
+    def test_create_script_sets_the_auto_lock_timeout(self):
+        self.assertIn("sk_harden", self.read("create_signing_cert.sh"))
+        self.assertIn("-lut", self.read(os.path.join("lib", "signing_keychain.sh")))
 
     def test_the_key_is_not_imported_for_any_application(self):
         script = self.read("create_signing_cert.sh")

@@ -29,7 +29,9 @@ OPENSSL="/usr/bin/openssl"
 
 if security find-identity -p codesigning 2>/dev/null | grep -q "$CERT_CN"; then
   # Older keychain with the fixed password: rotate it (same cert, grants persist).
-  if [[ -f "$KEYCHAIN" && -z "$(sk_stored_pass)" ]]; then
+  # (No keychain file = the identity lives elsewhere: leave it alone, store nothing.)
+  stored_rc=0; sk_stored_pass >/dev/null 2>&1 || stored_rc=$?
+  if [[ -f "$KEYCHAIN" && "$stored_rc" == 44 ]]; then
     if sk_prepare >/dev/null; then echo "✓ Moved the signing keychain to a random password"
     else echo "warning: could not migrate the signing keychain password (docs/RELEASING.md 'Dev signing keychain')" >&2; fi
   fi
@@ -59,11 +61,17 @@ CNF
   -name "$CERT_CN" -passout pass:p12pass 2>/dev/null
 
 # Dedicated keychain, random password (kept in the login keychain).
-KEYCHAIN_PASS="$(sk_prepare)" || { echo "error: cannot open $KEYCHAIN with the stored or the old password; delete it (security delete-keychain) and rerun" >&2; exit 1; }
+# sk_prepare stores the password BEFORE we create anything; if that fails we stop here.
+prep_rc=0; KEYCHAIN_PASS="$(sk_prepare)" || prep_rc=$?
+if [[ "$prep_rc" == 2 ]]; then
+  echo "error: login keychain unavailable (locked or access denied); nothing created. Unlock it and rerun" >&2; exit 1
+elif [[ "$prep_rc" != 0 ]]; then
+  echo "error: cannot open $KEYCHAIN with the stored or the old password; delete it (security delete-keychain) and rerun" >&2; exit 1
+fi
 if [[ ! -f "$KEYCHAIN" ]]; then
   security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
 fi
-security set-keychain-settings "$KEYCHAIN"                 # no auto-lock timeout
+sk_harden                                                  # auto-lock after 5 min idle
 security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
 
 # Add to the user keychain search list, preserving the existing entries.

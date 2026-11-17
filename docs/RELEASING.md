@@ -85,7 +85,8 @@ A successful run ends with:
 
 To publish (creates tag v0.2.0 at HEAD; ...):
   gh release create v0.2.0 '.../dist/Cado-0.2.0.dmg' '.../dist/appcast.xml' --repo ropats16/cado \
-    --target <HEAD sha> --title 'Cado 0.2.0' --generate-notes
+    --target <HEAD sha> --title 'Cado 0.2.0' --generate-notes --draft
+  gh release edit v0.2.0 --repo ropats16/cado --draft=false
 ```
 
 ### Appcast (Sparkle feed)
@@ -171,14 +172,17 @@ GitHub settings the code can't set. Run as the repo admin (`gh auth status`):
   CLI: `gh api -X PUT repos/ropats16/cado/vulnerability-alerts` and
   `gh api -X PUT repos/ropats16/cado/automated-security-fixes`.
   Version updates come from `.github/dependabot.yml` (weekly, grouped: Actions,
-  Swift packages, the whisper.cpp submodule). Swift/submodule bumps still need a
-  look: see "Pinned dependencies" and the whisper.cpp notes in
-  `plans/IMPLEMENTATION-NOTES.md` before merging.
+  Swift packages). There is no CI: build and test every Dependabot PR locally
+  (`swift build`, `swift test`, `make embed`) before merging; see "Pinned
+  dependencies". whisper.cpp is NOT on Dependabot (it would bump the submodule to
+  untagged master): bump it by hand to a release tag, following the whisper.cpp
+  notes in `plans/IMPLEMENTATION-NOTES.md`.
 
 ### Publish (by hand, never automatic)
 
-The script only prints the `gh release create` command. Run it yourself after
-checking the DMG: it creates tag `v<version>`, the release, and uploads
+The script only prints the `gh release create ... --draft` command (then
+`gh release edit v<ver> --draft=false` to publish, once the assets are checked).
+Run it yourself after checking the DMG: it creates tag `v<version>`, the release, and uploads
 `Cado-<version>.dmg` + `appcast.xml`. Once it's the latest (non-draft,
 non-prerelease) release, `releases/latest/download/appcast.xml` serves the new
 feed and every installed copy sees the update within a day. A draft or
@@ -252,7 +256,21 @@ install, and persist across later releases signed with the same Developer ID.
 and stored in your login keychain (generic password, service
 `cado-signing-keychain`), and the key can be used by `/usr/bin/codesign` only
 (it was a fixed password and any app before). `make package` / `make install`
-read the password with `security find-generic-password`.
+read the password with `security find-generic-password`, unlock the keychain,
+sign, and lock it again on exit; it also auto-locks after 5 minutes idle.
+
+If the login keychain is locked or denies access, setup stops without creating
+anything, and `make package` warns and signs ad-hoc (Accessibility grants won't
+survive that rebuild). Only "item not found" counts as "no stored password".
+
+**Remaining risk (from-source dev builds only; not DMG/Homebrew users):** any
+process running as you can still read the stored password through
+`/usr/bin/security` (it is the item's trusted app) and, while the keychain is
+unlocked, call `/usr/bin/codesign` with the identity. This narrows the old
+"fixed public password + any app" hole; it doesn't close it against malware
+already running as you. Passwords are also passed to `security` on its command
+line (`-p`/`-w`; it has no stdin form), so they are briefly visible in `ps` to
+the same user.
 
 **If you already have the old keychain** (fixed password `cado-local`): nothing to
 do by hand. The next `make package` / `make install` finds no stored password,
