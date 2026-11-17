@@ -23,12 +23,14 @@ enum MeetingSpeaker: String, Equatable, CaseIterable {
 
 /// The meeting's transcript as turns. Pure.
 enum MeetingTranscript {
-    /// Some transcribed text and when it started, in seconds from the
-    /// meeting's start.
+    /// Some transcribed text and when it started (and ended, when known),
+    /// in seconds from the meeting's start.
     struct Piece: Equatable {
         let speaker: MeetingSpeaker
         let start: TimeInterval
         let text: String
+        /// Nil for a piece from an older spool journal, which didn't keep it.
+        var end: TimeInterval? = nil
     }
 
     struct Turn: Equatable {
@@ -38,9 +40,10 @@ enum MeetingTranscript {
 
     /// Both sides interleaved by start time (Me first on a tie), consecutive
     /// pieces of one speaker merged into one turn; empty pieces dropped,
-    /// whitespace collapsed.
+    /// whitespace collapsed. Me pieces that only repeat Others (the mic
+    /// hearing the speakers) are left out first (`SpeakerBleedFilter`).
     static func turns(_ pieces: [Piece]) -> [Turn] {
-        let ordered = pieces.enumerated().sorted { a, b in
+        let ordered = SpeakerBleedFilter.filtered(pieces).enumerated().sorted { a, b in
             if a.element.start != b.element.start { return a.element.start < b.element.start }
             if a.element.speaker != b.element.speaker { return a.element.speaker == .me }
             return a.offset < b.offset
