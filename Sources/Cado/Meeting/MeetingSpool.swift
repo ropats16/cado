@@ -19,10 +19,14 @@ import AVFoundation
 //
 // Sync policy: every append/record is written straight through to the file
 // (no app-side buffering), so it survives a crash of the app. The files are
-// flushed to the disk itself (`F_FULLFSYNC`) on the milestone events
-// (`isMilestone`: stop, quit, note saved…) and otherwise `synchronize()`d at
-// most every 5 seconds. Power loss may lose the last few seconds; that's
-// accepted.
+// flushed to the disk itself (each to the drive, then one `F_FULLFSYNC` for
+// the drive's cache) on the milestone events (`isMilestone`: stop, quit, note
+// saved…) and otherwise at most every 5 seconds: a power cut loses at most
+// the last 5 s (plus the capture's half-second batch). Measured (#48, M-series
+// SSD, the three files after 1 s or 5 s of a meeting): a round with one
+// `F_FULLFSYNC` takes ~5 ms (p90 ~8 ms); three `F_FULLFSYNC`s took ~15 ms and
+// plain `fsync`s ~0.2 ms. Every 5 s that's ~0.1% of the main thread; a
+// shorter interval buys little for more drive flushes.
 //
 // When the journal can't be written (the disk is full) but something must
 // still be remembered, the folder's name says it: `<uuid>.<mark>[.<mark>…]`
@@ -774,15 +778,17 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         }
     }
 
-    /// Every 5 s to the OS; `full`: to the disk itself (`F_FULLFSYNC`, which
-    /// survives power loss), for milestones only.
-    private func syncIfDue(full: Bool = false) {
+    /// Every 5 s, or at once (`now`: milestones), to the disk itself, which
+    /// survives power loss: each file to the drive (`fsync`), then one
+    /// `F_FULLFSYNC`, which flushes the drive's cache with all of them in it
+    /// (`fsync` alone if it isn't supported).
+    private func syncIfDue(now force: Bool = false) {
         let now = ProcessInfo.processInfo.systemUptime
-        guard full || now - lastSync >= Self.syncInterval else { return }
+        guard force || now - lastSync >= Self.syncInterval else { return }
         lastSync = now
-        for o in outputs.values {
-            guard let h = o.handle else { continue }
-            if full, fcntl(h.fileDescriptor, F_FULLFSYNC) == 0 { continue }
+        let handles = outputs.values.compactMap(\.handle)
+        for (i, h) in handles.enumerated() {
+            if i == handles.count - 1, fcntl(h.fileDescriptor, F_FULLFSYNC) == 0 { continue }
             try? h.synchronize()
         }
     }
@@ -803,7 +809,7 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         guard let out = output(Self.eventsName) else { return false }
         if out.handle != nil, !endsWithNewline(out.url) { data.insert(0x0A, at: 0) }   // a torn line from a crash
         guard write(data, to: out) else { return false }
-        if event.isMilestone { syncIfDue(full: true) }
+        if event.isMilestone { syncIfDue(now: true) }
         return true
     }
 
