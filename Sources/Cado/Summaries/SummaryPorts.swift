@@ -102,6 +102,13 @@ protocol MeetingSummarizer: Sendable {
     /// Combines partial summaries of consecutive passages of one meeting,
     /// in order, into one.
     func merge(_ parts: [MeetingSummary]) async throws -> MeetingSummary
+    /// The model that writes, named in the note's attribution (cloud
+    /// providers); nil for the on-device one.
+    var attributionModel: String? { get }
+}
+
+extension MeetingSummarizer {
+    var attributionModel: String? { nil }
 }
 
 /// Who writes summaries. Stored in the config as its raw value

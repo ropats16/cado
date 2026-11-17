@@ -54,15 +54,39 @@ final class ConfiguredSummarizerCatalog: SummarizerCatalog {
     /// it is unavailable and nothing is ever sent.
     func availability(of provider: SummaryProvider) -> SummarizerAvailability {
         guard provider == .openRouter else { return live.availability(of: provider) }
-        guard config().openRouterConsent else { return .unavailable(.notSetUp(OpenRouterSetup.noConsentSentence)) }
+        guard readConfig().openRouterConsent else { return .unavailable(.notSetUp(OpenRouterSetup.noConsentSentence)) }
         guard openRouter.keys.hasKey() else { return .unavailable(.notSetUp(OpenRouterSetup.noKeySentence)) }
         return .available
     }
 
+    /// Called off the main actor (the key is read from the Keychain here).
     func summarizer(for provider: SummaryProvider) -> MeetingSummarizer? {
         guard provider == .openRouter else { return live.summarizer(for: provider) }
         guard availability(of: provider).isAvailable, let key = openRouter.keys.load(), !key.isEmpty else { return nil }
-        return OpenRouterSummarizer(model: OpenRouterModels.effective(config().openRouterModel), apiKey: key,
-                                    transport: openRouter.transport)
+        let keys = openRouter.keys
+        let read = readConfig
+        // Read live before every send: consent withdrawn, the key removed or
+        // another provider chosen stops a run in progress.
+        return OpenRouterSummarizer(model: OpenRouterModels.effective(read().openRouterModel), apiKey: key,
+                                    transport: openRouter.transport,
+                                    allowed: {
+                                        let config = read()
+                                        return config.openRouterConsent && config.summaryProviderChoice == .openRouter && keys.hasKey()
+                                    })
     }
+
+    /// The config, read on the main thread (it is only ever changed there);
+    /// callable from any thread.
+    private var readConfig: @Sendable () -> Config {
+        nonisolated(unsafe) let config = config
+        return {
+            if Thread.isMainThread { return config() }
+            return DispatchQueue.main.sync { config() }
+        }
+    }
+}
+
+/// The note's attribution names the model this summarizer used.
+extension OpenRouterSummarizer {
+    var attributionModel: String? { model }
 }

@@ -115,8 +115,11 @@ final class MeetingSummaries: ObservableObject {
     private let catalog: SummarizerCatalog
     private let provider: () -> SummaryProvider
     private let automatic: () -> Bool
-    /// The model that writes, for the note's attribution (cloud providers).
+    /// The model in use now, for the Library to name before a send. The
+    /// note's attribution takes the model from the summarizer that wrote it.
     private let model: () -> String?
+    /// How often a cloud run re-checks its provider, consent and key (s).
+    private let watchInterval: Duration
     private let files: SummaryNoteFiles
     private let minimumAutomaticWords: Int
     private var queue: [URL] = []
@@ -129,8 +132,10 @@ final class MeetingSummaries: ObservableObject {
     /// (asking still works).
     init(catalog: SummarizerCatalog, provider: @escaping () -> SummaryProvider,
          automatic: @escaping () -> Bool, model: @escaping () -> String? = { nil },
-         files: SummaryNoteFiles = DiskSummaryNoteFiles(), minimumAutomaticWords: Int = 40) {
+         files: SummaryNoteFiles = DiskSummaryNoteFiles(), minimumAutomaticWords: Int = 40,
+         watchInterval: Duration = .milliseconds(400)) {
         self.model = model
+        self.watchInterval = watchInterval
         self.minimumAutomaticWords = minimumAutomaticWords
         self.catalog = catalog
         self.provider = provider
@@ -141,6 +146,11 @@ final class MeetingSummaries: ObservableObject {
     /// Whether the chosen provider can run now (read live: Apple
     /// Intelligence can be switched off or still be getting ready).
     var availability: SummarizerAvailability { catalog.availability(of: provider()) }
+
+    /// The provider the next summary goes to, and the model it would use
+    /// (cloud only): the Library names them before the user asks.
+    var activeProvider: SummaryProvider { provider() }
+    var activeModel: String? { model() }
 
     func state(of note: URL) -> State? { states[Self.key(note)] }
 
@@ -184,8 +194,10 @@ final class MeetingSummaries: ObservableObject {
 
     private func run(_ note: URL) async {
         let provider = provider()
-        guard let summarizer = catalog.summarizer(for: provider) else {
-            let why = Self.describe(SummarizerError.unavailable(Self.reason(availability)))
+        // The key is read off the main actor (the Keychain can block on a prompt).
+        let made = await makeSummarizer(for: provider)
+        guard let summarizer = made else {
+            let why = Self.describe(SummarizerError.unavailable(Self.unavailableReason(of: provider, availability)))
             states[note] = .failed(why)
             return Log.info("Summary: \(note.lastPathComponent) not summarized: \(why)")
         }
@@ -198,22 +210,60 @@ final class MeetingSummaries: ObservableObject {
                 states[note] = nil
                 return Log.info("Summary: \(note.lastPathComponent) is too short to summarize on its own.")
             }
-            let outcome = try await SummaryPipeline(summarizer: summarizer).run(turns)
-            let section = SummarySection.markdown(outcome, provider: provider, model: model())
+            let outcome = try await runPipeline(summarizer, turns: turns, provider: provider)
+            // The model that did the work, not the one chosen by now.
+            let section = SummarySection.markdown(outcome, provider: provider, model: summarizer.attributionModel ?? model())
             try await Task.detached { try files.writeSection(section, into: note, summarizing: turns) }.value
             states[note] = nil
             Log.info("Summary: wrote \(note.lastPathComponent)'s summary (\(outcome.passages) passage(s), "
                 + "\(outcome.skippedPassages) left out) in \(String(format: "%.1f", Date().timeIntervalSince(started))) s.")
             onWritten?(note)
+        } catch is CancellationError {
+            states[note] = .failed(Self.stoppedSentence)
+            Log.info("Summary: \(note.lastPathComponent) stopped: the summary settings changed.")
         } catch {
             states[note] = .failed(Self.describe(error))
             Log.error("Summary: \(note.lastPathComponent) not summarized: \(error)")
         }
     }
 
-    private static func reason(_ availability: SummarizerAvailability) -> SummarizerUnavailable {
+    /// Making a summarizer can read the Keychain: done off the main actor.
+    private func makeSummarizer(for provider: SummaryProvider) async -> MeetingSummarizer? {
+        nonisolated(unsafe) let catalog = catalog
+        nonisolated(unsafe) let made = await Task.detached { catalog.summarizer(for: provider) }.value
+        return made
+    }
+
+    /// Runs the pipeline; a cloud run is stopped when the user switches
+    /// provider, withdraws consent or removes the key meanwhile (and the
+    /// summarizer itself refuses any send then: `allowed`).
+    private func runPipeline(_ summarizer: MeetingSummarizer, turns: [(speaker: MeetingSpeaker, text: String)],
+                             provider: SummaryProvider) async throws -> SummaryOutcome {
+        let work = Task { try await SummaryPipeline(summarizer: summarizer).run(turns) }
+        var watcher: Task<Void, Never>?
+        if provider == .openRouter {
+            let interval = watchInterval
+            watcher = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: interval)
+                    guard let self, !Task.isCancelled else { return }
+                    if self.provider() != provider || !self.catalog.availability(of: provider).isAvailable {
+                        work.cancel()
+                        return
+                    }
+                }
+            }
+        }
+        defer { watcher?.cancel() }
+        return try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+    }
+
+    static let stoppedSentence = "The summary was stopped because the summary settings changed. Your note is unchanged."
+
+    private static func unavailableReason(of provider: SummaryProvider, _ availability: SummarizerAvailability) -> SummarizerUnavailable {
         if case .unavailable(let reason) = availability { return reason }
-        return .modelNotReady
+        // Available, yet nothing came back: the key couldn't be read.
+        return provider == .openRouter ? .notSetUp(OpenRouterSetup.noKeySentence) : .modelNotReady
     }
 
     /// Notes are keyed by their standardized file URL.
