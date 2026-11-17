@@ -15,7 +15,7 @@ struct LibraryInProgressRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(row.title).font(Brand.Typography.font(.body, weight: .semibold))
                     .foregroundStyle(Brand.Palette.ink).lineLimit(1)
-                Text(row.detail).font(Brand.Typography.caption)
+                Text(row.detail).font(Brand.Typography.font(.subheadline))
                     .foregroundStyle(Brand.Palette.inkSecondary).lineLimit(1)
                 if let progress = row.progress {
                     ProgressView(value: progress).controlSize(.small)
@@ -24,8 +24,8 @@ struct LibraryInProgressRowView: View {
         }
         .padding(.vertical, 10).padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Brand.Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .background(Brand.Palette.surface, in: RoundedRectangle(cornerRadius: LibraryStyle.cardRadius))
+        .overlay(RoundedRectangle(cornerRadius: LibraryStyle.cardRadius)
             .strokeBorder(Brand.Palette.ink.opacity(contrast == .increased ? 0.45 : 0.1)))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.accessibilityLabel)
@@ -36,7 +36,7 @@ struct LibraryInProgressRowView: View {
             ProgressView().controlSize(.small)
         } else {
             Circle().fill(Brand.Palette.pulse).frame(width: 9, height: 9)
-                .opacity(pulse ? 0.35 : 1)
+                .opacity(pulse && !reduceMotion ? 0.35 : 1)   // still if Reduce Motion turns on mid-pulse
                 .onAppear {
                     guard !reduceMotion else { return }
                     withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) { pulse = true }
@@ -70,11 +70,11 @@ struct LibraryRowView: View {
                     .foregroundStyle(Brand.Palette.ink).lineLimit(1)
             }
             Text([row.time, row.day, row.duration, row.app].compactMap { $0 }.joined(separator: " · "))
-                .font(Brand.Typography.caption)
+                .font(Brand.Typography.font(.subheadline))
                 .foregroundStyle(Brand.Palette.inkSecondary).lineLimit(1)
             if !row.preview.isEmpty {
-                Text(row.preview).font(Brand.Typography.caption)
-                    .foregroundStyle(Brand.Palette.inkSecondary.opacity(0.85)).lineLimit(1)
+                Text(row.preview).font(Brand.Typography.font(.subheadline))
+                    .foregroundStyle(Brand.Palette.inkSecondary).lineLimit(1)
             }
         }
         .padding(.vertical, 4)

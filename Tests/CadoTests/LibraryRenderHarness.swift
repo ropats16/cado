@@ -8,6 +8,8 @@ import AppKit
 ///     CADO_RENDER_LIBRARY=/tmp/shots swift test --filter LibraryRenderHarness
 ///
 /// Uses a temp notes folder with made-up notes; nothing real is touched.
+/// `CADO_RENDER_CONTRAST=1` renders with the high-contrast appearances
+/// (Increase Contrast) instead, as `-hc` files.
 @MainActor
 final class LibraryRenderHarness: XCTestCase {
 
@@ -73,9 +75,10 @@ final class LibraryRenderHarness: XCTestCase {
             if !scene.query.isEmpty {
                 await vm.setQuery(scene.query)
             }
+            let hc = ProcessInfo.processInfo.environment["CADO_RENDER_CONTRAST"] == "1"
             for dark in [false, true] {
-                try await render(vm, dark: dark, size: scene.size,
-                                 to: out.appendingPathComponent("library-\(scene.name)-\(dark ? "dark" : "light").png"))
+                try await render(vm, dark: dark, highContrast: hc, size: scene.size,
+                                 to: out.appendingPathComponent("library-\(scene.name)-\(dark ? "dark" : "light")\(hc ? "-hc" : "").png"))
             }
         }
     }
@@ -161,11 +164,15 @@ final class LibraryRenderHarness: XCTestCase {
                                      body: "A few articles to read later."))
     }
 
-    private func render(_ vm: LibraryViewModel, dark: Bool, size contentSize: NSSize, to file: URL) async throws {
+    private func render(_ vm: LibraryViewModel, dark: Bool, highContrast: Bool, size contentSize: NSSize,
+                        to file: URL) async throws {
         _ = NSApplication.shared
         let window = LibraryWindowController.makeWindow(viewModel: vm)
         window.setContentSize(contentSize)
-        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        let name: NSAppearance.Name = highContrast
+            ? (dark ? .accessibilityHighContrastDarkAqua : .accessibilityHighContrastAqua)
+            : (dark ? .darkAqua : .aqua)
+        window.appearance = NSAppearance(named: name)
         window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
         for _ in 0..<8 { try await Task.sleep(nanoseconds: 50_000_000) }
 
@@ -175,7 +182,7 @@ final class LibraryRenderHarness: XCTestCase {
                                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
         rep.size = size
-        NSAppearance(named: dark ? .darkAqua : .aqua)!.performAsCurrentDrawingAppearance {
+        NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
             view.cacheDisplay(in: view.bounds, to: rep)
         }
         try rep.representation(using: .png, properties: [:])!.write(to: file)

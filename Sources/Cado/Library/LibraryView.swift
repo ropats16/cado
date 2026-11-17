@@ -1,7 +1,14 @@
 import SwiftUI
 
-/// The Library window (#29): search and a list of notes beside the selected
-/// note's body. Thin: state and rules live in `LibraryViewModel`.
+/// The Library window (#29): a sidebar (search, then notes by date) beside
+/// the selected note. Thin: state and rules live in `LibraryViewModel`.
+///
+/// `HSplitView`, not `NavigationSplitView`: built with the macOS 26 SDK,
+/// the latter turns the list into a floating Liquid Glass sidebar (and its
+/// toggle into a glass toolbar item), which this window doesn't adopt and
+/// which can't be rendered offscreen for review. Search is a field at the
+/// top of the sidebar, not `.searchable`: on macOS 14 a searchable field
+/// can't be focused from code (`searchFocused` is macOS 15), and ⌘F must.
 struct LibraryView: View {
     @ObservedObject var viewModel: LibraryViewModel
     @FocusState private var searchFocused: Bool
@@ -10,11 +17,11 @@ struct LibraryView: View {
     var body: some View {
         Group {
             if viewModel.listState == .empty {
-                LibraryEmptyState()   // nothing to browse: how to record one
+                LibraryEmptyState(message: viewModel.message)   // nothing to browse: how to record one
             } else {
                 HSplitView {
                     sidebar
-                        .frame(minWidth: 250, idealWidth: 300, maxWidth: 420)
+                        .frame(minWidth: 240, idealWidth: 280, maxWidth: 320)
                     LibraryDetailView(viewModel: viewModel)
                         .frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -42,7 +49,9 @@ struct LibraryView: View {
             case .loading, .empty:
                 Color.clear
             case .noResults:
-                placeholder("No results", "Nothing matches “\(viewModel.query)”.", symbol: "magnifyingglass")
+                LibraryPlaceholder(.pane, title: "No results", detail: "Nothing matches “\(viewModel.query)”.") {
+                    PlaceholderSymbol("magnifyingglass")
+                }
             case .notes:
                 list
             }
@@ -61,7 +70,7 @@ struct LibraryView: View {
                 .accessibilityHidden(true)
             TextField("Search", text: $search)
                 .textFieldStyle(.plain)
-                .font(Brand.Typography.font(.callout))
+                .font(Brand.Typography.body)
                 .focused($searchFocused)
                 .accessibilityLabel("Search notes")
                 .onChange(of: search) { _, text in
@@ -78,7 +87,7 @@ struct LibraryView: View {
             }
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
-        .background(Brand.Palette.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .libraryInset()
         .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 6)
         .background {
             Button("") { searchFocused = true }.keyboardShortcut("f").opacity(0).accessibilityHidden(true)
@@ -118,17 +127,29 @@ struct LibraryView: View {
             return .handled
         }
     }
+}
 
-    private func placeholder(_ title: String, _ detail: String, symbol: String) -> some View {
-        VStack(spacing: 6) {
-            Image(systemName: symbol).font(.system(size: 28)).foregroundStyle(Brand.Palette.inkSecondary)
-                .accessibilityHidden(true)
-            Text(title).font(Brand.Typography.headline).foregroundStyle(Brand.Palette.ink)
-            Text(detail).font(Brand.Typography.caption).foregroundStyle(Brand.Palette.inkSecondary)
-                .multilineTextAlignment(.center)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+/// The Library's one radius scale: 12 for a card that holds a group (the
+/// in-progress meeting, as Settings' cards), 8 for a single inset surface
+/// (the search field, a code block). Never nested, so no concentric rule.
+enum LibraryStyle {
+    static let cardRadius: CGFloat = 12
+    static let insetRadius: CGFloat = 8
+}
+
+extension View {
+    /// A `surface` fill at `insetRadius`, outlined when Increase Contrast is on.
+    func libraryInset() -> some View { modifier(LibraryInset()) }
+}
+
+private struct LibraryInset: ViewModifier {
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: LibraryStyle.insetRadius)
+        content
+            .background(Brand.Palette.surface, in: shape)
+            .overlay { if contrast == .increased { shape.strokeBorder(Brand.Palette.ink.opacity(0.45)) } }
     }
 }
 
@@ -140,27 +161,18 @@ enum MarkdownInline {
     }
 }
 
-/// Markdown blocks as readable, selectable SwiftUI text. Links open only
-/// if `NoteLinkPolicy` allows them.
-struct MarkdownBodyView: View {
-    let markdown: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(MarkdownBlock.parse(markdown).enumerated()), id: \.offset) { _, block in
-                MarkdownBlockView(block: block)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .environment(\.openURL, OpenURLAction { NoteLinkPolicy.opens($0) ? .systemAction : .discarded })
-    }
-}
-
-/// One Markdown block as readable, selectable SwiftUI text.
+/// One Markdown block as readable, selectable SwiftUI text. Spacing
+/// between blocks is the caller's (`LibraryDetailView`). Links open only if
+/// `NoteLinkPolicy` allows them (set on the detail view).
 struct MarkdownBlockView: View {
     let block: MarkdownBlock
 
-    var body: some View { view(for: block) }
+    var body: some View { view(for: block).lineSpacing(Self.lineSpacing) }
+
+    /// Body leading, shared with transcript turns.
+    static let lineSpacing: CGFloat = 3
+
+    @Environment(\.colorSchemeContrast) private var contrast
 
     private func inline(_ text: String) -> Text { MarkdownInline.text(text) }
 
@@ -168,7 +180,8 @@ struct MarkdownBlockView: View {
         switch block {
         case .heading(let level, let text):
             inline(text).font(Brand.Typography.font(level == 1 ? .title2 : level == 2 ? .title3 : .headline, weight: .semibold))
-                .padding(.top, 6).textSelection(.enabled)
+                .foregroundStyle(Brand.Palette.ink).textSelection(.enabled)
+                .accessibilityAddTraits(.isHeader)
         case .paragraph(let text):
             inline(text).font(Brand.Typography.body).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -185,8 +198,9 @@ struct MarkdownBlockView: View {
             }
             .font(Brand.Typography.body).padding(.leading, CGFloat(depth) * 18)
         case .quote(let text):
+            // A neutral bar: green rules mean "Me" in a transcript.
             HStack(spacing: 10) {
-                Rectangle().fill(Brand.Palette.accent.opacity(0.6)).frame(width: 3)
+                Rectangle().fill(Brand.Palette.inkSecondary.opacity(contrast == .increased ? 0.8 : 0.4)).frame(width: 2)
                 inline(text).foregroundStyle(Brand.Palette.inkSecondary).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -194,7 +208,7 @@ struct MarkdownBlockView: View {
         case .code(let text):
             Text(text).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
                 .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Brand.Palette.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .libraryInset()
         case .rule:
             Divider()
         }
