@@ -86,7 +86,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.summaries.noteSaved(url) }
         },
         systemAudio: { [permissions] in permissions.systemAudio },
-        keepAudio: { [configStore] in configStore.config.keepMeetingAudio })
+        keepAudio: { [configStore] in configStore.config.keepMeetingAudio },
+        meetingLanguage: { [configStore] in configStore.config.resolvedMeetingLanguage },
+        meetingModel: { [weak self] language in self?.meetingModel(for: language) ?? .dictation },
+        options: EngineOptions(threads: configStore.config.threads))
     private let termination = TerminationGate()
     /// Set once the first `.ready` asked the meetings to recover leftovers.
     private var askedMeetingRecovery = false
@@ -453,6 +456,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let config = configStore.config
         return config.engineChoice == .automatic && config.language != ModelSpec.autoDetect
             && EngineRegistry.shared.available(in: .current, language: config.language).contains(.appleSpeech)
+    }
+
+    /// The model for a meeting decoded in `language` (#47): the dictation
+    /// model when it fits, else the meeting's own (`MeetingModel.choose`).
+    private func meetingModel(for language: String?) -> MeetingModel.Choice {
+        MeetingModel.choose(language: language, dictation: engine.model, config: configStore.config,
+                            presentFilenames: ModelSelection.presentFilenames(), facts: engineFacts)
     }
 
     private func idleUnloadAfter() -> TimeInterval? {

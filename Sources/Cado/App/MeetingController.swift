@@ -20,28 +20,34 @@ final class MeetingController: MeetingActivity {
     private lazy var session = MeetingSession(
         recorder: recorder, engine: engine, notes: notes, archive: FolderMeetingArchive(),
         spool: FolderMeetingSpool(), feedback: NotifierMeetingFeedback(), activity: self, clock: clock,
-        systemAudioPermission: systemAudio, keepAudio: keepAudio)
+        systemAudioPermission: systemAudio, keepAudio: keepAudio, meetingLanguage: meetingLanguage)
     private let recorder: MeetingRecorder
     private let engine: MeetingEngine
     private let notes: MeetingNoteStore
     private let systemAudio: () -> SystemAudioPermission
     private let keepAudio: () -> Bool
+    private let meetingLanguage: () -> String?
 
     /// `activity`: the app-wide feed (the overlay). `notes`: the notes
     /// library meeting notes are saved to. `systemAudio`: the permission as
     /// observed (`Permissions.systemAudio`), read when the menu renders and
     /// when a meeting ends. `keepAudio`: Settings › Meetings › Keep meeting
-    /// audio, read when a meeting ends.
+    /// audio, read when a meeting ends. `meetingLanguage`: the language a
+    /// meeting started now is decoded in, and `meetingModel` the model for a
+    /// meeting's language (#47, `MeetingModelRouter`).
     init(engine: TranscriptionEngine, activity: MeetingActivity, microphoneUID: @escaping () -> String?,
          notes: MeetingNoteStore, systemAudio: @escaping () -> SystemAudioPermission,
-         keepAudio: @escaping () -> Bool, clock: Clock = SystemClock()) {
+         keepAudio: @escaping () -> Bool, meetingLanguage: @escaping () -> String? = { nil },
+         meetingModel: @escaping (String?) -> MeetingModel.Choice = { _ in .dictation },
+         options: EngineOptions = EngineOptions(), clock: Clock = SystemClock()) {
         self.activity = activity
         self.clock = clock
         recorder = LiveMeetingRecorder(microphoneUID: microphoneUID)
-        self.engine = EngineMeetingAdapter(engine)
+        self.engine = MeetingModelRouter(dictation: engine, options: options, choose: meetingModel)
         self.notes = notes
         self.systemAudio = systemAudio
         self.keepAudio = keepAudio
+        self.meetingLanguage = meetingLanguage
     }
 
     /// For `DictationSession`'s `busy`.

@@ -71,6 +71,12 @@ struct Config: Codable {
     /// Who writes summaries: a `SummaryProvider` raw value. Kept as written;
     /// read it through `summaryProviderChoice`.
     var summaryProvider: String
+    /// The language meetings are transcribed in (#47): "same" (the default,
+    /// also for configs without the key: dictation's `language`, on the
+    /// dictation model), "auto" (detected per passage, on a multilingual
+    /// model) or an ISO code. Kept as written; read it through
+    /// `meetingLanguageChoice` (`MeetingLanguage.swift`).
+    var meetingLanguage: String
 
     static var defaults: Config {
         Config(
@@ -98,7 +104,8 @@ struct Config: Codable {
             dictationHistory: false,
             keepMeetingAudio: false,
             meetingSummaries: true,
-            summaryProvider: SummaryProvider.onDevice.rawValue
+            summaryProvider: SummaryProvider.onDevice.rawValue,
+            meetingLanguage: MeetingLanguageChoice.sameID
         )
     }
 
@@ -112,7 +119,8 @@ struct Config: Codable {
          usagePing: Bool = false,
          notesFolder: String = "", notesFolderBookmark: String? = nil,
          dictationHistory: Bool = false, keepMeetingAudio: Bool = false,
-         meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue) {
+         meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue,
+         meetingLanguage: String = MeetingLanguageChoice.sameID) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -140,6 +148,7 @@ struct Config: Codable {
         self.keepMeetingAudio = keepMeetingAudio
         self.meetingSummaries = meetingSummaries
         self.summaryProvider = summaryProvider
+        self.meetingLanguage = meetingLanguage
     }
 
     init(from decoder: Decoder) throws {
@@ -177,6 +186,7 @@ struct Config: Codable {
         keepMeetingAudio = try c.decodeIfPresent(Bool.self, forKey: .keepMeetingAudio) ?? d.keepMeetingAudio
         meetingSummaries = try c.decodeIfPresent(Bool.self, forKey: .meetingSummaries) ?? d.meetingSummaries
         summaryProvider = try c.decodeIfPresent(String.self, forKey: .summaryProvider) ?? d.summaryProvider
+        meetingLanguage = try c.decodeIfPresent(String.self, forKey: .meetingLanguage) ?? d.meetingLanguage
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this

@@ -7,7 +7,8 @@ import AVFoundation
 // meeting the app didn't get to finish.
 //
 // On disk: `<root>/<uuid>/` holding
-//   meeting.json   {"version":1,"id","appName","appBundleID","startDate"}, written once
+//   meeting.json   {"version":1,"id","appName","appBundleID","startDate","language"}, written
+//                  once ("language" since #47; absent in older spools)
 //   me.f32         raw little-endian Float32, 16 kHz mono, append-only
 //   them.f32       same, for the meeting app's audio
 //   events.jsonl   one JSON object per line ("type" says which), append-only
@@ -36,6 +37,10 @@ struct SpooledMeeting: Codable, Equatable {
     let appName: String
     let appBundleID: String
     let startDate: Date
+    /// The language the meeting is decoded in (`Config.resolvedMeetingLanguage`
+    /// when it started), so a recovery transcribes the rest the same way.
+    /// nil: a spool from before #47 (the dictation model, as then).
+    var language: String? = nil
 }
 
 /// One transcribed sentence-ish segment, relative to its chunk's start.
@@ -607,11 +612,14 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         let appName: String
         let appBundleID: String
         let startDate: Date
+        let language: String?
         init(version: Int, meeting: SpooledMeeting) {
             self.version = version; id = meeting.id; appName = meeting.appName
-            appBundleID = meeting.appBundleID; startDate = meeting.startDate
+            appBundleID = meeting.appBundleID; startDate = meeting.startDate; language = meeting.language
         }
-        var meeting: SpooledMeeting { SpooledMeeting(id: id, appName: appName, appBundleID: appBundleID, startDate: startDate) }
+        var meeting: SpooledMeeting {
+            SpooledMeeting(id: id, appName: appName, appBundleID: appBundleID, startDate: startDate, language: language)
+        }
     }
 
     static let infoName = "meeting.json"

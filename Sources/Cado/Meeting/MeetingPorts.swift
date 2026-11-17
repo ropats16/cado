@@ -33,7 +33,7 @@ protocol MeetingRecorder: AnyObject {
 }
 
 /// The shared transcription engine (one serial job queue for dictation and
-/// meetings).
+/// meetings), or a meeting model of its own (`MeetingModelRouter`, #47).
 protocol MeetingEngine: AnyObject {
     /// Jobs are coming: reload an idle-unloaded model now.
     func prewarm()
@@ -41,6 +41,19 @@ protocol MeetingEngine: AnyObject {
     func endPrewarm()
     /// `completion` on main.
     func transcribe(_ samples: [Float], completion: @escaping (Result<Transcript, Error>) -> Void)
+    /// `prewarm()` for a meeting decoded in `language` (its spool's
+    /// `SpooledMeeting.language`; nil = a meeting from before #47).
+    func prewarm(language: String?)
+    /// `transcribe(_:completion:)` for a meeting decoded in `language`.
+    func transcribe(_ samples: [Float], language: String?, completion: @escaping (Result<Transcript, Error>) -> Void)
+}
+
+extension MeetingEngine {
+    /// One engine for every language (the shared one, test fakes).
+    func prewarm(language: String?) { prewarm() }
+    func transcribe(_ samples: [Float], language: String?, completion: @escaping (Result<Transcript, Error>) -> Void) {
+        transcribe(samples, completion: completion)
+    }
 }
 
 /// Writes a meeting note into the notes library; returns its file.

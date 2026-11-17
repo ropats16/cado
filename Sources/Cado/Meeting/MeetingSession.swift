@@ -92,6 +92,10 @@ import Foundation
 ///   setting) only after minutes without a chunk; the next chunk reloads it.
 ///   On stop the engine is prewarmed for the tail, and `endPrewarm` balances
 ///   it if no job followed.
+/// - Language (#47): `meetingLanguage` is read at start into the spool
+///   (`SpooledMeeting.language`); every job and the tail's prewarm carry
+///   it, a recovery too, so the engine (`MeetingModelRouter`) picks the
+///   model for it.
 /// - A meeting where no speech was transcribed writes no note; a notice says
 ///   so. Failed chunks don't lose the meeting: the note keeps what was
 ///   transcribed, and the audio is kept (`MeetingArchive`). The note names
@@ -243,6 +247,8 @@ final class MeetingSession {
     private let date: () -> Date
     private let systemAudioPermission: () -> SystemAudioPermission
     private let keepAudio: () -> Bool
+    /// The language a meeting started now is decoded in (#47), recorded in its spool.
+    private let meetingLanguage: () -> String?
     private let later: (@escaping () -> Void) -> Void
     private let background: (@escaping () -> Void, @escaping () -> Void) -> Void
     private let locale: Locale
@@ -278,6 +284,7 @@ final class MeetingSession {
          date: @escaping () -> Date = Date.init,
          systemAudioPermission: @escaping () -> SystemAudioPermission,
          keepAudio: @escaping () -> Bool = { false },
+         meetingLanguage: @escaping () -> String? = { nil },
          maxSeconds: TimeInterval = MeetingSession.defaultMaxSeconds,
          locale: Locale = .current, timeZone: TimeZone = .current,
          later: @escaping (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) },
@@ -298,6 +305,7 @@ final class MeetingSession {
         self.date = date
         self.systemAudioPermission = systemAudioPermission
         self.keepAudio = keepAudio
+        self.meetingLanguage = meetingLanguage
         self.maxSeconds = maxSeconds
         self.locale = locale
         self.timeZone = timeZone
@@ -333,7 +341,7 @@ final class MeetingSession {
         let id = meetingCount
         let startDate = date()
         let spool = makeSpool(SpooledMeeting(id: UUID(), appName: app.name, appBundleID: app.bundleID,
-                                             startDate: startDate))
+                                             startDate: startDate, language: meetingLanguage()))
         let streams = recorder.streams(for: app, maxSeconds: maxSeconds)
         let meeting = Meeting(id: id, appName: app.name, startedAt: clock.now, startDate: startDate, spool: spool,
                               me: streams.me, them: streams.them)
@@ -520,7 +528,7 @@ final class MeetingSession {
         report()
         if meeting.quit == nil {
             // Reload an idle-unloaded model for the tail while the streams finish.
-            engine.prewarm()
+            engine.prewarm(language: meeting.spool.meeting.language)
             meeting.prewarmed = true
         }
         for speaker in MeetingSpeaker.allCases where !meeting.side(speaker).ended {
@@ -613,7 +621,9 @@ final class MeetingSession {
             meeting.inFlight = job
             meeting.prewarmed = false
             let id = meeting.id
-            engine.transcribe(samples) { [weak self] result in self?.transcribed(id, result) }
+            engine.transcribe(samples, language: meeting.spool.meeting.language) { [weak self] result in
+                self?.transcribed(id, result)
+            }
         }
     }
 

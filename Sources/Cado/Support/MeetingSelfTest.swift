@@ -1,14 +1,18 @@
 import AVFoundation
 import Foundation
 
-/// `Cado --meeting-test --me <me.wav> --them <them.wav> [--app <name>] [--notes <dir>] [--model <file>] [--engine <id>]`
+/// `Cado --meeting-test --me <me.wav> --them <them.wav> [--app <name>] [--notes <dir>] [--model <file>] [--engine <id>]
+///  [--meeting-language same|auto|<code>]`
 ///
 /// Runs a whole meeting (#30) end to end without a mic, a meeting app or any
 /// permission: the two WAV files play as Me and Others through the same
 /// captures, `MeetingSession`, chunking, real engine (as `--selftest` picks
 /// it) and `NotesLibrary` the app uses, then the note is printed. Notes go
 /// to `--notes` (default: a fresh temp folder), never the user's notes
-/// folder; notices are printed instead of shown.
+/// folder; notices are printed instead of shown. `--meeting-language` is
+/// Settings › Meetings › Meeting language (#47): the model above is the
+/// dictation model (English), and a meeting in another language gets its
+/// own, as the app picks it (`MeetingModel.choose`, from the installed models).
 ///
 /// Exit status: 0 a note was written; 1 no note (or the engine failed to
 /// load); 2 bad usage.
@@ -17,7 +21,7 @@ enum MeetingSelfTest {
         guard let mePath = CommandLineSupport.value("--me", in: arguments),
               let themPath = CommandLineSupport.value("--them", in: arguments) else {
             err("usage: Cado --meeting-test --me <me.wav> --them <them.wav> [--app <name>] [--notes <dir>] "
-                + "[--model <file>] [--engine <id>]")
+                + "[--model <file>] [--engine <id>] [--meeting-language same|auto|<code>]")
             return 2
         }
         let appName = CommandLineSupport.value("--app", in: arguments) ?? "Zoom"
@@ -53,14 +57,27 @@ enum MeetingSelfTest {
             return 1
         }
 
+        var config = Config.defaults
+        config.meetingLanguage = CommandLineSupport.value("--meeting-language", in: arguments) ?? MeetingLanguageChoice.sameID
+        let meetingLanguage = config.resolvedMeetingLanguage
+        let router = MeetingModelRouter(dictation: engine, options: EngineOptions()) { [config] language in
+            MeetingModel.choose(language: language, dictation: engine.model, config: config,
+                                presentFilenames: ModelSelection.presentFilenames())
+        }
+        let own = router.engine(for: meetingLanguage)
+        if own !== engine {
+            err("Meeting language \(meetingLanguage): loading \(own.model.displayName)…")
+            while [.notLoaded, .loading, .verifying].contains(own.status) { Thread.sleep(forTimeInterval: 0.01) }
+        }
+
         let clock = StoppedClock()
         let console = Console()
         let session = MeetingSession(
-            recorder: Recorder(me: me, them: them), engine: EngineMeetingAdapter(engine),
+            recorder: Recorder(me: me, them: them), engine: router,
             notes: NotesLibrary(folder: { notesDir }),
             archive: FolderMeetingArchive(root: notesDir.appendingPathComponent("archive")),
             spool: FolderMeetingSpool(root: notesDir.appendingPathComponent("spool")), feedback: console, activity: console, clock: clock,
-            systemAudioPermission: { .unconfirmed })
+            systemAudioPermission: { .unconfirmed }, meetingLanguage: { meetingLanguage })
         let app = MeetingApp(name: appName, bundleID: "test.\(appName)", target: .app(bundleID: "test", pid: 0))
 
         let started = Date()
