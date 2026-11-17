@@ -71,6 +71,11 @@ struct Config: Codable {
     /// Who writes summaries: a `SummaryProvider` raw value. Kept as written;
     /// read it through `summaryProviderChoice`.
     var summaryProvider: String
+    /// The user confirmed that meeting text goes to OpenRouter (#35). Without
+    /// it, nothing is ever sent, whatever else is set.
+    var openRouterConsent: Bool
+    /// OpenRouter model id; empty = `OpenRouterModels.defaultID`.
+    var openRouterModel: String
 
     static var defaults: Config {
         Config(
@@ -98,7 +103,9 @@ struct Config: Codable {
             dictationHistory: false,
             keepMeetingAudio: false,
             meetingSummaries: true,
-            summaryProvider: SummaryProvider.onDevice.rawValue
+            summaryProvider: SummaryProvider.onDevice.rawValue,
+            openRouterConsent: false,
+            openRouterModel: ""
         )
     }
 
@@ -112,7 +119,8 @@ struct Config: Codable {
          usagePing: Bool = false,
          notesFolder: String = "", notesFolderBookmark: String? = nil,
          dictationHistory: Bool = false, keepMeetingAudio: Bool = false,
-         meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue) {
+         meetingSummaries: Bool = true, summaryProvider: String = SummaryProvider.onDevice.rawValue,
+         openRouterConsent: Bool = false, openRouterModel: String = "") {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -140,6 +148,8 @@ struct Config: Codable {
         self.keepMeetingAudio = keepMeetingAudio
         self.meetingSummaries = meetingSummaries
         self.summaryProvider = summaryProvider
+        self.openRouterConsent = openRouterConsent
+        self.openRouterModel = openRouterModel
     }
 
     init(from decoder: Decoder) throws {
@@ -177,6 +187,8 @@ struct Config: Codable {
         keepMeetingAudio = try c.decodeIfPresent(Bool.self, forKey: .keepMeetingAudio) ?? d.keepMeetingAudio
         meetingSummaries = try c.decodeIfPresent(Bool.self, forKey: .meetingSummaries) ?? d.meetingSummaries
         summaryProvider = try c.decodeIfPresent(String.self, forKey: .summaryProvider) ?? d.summaryProvider
+        openRouterConsent = try c.decodeIfPresent(Bool.self, forKey: .openRouterConsent) ?? d.openRouterConsent
+        openRouterModel = try c.decodeIfPresent(String.self, forKey: .openRouterModel) ?? d.openRouterModel
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this

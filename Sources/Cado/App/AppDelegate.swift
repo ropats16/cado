@@ -73,11 +73,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Meeting summaries (#34): each saved meeting note is handed on once
     /// saved (`SummarizingNoteStore`); Settings and the Library read it too.
     /// The one summary-provider catalog, shared by `summaries` and Settings.
-    private lazy var summaryCatalog = ConfiguredSummarizerCatalog(config: { [configStore] in configStore.config })
+    private let openRouterSetup = OpenRouterSetup()
+    private lazy var summaryCatalog = ConfiguredSummarizerCatalog(config: { [configStore] in configStore.config },
+                                                                  openRouter: openRouterSetup)
     @MainActor private lazy var summaries = MeetingSummaries(
         catalog: summaryCatalog,
         provider: { [configStore] in configStore.config.summaryProviderChoice },
-        automatic: { [configStore] in configStore.config.meetingSummaries })
+        automatic: { [configStore] in configStore.config.meetingSummaries },
+        model: { [configStore] in OpenRouterModels.effective(configStore.config.openRouterModel) })
     /// Meeting recording from the menu (#30): mic + one app's audio → a note.
     private lazy var meetings = MeetingController(
         engine: engine, activity: activity,
@@ -625,7 +628,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 refreshMenu()
             },
             updater: updater ?? DisabledUpdater(),
-            summaryCatalog: summaryCatalog
+            summaryCatalog: summaryCatalog,
+            openRouter: openRouterSetup
         )
         settingsViewModel = vm
         return vm

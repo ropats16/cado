@@ -115,6 +115,8 @@ final class MeetingSummaries: ObservableObject {
     private let catalog: SummarizerCatalog
     private let provider: () -> SummaryProvider
     private let automatic: () -> Bool
+    /// The model that writes, for the note's attribution (cloud providers).
+    private let model: () -> String?
     private let files: SummaryNoteFiles
     private let minimumAutomaticWords: Int
     private var queue: [URL] = []
@@ -126,8 +128,9 @@ final class MeetingSummaries: ObservableObject {
     /// Automatic runs skip transcripts under `minimumAutomaticWords` words
     /// (asking still works).
     init(catalog: SummarizerCatalog, provider: @escaping () -> SummaryProvider,
-         automatic: @escaping () -> Bool, files: SummaryNoteFiles = DiskSummaryNoteFiles(),
-         minimumAutomaticWords: Int = 40) {
+         automatic: @escaping () -> Bool, model: @escaping () -> String? = { nil },
+         files: SummaryNoteFiles = DiskSummaryNoteFiles(), minimumAutomaticWords: Int = 40) {
+        self.model = model
         self.minimumAutomaticWords = minimumAutomaticWords
         self.catalog = catalog
         self.provider = provider
@@ -196,7 +199,7 @@ final class MeetingSummaries: ObservableObject {
                 return Log.info("Summary: \(note.lastPathComponent) is too short to summarize on its own.")
             }
             let outcome = try await SummaryPipeline(summarizer: summarizer).run(turns)
-            let section = SummarySection.markdown(outcome, provider: provider)
+            let section = SummarySection.markdown(outcome, provider: provider, model: model())
             try await Task.detached { try files.writeSection(section, into: note, summarizing: turns) }.value
             states[note] = nil
             Log.info("Summary: wrote \(note.lastPathComponent)'s summary (\(outcome.passages) passage(s), "

@@ -20,7 +20,10 @@ extension SettingsViewModel {
 
     /// Re-reads availability (Apple Intelligence may have been switched on,
     /// or finished getting ready, since Settings was last looked at).
-    func refreshSummaryAvailability() { objectWillChange.send() }
+    func refreshSummaryAvailability() {
+        openRouterState.hasKey = openRouter.keys.hasKey()
+        objectWillChange.send()
+    }
 
     private var summaryAvailability: SummarizerAvailability {
         summaryCatalog.availability(of: configStore.config.summaryProviderChoice)

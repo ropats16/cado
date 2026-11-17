@@ -8,6 +8,7 @@ extension SummaryProvider {
     var displayName: String {
         switch self {
         case .onDevice: return "Apple Intelligence"
+        case .openRouter: return "OpenRouter"
         }
     }
 
@@ -19,6 +20,10 @@ extension SummaryProvider {
             return "After a meeting note is saved, Apple Intelligence adds a summary to it: key points, decisions "
                 + "and action items. It runs on this Mac, so nothing is sent anywhere. You can summarize a note "
                 + "again from the Library."
+        case .openRouter:
+            return "After a meeting note is saved, its text is sent over the internet to OpenRouter and the company "
+                + "that runs the model you chose, and the summary they write is added to the note. Only the "
+                + "meeting's text is sent, never audio. Turn this off or switch back to Apple Intelligence to stop."
         }
     }
 }
@@ -36,12 +41,28 @@ extension SummarizerUnavailable {
 final class ConfiguredSummarizerCatalog: SummarizerCatalog {
     private let config: () -> Config
     private let live: SummarizerCatalog
+    private let openRouter: OpenRouterSetup
 
-    init(config: @escaping () -> Config, live: SummarizerCatalog = LiveSummarizerCatalog()) {
+    init(config: @escaping () -> Config, live: SummarizerCatalog = LiveSummarizerCatalog(),
+         openRouter: OpenRouterSetup = .inert) {
         self.config = config
         self.live = live
+        self.openRouter = openRouter
     }
 
-    func availability(of provider: SummaryProvider) -> SummarizerAvailability { live.availability(of: provider) }
-    func summarizer(for provider: SummaryProvider) -> MeetingSummarizer? { live.summarizer(for: provider) }
+    /// OpenRouter needs the user's confirmation and a key; without either,
+    /// it is unavailable and nothing is ever sent.
+    func availability(of provider: SummaryProvider) -> SummarizerAvailability {
+        guard provider == .openRouter else { return live.availability(of: provider) }
+        guard config().openRouterConsent else { return .unavailable(.notSetUp(OpenRouterSetup.noConsentSentence)) }
+        guard openRouter.keys.hasKey() else { return .unavailable(.notSetUp(OpenRouterSetup.noKeySentence)) }
+        return .available
+    }
+
+    func summarizer(for provider: SummaryProvider) -> MeetingSummarizer? {
+        guard provider == .openRouter else { return live.summarizer(for: provider) }
+        guard availability(of: provider).isAvailable, let key = openRouter.keys.load(), !key.isEmpty else { return nil }
+        return OpenRouterSummarizer(model: OpenRouterModels.effective(config().openRouterModel), apiKey: key,
+                                    transport: openRouter.transport)
+    }
 }

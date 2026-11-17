@@ -68,6 +68,10 @@ final class SettingsViewModel: ObservableObject {
     let updater: AppUpdater
     /// Which summary providers can run here (#34); the app's one catalog.
     let summaryCatalog: SummarizerCatalog
+    /// OpenRouter's key store and transport (#35; SettingsViewModel+Summaries.swift).
+    let openRouter: OpenRouterSetup
+    /// State of the OpenRouter card: the consent step, the model list, the key field.
+    @Published var openRouterState = OpenRouterCardState()
 
     // MARK: - Published display state
 
@@ -160,7 +164,9 @@ final class SettingsViewModel: ObservableObject {
          revealFolder: @escaping (URL) -> Void = SettingsViewModel.revealInFinder,
          onDictationHistoryChange: @escaping () -> Void = {},
          updater: AppUpdater = DisabledUpdater(),
-         summaryCatalog: SummarizerCatalog = LiveSummarizerCatalog()) {
+         summaryCatalog: SummarizerCatalog = LiveSummarizerCatalog(),
+         openRouter: OpenRouterSetup = .inert) {
+        self.openRouter = openRouter
         self.updater = updater
         self.summaryCatalog = summaryCatalog
         self.configStore = configStore

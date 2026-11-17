@@ -109,13 +109,24 @@ protocol MeetingSummarizer: Sendable {
 enum SummaryProvider: String, CaseIterable, Sendable {
     /// Apple Foundation Models on this Mac (macOS 26, Apple Intelligence).
     case onDevice = "on-device"
+    /// OpenRouter's cloud models (#35). Opt-in: the meeting's text leaves
+    /// the Mac, so it also needs the user's consent and an API key.
+    case openRouter = "openrouter"
 
-    /// The italic line under a summary in the note.
-    var attribution: String {
+    private static let caveat = "It can miss or get things wrong; the transcript below is what was said."
+
+    /// The italic line under a summary in the note; `model` names the model
+    /// that wrote it for providers with a choice.
+    func attribution(model: String?) -> String {
         switch self {
-        case .onDevice: return "Summarized on this Mac by Apple Intelligence. It can miss or get things wrong; the transcript below is what was said."
+        case .onDevice: return "Summarized on this Mac by Apple Intelligence. \(Self.caveat)"
+        case .openRouter:
+            let name = model.flatMap { $0.isEmpty ? nil : $0 } ?? OpenRouterModels.defaultID
+            return "Summarized by \(name) through OpenRouter; the meeting's text was sent off this Mac to do it. \(Self.caveat)"
         }
     }
+
+    var attribution: String { attribution(model: nil) }
 }
 
 /// Which providers can run here, and the summarizer for one. The live one
@@ -131,6 +142,8 @@ struct LiveSummarizerCatalog: SummarizerCatalog {
     func availability(of provider: SummaryProvider) -> SummarizerAvailability {
         switch provider {
         case .onDevice: return OnDeviceSummarizer.availability
+        // Needs the config, the consent and the key: `ConfiguredSummarizerCatalog`.
+        case .openRouter: return .unavailable(.notSetUp(OpenRouterSetup.notSetUpSentence))
         }
     }
 
@@ -138,6 +151,7 @@ struct LiveSummarizerCatalog: SummarizerCatalog {
         guard availability(of: provider).isAvailable else { return nil }
         switch provider {
         case .onDevice: return OnDeviceSummarizer.make()
+        case .openRouter: return nil
         }
     }
 }
