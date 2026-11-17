@@ -2028,3 +2028,44 @@ extension MeetingSessionTests {
         XCTAssertTrue(body.hasSuffix(allTurns))
     }
 }
+
+/// #48 box 6: a spool folder with audio but no readable meeting.json is
+/// surfaced once, its audio kept where the user can find it.
+extension MeetingSessionTests {
+    private func unidentified(audio me: [Float]) -> DurableSpoolHandle {
+        let inner = InMemorySpoolHandle(SpooledMeeting(id: UUID(), appName: "", appBundleID: "", startDate: crashDate))
+        inner.append(me, for: .me)
+        let h = DurableSpoolHandle(inner)
+        spool.left.append(LeftoverMeeting(handle: h, events: [], isUnidentified: true))
+        return h
+    }
+
+    private var unknownFolder: String { "/archive/Meeting with an unknown app — 16 Nov 2026 at 14 32" }
+    private var found: String {
+        "Cado found a meeting recording without its details (which app, and when), so it can't write its note."
+    }
+
+    func testARecordingWithoutItsDetailsHasItsAudioKeptAndTheUserIsToldWhere() {
+        let h = unidentified(audio: audio(10, [(1, 2, 0.2)]))
+        session.recoverLeftovers()
+        XCTAssertTrue(engine.jobs.isEmpty, "Not transcribed: no note can be written")
+        XCTAssertTrue(notes.saved.isEmpty)
+        XCTAssertEqual(archive.audioKept.map(\.into.path), [unknownFolder])
+        XCTAssertEqual(archive.audioKept.map(\.sides), [[.me: 160_000]])
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting"])
+        XCTAssertEqual(feedback.notices[0].body, "\(found) Its audio is kept in \(unknownFolder).")
+        UserFacingCopy.assertPlain(feedback.notices[0].body)
+        XCTAssertTrue(h.inner.isDiscarded, "Kept elsewhere: not found again")
+        XCTAssertEqual(session.status, .idle)
+    }
+
+    func testARecordingWithoutItsDetailsThatCantBeCopiedStaysAndIsLeftAlone() {
+        archive.audioError = Failure("The disk is full.")
+        let h = unidentified(audio: audio(10, [(1, 2, 0.2)]))
+        session.recoverLeftovers()
+        XCTAssertFalse(h.inner.isDiscarded, "Never deleted")
+        XCTAssertEqual(h.folderMarks, [.unidentified], "Later launches leave it alone (`leftovers()`)")
+        XCTAssertEqual(feedback.notices.map(\.body),
+                       ["\(found) Its recording is kept, unchanged, in /spool/\(h.meeting.id.uuidString).unidentified."])
+    }
+}

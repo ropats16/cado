@@ -1004,6 +1004,7 @@ final class MeetingSession {
     /// and transcribes what's left. One already written down only gets its
     /// audio copy finished.
     private func recover(_ leftover: LeftoverMeeting) {
+        if leftover.isUnidentified { return keepUnidentified(leftover.handle) }
         let handle = leftover.handle
         let info = handle.meeting
         let counts = handle.audio().counts
@@ -1199,6 +1200,30 @@ final class MeetingSession {
         feedback.noteSaved(note, title: "Meeting note saved", body: title)
         finishCopy(handle, .init(note: note.path, audioPending: keep, audioFolder: nil, keepFailures: failed ? 1 : 0),
                    title: title)
+    }
+
+    /// A spool folder with audio but no readable meeting.json (#48): what app,
+    /// and when, isn't known, so no note can be written. Its audio is kept
+    /// as WAVs in a Meeting Audio folder of its own and the folder goes; the
+    /// user is told once where. If the copy fails, it stays where it is,
+    /// named so later launches leave it alone, and the user is told where.
+    private func keepUnidentified(_ handle: MeetingSpoolHandle) {
+        let title = MeetingNote.title(appName: "an unknown app", start: handle.meeting.startDate,
+                                      locale: locale, timeZone: timeZone)
+        Log.error("Meeting recovery: a recording without its details was found; keeping its audio as “\(title)”.")
+        let found = "Cado found a meeting recording without its details (which app, and when), so it can't write its note."
+        let leaveIt = { [feedback] in
+            guard handle.hasFolder else { return }
+            handle.setMarks(handle.folderMarks.union([.unidentified]))   // if this fails, said again next launch
+            feedback.notify(title: "Couldn't finish a meeting",
+                            body: "\(found) Its recording is kept, unchanged, in "
+                                + "\(handle.location?.path ?? "Cado's Meetings In Progress folder").")
+        }
+        guard !handle.audio().isEmpty else { return leaveIt() }   // not one whole sample: nothing to convert
+        copyAudioThenDiscard(handle, into: nil, title: title, failuresSoFar: 0, quietOnFailure: true) { [feedback] kept in
+            guard let kept else { return leaveIt() }
+            feedback.notify(title: "Couldn't finish a meeting", body: "\(found) Its audio is kept in \(kept.path).")
+        }
     }
 
     /// Recovery gave up on it, and nothing came of that (no note saved, none

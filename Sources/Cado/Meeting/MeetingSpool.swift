@@ -206,6 +206,10 @@ enum SpoolFolderMark: String, Equatable, CaseIterable {
     case audioPending = "keep-audio"
     /// The note is saved and nothing is left to keep: `leftovers()` deletes it.
     case writtenDown = "done"
+    /// Its meeting.json is unreadable and its audio couldn't be kept elsewhere
+    /// either; the user was told where it is (#48): `leftovers()` leaves it
+    /// alone, without a word.
+    case unidentified = "unidentified"
 
     /// How marks are written in a name, which is also the order what they
     /// stand for happened in: a quit comes before the note that couldn't be
@@ -219,7 +223,7 @@ enum SpoolFolderMark: String, Equatable, CaseIterable {
         case .quit: return .appQuit
         case .noteNotSaved: return .noteSaveFailed(reason: "The note couldn't be saved (from the folder's name).")
         case .tried: return .recoveryStarted
-        case .audioPending, .writtenDown: return nil
+        case .audioPending, .writtenDown, .unidentified: return nil
         }
     }
 
@@ -353,6 +357,10 @@ struct LeftoverMeeting {
     let events: [SpoolEvent]      // in the order recorded; a torn final line is dropped
     /// What its folder's name says (`SpoolFolderMark`); empty if nothing.
     var marks: Set<SpoolFolderMark> = []
+    /// It has audio but no readable meeting.json (#48): `handle.meeting` is
+    /// made up (the folder's id if it has one, its creation date, no app), so
+    /// no note can be written; only its audio can be kept.
+    var isUnidentified = false
 }
 
 protocol MeetingSpooling: AnyObject {
@@ -570,19 +578,22 @@ final class FolderMeetingSpool: MeetingSpooling {
 
     /// Spools no open handle holds (another instance's live meeting is
     /// locked), each now locked by its returned handle. A folder without a
-    /// readable meeting.json is deleted if it holds no audio, else skipped.
-    /// A folder marked written down is deleted (its note is saved, nothing
-    /// is left to keep); one with a mark this build doesn't know is skipped.
+    /// readable meeting.json is deleted if it holds no audio, else returned
+    /// as unidentified (#48), unless a newer Cado wrote it (skipped) or it
+    /// was marked so already (skipped quietly). A folder marked written down
+    /// is deleted (its note is saved, nothing is left to keep); one with a
+    /// mark this build doesn't know is skipped.
     func leftovers() -> [LeftoverMeeting] {
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else { return [] }
         excludeFromBackups()
         var found: [LeftoverMeeting] = []
         for dir in entries where (try? dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            guard let marks = SpoolFolderMark.parse(folderName: dir.lastPathComponent)?.marks else {
+            guard let (base, marks) = SpoolFolderMark.parse(folderName: dir.lastPathComponent) else {
                 Log.info("Meeting spool \(dir.lastPathComponent) has a name this Cado doesn't know; left as it is")
                 continue
             }
+            if marks.contains(.unidentified) { continue }   // the user was told where it is
             guard let lock = SpoolLock.take(in: dir) else {
                 Log.info("Meeting spool \(dir.lastPathComponent) is in use by another Cado; skipped")
                 continue
@@ -596,14 +607,24 @@ final class FolderMeetingSpool: MeetingSpooling {
                 }
                 continue
             }
-            guard let data = try? Data(contentsOf: dir.appendingPathComponent(FolderSpoolHandle.infoName)),
-                  let info = try? JSONDecoder().decode(FolderSpoolHandle.Info.self, from: data) else {
+            let data = try? Data(contentsOf: dir.appendingPathComponent(FolderSpoolHandle.infoName))
+            guard let data, let info = try? JSONDecoder().decode(FolderSpoolHandle.Info.self, from: data) else {
                 let audio = MeetingSpeaker.allCases.contains { speaker in
                     ((try? fm.attributesOfItem(atPath: dir.appendingPathComponent(FolderSpoolHandle.fileName(speaker)).path))?[.size]
                         as? Int ?? 0) > 0
                 }
                 if audio {
-                    Log.error("Meeting spool \(dir.lastPathComponent) has audio but no readable meeting.json; left as it is")
+                    if let data, let made = try? JSONDecoder().decode(Version.self, from: data), made.version > 1 {
+                        Log.info("Meeting spool \(dir.lastPathComponent) was made by a newer Cado; left as it is")
+                        continue
+                    }
+                    Log.error("Meeting spool \(dir.lastPathComponent) has audio but no readable meeting.json")
+                    let created = (try? dir.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? Date()
+                    let made = SpooledMeeting(id: UUID(uuidString: base) ?? UUID(), appName: "", appBundleID: "",
+                                              startDate: created)
+                    let handle = FolderSpoolHandle(meeting: made, dir: dir, lock: lock)
+                    found.append(LeftoverMeeting(handle: handle, events: handle.readEvents(), marks: marks,
+                                                 isUnidentified: true))
                 } else {
                     Log.info("Meeting spool \(dir.lastPathComponent) was never set up and holds no audio; removed")
                     try? fm.removeItem(at: dir)
@@ -615,6 +636,8 @@ final class FolderMeetingSpool: MeetingSpooling {
         }
         return found.sorted { $0.handle.meeting.startDate < $1.handle.meeting.startDate }
     }
+
+    private struct Version: Decodable { let version: Int }
 
     /// Raw audio and transcript text don't belong in Time Machine.
     private func excludeFromBackups() {

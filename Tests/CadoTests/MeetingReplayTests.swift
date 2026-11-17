@@ -822,4 +822,68 @@ final class MeetingReplayTests: XCTestCase {
         XCTAssertEqual(next.session.status, .idle)
         XCTAssertEqual(next.notices.titles, [], "Told once")
     }
+
+    // MARK: - #48 on a real spool
+
+    /// A folder with audio whose meeting.json is unreadable: surfaced once,
+    /// its audio kept as WAVs in the archive, the folder gone; one a newer
+    /// Cado made is left as it is.
+    func testARecordingWithoutItsDetailsIsKeptAsWavsAndSaidOnce() async throws {
+        _ = try standardWavs()
+        let id = UUID().uuidString
+        var h: MeetingSpoolHandle? = try FolderMeetingSpool(root: spoolDir)
+            .create(SpooledMeeting(id: UUID(uuidString: id)!, appName: "Zoom", appBundleID: "us.zoom.xos", startDate: meetingDate))
+        h!.append([Float](repeating: 0.25, count: 16_000), for: .me)
+        h = nil
+        try Data("{damaged".utf8).write(to: spoolDir.appendingPathComponent(id).appendingPathComponent("meeting.json"))
+        let newer = spoolDir.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: newer, withIntermediateDirectories: true)
+        try Data([1, 2, 3, 4]).write(to: newer.appendingPathComponent("me.f32"))
+        try Data(#"{"version":2,"meeting":{}}"#.utf8).write(to: newer.appendingPathComponent("meeting.json"))
+
+        let run = try await relaunch()
+        XCTAssertEqual(run.notices.titles, ["Couldn't finish a meeting"])
+        let kept = try XCTUnwrap(contents(archiveDir).first)
+        XCTAssertTrue(kept.hasPrefix("Meeting with an unknown app — "), kept)
+        XCTAssertEqual(contents(archiveDir.appendingPathComponent(kept)), ["Me.wav"])
+        XCTAssertTrue(run.notices.bodies[0].hasSuffix("Its audio is kept in \(archiveDir.appendingPathComponent(kept).path)."))
+        XCTAssertEqual(contents(spoolDir), [newer.lastPathComponent], "Only the newer Cado's folder is left")
+        XCTAssertEqual(run.engine.submitted, 0)
+
+        let next = try freshRun()
+        next.session.recoverLeftovers()
+        XCTAssertEqual(next.notices.titles, [], "Said once")
+        XCTAssertEqual(contents(spoolDir), [newer.lastPathComponent])
+    }
+
+    /// Cado died between saving a note and journaling it: the next launch
+    /// finds the note by the id in its front matter; never a second one.
+    func testANoteSavedButNotJournaledBeforeACrashIsNotWrittenTwice() async throws {
+        let (me, them) = try standardWavs()
+        var run: Run? = try makeRun(me: me, them: them)
+        try await start(run!)
+        run!.recorder.me.push(seconds: 9.5)
+        run!.recorder.them.push(seconds: 9.5)
+        run!.clock.advance(by: 9.5)
+        let saved = try await stop(run!)
+        drop(&run)
+        // Put the spool back as it was just before `.noteSaved` (the crash):
+        // a leftover with no `.noteSaved` and the note in the notes folder.
+        let note = try XCTUnwrap(notes().first)
+        let text = try String(contentsOf: note, encoding: .utf8)
+        let id = try XCTUnwrap(NoteFrontMatter.parse(text).value(for: "id"))
+        var h: MeetingSpoolHandle? = try FolderMeetingSpool(root: spoolDir)
+            .create(SpooledMeeting(id: UUID(uuidString: id)!, appName: "Zoom", appBundleID: "us.zoom.xos", startDate: meetingDate))
+        h!.append([Float](repeating: 0.25, count: 16_000), for: .me)
+        XCTAssertTrue(h!.record(.sideStarted(.me, origin: 0)))
+        XCTAssertTrue(h!.record(.stopped(at: 10, capReached: false)))
+        h = nil
+
+        let next = try await relaunch()
+        XCTAssertEqual(try notes().count, 1, "No second note")
+        XCTAssertEqual(try onlyNote(), saved)
+        XCTAssertEqual(next.engine.submitted, 0)
+        XCTAssertEqual(next.notices.titles, ["Meeting note saved"])
+        XCTAssertEqual(contents(spoolDir), [])
+    }
 }

@@ -207,7 +207,9 @@ final class FolderMeetingSpoolTests: XCTestCase {
         try Data("x".utf8).write(to: stray.appendingPathComponent("me.f32"))
         try Data("{nope".utf8).write(to: dir.deletingLastPathComponent().appendingPathComponent("bad", isDirectory: false))
         let left = FolderMeetingSpool(root: root).leftovers()
-        XCTAssertEqual(left.map(\.handle.meeting), [meeting])
+        XCTAssertEqual(left.filter { !$0.isUnidentified }.map(\.handle.meeting), [meeting])
+        XCTAssertEqual(left.filter(\.isUnidentified).map(\.handle.location?.lastPathComponent), ["not-a-spool"],
+                       "#48: returned so its audio can be kept")
         XCTAssertTrue(FileManager.default.fileExists(atPath: stray.appendingPathComponent("me.f32").path))
     }
 
@@ -314,7 +316,8 @@ final class FolderMeetingSpoolSafetyTests: XCTestCase {
         let withAudio = root.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: withAudio, withIntermediateDirectories: true)
         try Data([1, 2, 3, 4]).write(to: withAudio.appendingPathComponent("them.f32"))
-        XCTAssertTrue(FolderMeetingSpool(root: root).leftovers().isEmpty)
+        XCTAssertEqual(FolderMeetingSpool(root: root).leftovers().map(\.isUnidentified), [true],
+                       "#48: the one with audio, for its audio to be kept")
         XCTAssertFalse(FileManager.default.fileExists(atPath: empty.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: withAudio.path))
     }
