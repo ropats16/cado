@@ -15,10 +15,12 @@ extension SettingsView {
             .labelsHidden()
             .pickerWidth()
         }
-        if viewModel.openRouterState.awaitingConsent {
+        if viewModel.showsOpenRouterConsent {
             openRouterConsent
-        } else if viewModel.summaryProviderSelection == .openRouter {
+        } else if viewModel.showsOpenRouterSettings {
             openRouterSettings
+        } else if viewModel.showsOpenRouterKeyOnly {
+            openRouterKeyOnly
         }
     }
 
@@ -35,6 +37,20 @@ extension SettingsView {
             }
         }
         .settingsRowPadding()
+    }
+
+    /// A key is still stored but Apple Intelligence is selected.
+    private var openRouterKeyOnly: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            CardDivider()
+            SettingsRow("OpenRouter API key") {
+                HStack {
+                    Text("Saved in Keychain").foregroundStyle(Brand.Palette.inkSecondary)
+                    Button("Remove Key") { viewModel.removeOpenRouterKey() }
+                }
+            }
+            StatusLine(text: OpenRouterCopy.keyUnusedNote, tone: .note).padding(.bottom, 8)
+        }
     }
 
     private var openRouterSettings: some View {
@@ -63,8 +79,8 @@ extension SettingsView {
             SettingsRow("Model") {
                 HStack {
                     Picker("Model", selection: Binding(
-                        get: { viewModel.openRouterModel },
-                        set: { viewModel.setOpenRouterModel($0) })
+                        get: { viewModel.openRouterModelSelection },
+                        set: { viewModel.chooseOpenRouterModel($0) })
                     ) {
                         ForEach(viewModel.openRouterModelChoices, id: \.self) { Text($0).tag($0) }
                     }
@@ -76,15 +92,32 @@ extension SettingsView {
                     .disabled(viewModel.openRouterState.refreshing)
                 }
             }
-            SettingsRow("Other model") {
-                TextField("provider/model-name", text: Binding(
-                    get: { viewModel.openRouterModel },
-                    set: { viewModel.setOpenRouterModel($0) }))
-                    .frame(maxWidth: 260)
+            if viewModel.openRouterState.typingModel {
+                SettingsRow("Model name") { OpenRouterModelNameField(viewModel: viewModel) }
+                if let error = viewModel.openRouterState.modelError {
+                    StatusLine(text: error, tone: .problem)
+                }
             }
             StatusLine(text: viewModel.openRouterState.refreshError ?? OpenRouterCopy.modelNote,
                        tone: viewModel.openRouterState.refreshError == nil ? .note : .problem)
                 .padding(.bottom, 8)
         }
+    }
+}
+
+/// The typed model name: a draft, used only on Return or when the field is
+/// left, and only if it's shaped like a model id.
+private struct OpenRouterModelNameField: View {
+    @ObservedObject var viewModel: SettingsViewModel
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("provider/model-name", text: $viewModel.openRouterState.modelDraft)
+            .focused($focused)
+            .frame(maxWidth: 260)
+            .onSubmit { viewModel.commitOpenRouterModelDraft() }
+            .onChange(of: focused) { _, isFocused in
+                if !isFocused { viewModel.commitOpenRouterModelDraft() }
+            }
     }
 }

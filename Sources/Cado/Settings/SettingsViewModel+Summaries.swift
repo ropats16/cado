@@ -15,7 +15,8 @@ extension SettingsViewModel {
     var summariesAvailable: Bool { summaryAvailability.isAvailable }
 
     var summariesNote: String {
-        SummarySettingsCopy.note(summaryAvailability, provider: configStore.config.summaryProviderChoice)
+        if openRouterState.awaitingConsent { return OpenRouterCopy.pendingNote }
+        return SummarySettingsCopy.note(summaryAvailability, provider: configStore.config.summaryProviderChoice)
     }
 
     /// Re-reads availability (Apple Intelligence may have been switched on,
