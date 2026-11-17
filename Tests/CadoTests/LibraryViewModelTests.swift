@@ -394,3 +394,22 @@ final class MarkdownBlocksTests: XCTestCase {
 
     func testEmpty() { XCTAssertEqual(MarkdownBlock.parse(""), []) }
 }
+
+/// Which links in a note body a click may open (#27). Notes can come from
+/// anywhere (a synced or shared vault, a file edited elsewhere), and the
+/// link text hides its target, so only web and mail links open.
+final class NoteLinkPolicyTests: XCTestCase {
+    func testWebAndMailLinksOpen() {
+        for link in ["https://example.com/a", "http://example.com", "HTTPS://EXAMPLE.COM", "mailto:a@example.com"] {
+            XCTAssertTrue(NoteLinkPolicy.opens(URL(string: link)!), link)
+        }
+    }
+
+    func testEverythingElseIsIgnored() {
+        for link in ["file:///Applications/Calculator.app", "file:///etc/passwd", "x-apple.systempreferences:com.apple.preference.security",
+                     "ssh://host", "javascript:alert(1)", "smb://server/share", "vnc://host", "obsidian://open?vault=x",
+                     "relative/path.md", "data:text/html,hi"] {
+            XCTAssertFalse(NoteLinkPolicy.opens(URL(string: link)!), link)
+        }
+    }
+}
