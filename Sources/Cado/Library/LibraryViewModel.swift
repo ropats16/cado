@@ -33,7 +33,7 @@ enum LibraryListState: Equatable {
 ///
 /// #42 adds what the window binds to: `sections` (the list by date, as
 /// rows), `inProgress` (a meeting being recorded or transcribed, above the
-/// notes), `reading` (the selected note as header + Me/Them turns),
+/// notes), `reading` (the selected note as header + Me/Others turns),
 /// `copyTranscript()`, and `show(noteID:)` / `showLatestMeetingNote()` for
 /// the notification and the menu. The clock and calendar are injected.
 @MainActor
@@ -405,7 +405,7 @@ final class LibraryViewModel: ObservableObject {
 enum NoteRowText {
     /// The library's preview is raw Markdown; show it without the markers.
     static func preview(_ raw: String) -> String {
-        let text = raw.split(separator: " ").map { $0.allSatisfy { $0 == "#" } ? "" : String($0) }
+        let text = MeetingSpeaker.showingCurrentLabels(in: raw).split(separator: " ").map { $0.allSatisfy { $0 == "#" } ? "" : String($0) }
             .filter { !$0.isEmpty }.joined(separator: " ")
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnly)
         return (try? AttributedString(markdown: text, options: options)).map { String($0.characters) } ?? text

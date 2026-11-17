@@ -12,7 +12,7 @@ if CommandLine.arguments.contains("--selftest") {
 if CommandLine.arguments.contains("--system-audio-test") {
     exit(SystemAudioSelfTest.run(arguments: CommandLine.arguments))
 }
-// A whole meeting from two WAVs (Me, Them) through the real engine to a note.
+// A whole meeting from two WAVs (Me, Others) through the real engine to a note.
 if CommandLine.arguments.contains("--meeting-test") {
     exit(MeetingSelfTest.run(arguments: CommandLine.arguments))
 }

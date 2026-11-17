@@ -1,9 +1,24 @@
 import Foundation
 
-/// Who said it: "Me" is the microphone, "Them" the meeting app's audio.
+/// Who said it: "Me" is the microphone, "Others" the meeting app's audio.
+/// (The case is still `.them`; the label users see and notes write is "Others".)
 enum MeetingSpeaker: String, Equatable, CaseIterable {
     case me = "Me"
-    case them = "Them"
+    case them = "Others"
+
+    /// The ONE place the old label is accepted: notes written before "Them"
+    /// became "Others" still carry `**Them:**` turns and a "(Them)" intro
+    /// line on disk. They are read as `.them` and shown as "Others"; files
+    /// are never rewritten.
+    static let legacyOthersLabel = "Them"
+
+    /// Labels a note may carry for this speaker, current first.
+    var acceptedLabels: [String] { self == .them ? [rawValue, Self.legacyOthersLabel] : [rawValue] }
+
+    /// `text` with old `Them:` turn labels (as in a raw preview) shown as the current ones.
+    static func showingCurrentLabels(in text: String) -> String {
+        text.replacingOccurrences(of: "**\(legacyOthersLabel):**", with: "**\(MeetingSpeaker.them.rawValue):**")
+    }
 }
 
 /// The meeting's transcript as turns. Pure.
@@ -89,7 +104,7 @@ struct MeetingNote: Equatable {
     }
 
     var body: String {
-        var lines = [Self.introPrefix + appName + Self.introSuffix]
+        var lines = [Self.introPrefix + appName + Self.introSuffix(MeetingSpeaker.them.rawValue)]
         if !caveats.isEmpty {
             lines.append("")
             lines += caveats.map { "> " + text(for: $0) }
@@ -107,9 +122,10 @@ struct MeetingNote: Equatable {
 
     // MARK: Reading back (#42)
 
-    /// The body's first line: "Recorded from Zoom (Them) and your microphone (Me)."
+    /// The body's first line: "Recorded from Zoom (Others) and your microphone (Me)."
+    /// Older notes say "(Them)"; both are read (`MeetingSpeaker.legacyOthersLabel`).
     private static let introPrefix = "Recorded from "
-    private static let introSuffix = " (Them) and your microphone (Me)."
+    private static func introSuffix(_ other: String) -> String { " (\(other)) and your microphone (Me)." }
 
     /// The app named in `body`'s first line as this note writes it; nil when
     /// that line isn't there (another note, or edited). Read from the text,
@@ -122,10 +138,14 @@ struct MeetingNote: Equatable {
 
     /// The app if `line` is the intro line.
     static func recordedApp(inLine line: String) -> String? {
-        guard line.hasPrefix(introPrefix), line.hasSuffix(introSuffix),
-              line.count > introPrefix.count + introSuffix.count else { return nil }
-        let app = line.dropFirst(introPrefix.count).dropLast(introSuffix.count)
-        return app.allSatisfy(\.isWhitespace) ? nil : String(app)
+        guard line.hasPrefix(introPrefix) else { return nil }
+        for other in MeetingSpeaker.them.acceptedLabels {
+            let suffix = introSuffix(other)
+            guard line.hasSuffix(suffix), line.count > introPrefix.count + suffix.count else { continue }
+            let app = line.dropFirst(introPrefix.count).dropLast(suffix.count)
+            return app.allSatisfy(\.isWhitespace) ? nil : String(app)
+        }
+        return nil
     }
 
     private func side(_ speaker: MeetingSpeaker) -> String {
@@ -135,7 +155,7 @@ struct MeetingNote: Equatable {
     private func text(for caveat: Caveat) -> String {
         switch caveat {
         case .themSilent(let issue):
-            return "No sound was captured from \(appName), so Them may be missing. \(issue.detail)"
+            return "No sound was captured from \(appName), so Others may be missing. \(issue.detail)"
         case .couldNotRecord(let speaker, let reason):
             return "\(side(speaker)) couldn't be recorded: \(reason)"
         case .stopped(let speaker, let at):

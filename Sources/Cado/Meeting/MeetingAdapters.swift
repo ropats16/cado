@@ -9,7 +9,7 @@ extension AudioCapture: MeetingStream {}
 /// The live streams: the configured mic and the app's audio through a
 /// process tap, each in its own capture that stops its source as soon as the
 /// meeting ends (no warm mic or lingering capture indicator), and keeps time
-/// across a source restart (`keepsTime`) so Me and Them stay interleaved.
+/// across a source restart (`keepsTime`) so Me and Others stay interleaved.
 final class LiveMeetingRecorder: MeetingRecorder {
     private let microphoneUID: () -> String?
 
@@ -45,7 +45,7 @@ extension NotesLibrary: MeetingNoteStore {
 }
 
 /// Keeps a meeting's audio as 16 kHz mono 16-bit WAVs (`Me.wav`,
-/// `Them.wav`), plus `Note.md` if given, in a folder of its own under
+/// `Others.wav`), plus `Note.md` if given, in a folder of its own under
 /// `<root>`: `<name>`, or `<name> 2`, `<name> 3`… when a folder of that name
 /// exists already (another meeting in the same minute), so kept audio is
 /// never overwritten. By default `root` is Cado's support folder's

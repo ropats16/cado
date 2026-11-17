@@ -14,7 +14,7 @@ struct LibraryNoteRow: Equatable, Identifiable {
     let day: String?
     /// "31 min"; nil when unknown or zero.
     let duration: String?
-    /// The app recorded as "Them" (meetings); nil when unknown.
+    /// The app recorded as "Others" (meetings); nil when unknown.
     let app: String?
     let isMeeting: Bool
     /// The body's first words, Markdown markers removed; may be empty.

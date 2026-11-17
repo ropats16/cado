@@ -5,10 +5,10 @@ import Foundation
 ///     idle → recording → finishing → transcribing → idle
 ///
 /// Recording runs two independent streams: the mic ("Me") and the chosen
-/// app's audio ("Them", never the whole Mac's). On stop, each stream is split
+/// app's audio ("Others", never the whole Mac's). On stop, each stream is split
 /// into speech chunks (`SpeechChunker`), the chunks are transcribed one at a
 /// time through the shared engine queue, and the pieces are interleaved by
-/// start time into Me/Them turns (`MeetingTranscript`) for a Markdown note in
+/// start time into Me/Others turns (`MeetingTranscript`) for a Markdown note in
 /// the notes library (`MeetingNote`).
 ///
 /// Rules worth knowing:
@@ -24,7 +24,7 @@ import Foundation
 /// - A side that can't start, or stops by itself, gets a notice and a caveat
 ///   in the note; the other side keeps recording. With no side left
 ///   recording, the meeting stops.
-/// - A Them stream that was silent throughout gets the readiness module's
+/// - An Others stream that was silent throughout gets the readiness module's
 ///   hint (the permission may not be granted) in the note and the notice,
 ///   unless this run already proved the grant; `lastThemWasSilent` lets the
 ///   menu offer the Settings pane afterwards.
@@ -128,7 +128,7 @@ final class MeetingSession {
     private(set) var lastThemWasSilent = false
 
     /// `systemAudioPermission` is read when a meeting ends, to tell a
-    /// silent Them apart from an unconfirmed permission.
+    /// silent Others apart from an unconfirmed permission.
     init(recorder: MeetingRecorder, engine: MeetingEngine, notes: MeetingNoteStore, archive: MeetingArchive,
          feedback: MeetingFeedback, activity: MeetingActivity, clock: Clock = SystemClock(),
          date: @escaping () -> Date = Date.init,

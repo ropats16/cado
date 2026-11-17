@@ -1,6 +1,6 @@
 import Foundation
 
-/// The app a meeting records as "Them": only its audio, never the whole Mac's.
+/// The app a meeting records as "Others": only its audio, never the whole Mac's.
 struct MeetingApp: Equatable {
     let name: String
     let bundleID: String

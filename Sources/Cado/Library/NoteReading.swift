@@ -1,14 +1,14 @@
 import Foundation
 
 /// A note as the Library's detail pane reads it (#42): a header, the
-/// notices a meeting note opens with, and the body as Me/Them turns mixed
+/// notices a meeting note opens with, and the body as Me/Others turns mixed
 /// with plain Markdown blocks. Read from the Markdown exactly as it is on
 /// disk (`MeetingNote` writes it); nothing is stored differently.
 ///
 /// Only a meeting note (front-matter `kind: meeting`) gets turns: a
-/// paragraph line starting `**Me:**` / `**Them:**` starts a turn, and the
+/// paragraph line starting `**Me:**` / `**Others:**` (older notes: `**Them:**`) starts a turn, and the
 /// lines under it (to the paragraph's end) belong to it. Its first line,
-/// "Recorded from Zoom (Them) and your microphone (Me).", becomes the
+/// "Recorded from Zoom (Others) and your microphone (Me).", becomes the
 /// header's app, and the quote right under it (before anything else)
 /// becomes `notices`. Anything
 /// else, and every other note, stays a `MarkdownBlock` in order, so an edited
@@ -21,7 +21,7 @@ struct NoteReading: Equatable {
         let dateText: String
         /// "31 min"; nil when unknown or zero.
         let duration: String?
-        /// The app recorded as "Them"; nil when the note doesn't say.
+        /// The app recorded as "Others"; nil when the note doesn't say.
         let app: String?
         let isMeeting: Bool
         /// "Weekly sync. <date>. 31 minutes. Recorded from Zoom"
@@ -36,11 +36,11 @@ struct NoteReading: Equatable {
         /// (format unchanged), so it is always nil for now.
         var timestamp: TimeInterval? = nil
 
-        /// "Me" / "Them"
+        /// "Me" / "Others"
         var speakerLabel: String { speaker.rawValue }
         /// "12:34" when `timestamp` is known.
         var timestampText: String? { timestamp.map(MeetingNote.clock) }
-        /// "Them: Unchanged."
+        /// "Others: Unchanged."
         var accessibilityLabel: String { "\(speakerLabel): \(text)" }
     }
 
@@ -155,9 +155,11 @@ struct NoteReading: Equatable {
     private static func label(_ line: String) -> (MeetingSpeaker, String)? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         for speaker in MeetingSpeaker.allCases {
-            let marker = "**\(speaker.rawValue):**"
-            if trimmed.hasPrefix(marker) {
-                return (speaker, trimmed.dropFirst(marker.count).trimmingCharacters(in: .whitespaces))
+            for label in speaker.acceptedLabels {
+                let marker = "**\(label):**"
+                if trimmed.hasPrefix(marker) {
+                    return (speaker, trimmed.dropFirst(marker.count).trimmingCharacters(in: .whitespaces))
+                }
             }
         }
         return nil

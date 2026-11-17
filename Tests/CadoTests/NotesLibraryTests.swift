@@ -234,7 +234,15 @@ final class NotesLibraryTests: XCTestCase {
         try lib.create(meeting.draft(locale: Locale(identifier: "en_GB"), timeZone: utc))
         let summary = try XCTUnwrap(lib.list().first)
         XCTAssertEqual(summary.recordedApp, "Google Chrome")
-        XCTAssertEqual(summary.preview, "**Me:** Hello there. **Them:** Hi.")
+        XCTAssertEqual(summary.preview, "**Me:** Hello there. **Others:** Hi.")
+    }
+
+    func testAnOldThemNoteStillListsItsAppAndPreview() throws {
+        let lib = makeLibrary()
+        try lib.create(draft("Old", body: "Recorded from Zoom (Them) and your microphone (Me).\n\n**Me:** hi\n\n**Them:** hello\n"))
+        let summary = try XCTUnwrap(lib.list().first)
+        XCTAssertEqual(summary.recordedApp, "Zoom")
+        XCTAssertEqual(summary.preview, "**Me:** hi **Them:** hello")
     }
 
     func testIsMeetingIgnoresCase() {

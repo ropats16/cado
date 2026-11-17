@@ -85,7 +85,7 @@ final class LibraryRenderHarness: XCTestCase {
         try library.create(NoteDraft(
             title: "Weekly sync", date: now.addingTimeInterval(-3600), kind: "meeting", duration: 1830,
             body: """
-            Recorded from Zoom (Them) and your microphone (Me).
+            Recorded from Zoom (Others) and your microphone (Me).
 
             > Recording stopped at the 2-hour limit.
 
@@ -104,10 +104,11 @@ final class LibraryRenderHarness: XCTestCase {
             ## Transcript
             **Me:** So where are we on the budget?
 
-            **Them:** Roughly where we were, nothing new to report.
+            **Others:** Roughly where we were, nothing new to report.
             """))
         try library.create(NoteDraft(
             title: "Design review", date: now.addingTimeInterval(-86_400 * 2), kind: "meeting", duration: 2700,
+            // Old format on purpose ("Them"): the legacy path shows as "Others".
             body: "**Me:** Let's look at the icons.\n\n**Them:** They look good to me."))
         try library.create(NoteDraft(
             title: "Idea: offline summaries", date: now.addingTimeInterval(-86_400 * 9), kind: "note",
@@ -119,17 +120,17 @@ final class LibraryRenderHarness: XCTestCase {
         for (i, title) in ["Standup", "1:1 check-in", "Vendor call", "Retro", "Offsite plan", "Hiring sync"].enumerated() {
             try library.create(NoteDraft(title: title, date: now.addingTimeInterval(-86_400 * Double(12 + i * 20)),
                                          kind: "meeting", duration: 900 + Double(i) * 300,
-                                         body: "**Me:** Hello.\n\n**Them:** Hi, shall we start?"))
+                                         body: "**Me:** Hello.\n\n**Others:** Hi, shall we start?"))
         }
         try library.create(NoteDraft(title: "Yesterday call", date: now.addingTimeInterval(-86_400),
                                      kind: "meeting", duration: 600, body: "**Me:** Quick one."))
     }
 
     private func seedLong(_ library: NotesLibrary) throws {
-        var body = "Recorded from Zoom (Them) and your microphone (Me).\n\n## Transcript\n"
+        var body = "Recorded from Zoom (Others) and your microphone (Me).\n\n## Transcript\n"
         for i in 0..<14 {
             body += "\n**Me:** Point \(i + 1): we should confirm the timeline for the next milestone, check who owns each piece, and make sure nothing blocks the release.\n"
-            body += "\n**Them:** Agreed. I will follow up on the open items this week and share an update with the whole group once the numbers are in.\n"
+            body += "\n**Others:** Agreed. I will follow up on the open items this week and share an update with the whole group once the numbers are in.\n"
         }
         try library.create(NoteDraft(title: "Quarterly planning", date: Date().addingTimeInterval(-600),
                                      kind: "meeting", duration: 3600, body: body))
@@ -140,23 +141,25 @@ final class LibraryRenderHarness: XCTestCase {
         try library.create(NoteDraft(
             title: "Team check-in", date: now.addingTimeInterval(-1800), kind: "meeting", duration: 1260,
             body: """
-            Recorded from Zoom (Them) and your microphone (Me).
+            Recorded from Zoom (Others) and your microphone (Me).
 
             ## Transcript
             **Me:** Thanks for joining. Let's start with where the sample project stands.
 
-            **Them:** The first draft is done. We still need to review the layout and fill in the last two sections.
+            **Others:** The first draft is done. We still need to review the layout and fill in the last two sections.
 
             **Me:** Good. Can we have the review finished by Thursday?
 
-            **Them:** Yes, that works. I'll send the notes over once it's wrapped up.
+            **Others:** Yes, that works. I'll send the notes over once it's wrapped up.
 
             **Me:** Great, let's pick it up again next week.
             """))
         try library.create(NoteDraft(title: "Project kickoff", date: now.addingTimeInterval(-86_400 - 3600), kind: "meeting",
-                                     duration: 2400, body: "**Me:** Welcome everyone.\n\n**Them:** Glad to be here."))
+                                     duration: 2400,
+                                     // Old format on purpose ("Them"): the legacy path shows as "Others".
+                                     body: "**Me:** Welcome everyone.\n\n**Them:** Glad to be here."))
         try library.create(NoteDraft(title: "Planning session", date: now.addingTimeInterval(-86_400 * 3), kind: "meeting",
-                                     duration: 1800, body: "**Me:** Let's review the plan.\n\n**Them:** Sounds good."))
+                                     duration: 1800, body: "**Me:** Let's review the plan.\n\n**Others:** Sounds good."))
         try library.create(NoteDraft(title: "Reading list", date: now.addingTimeInterval(-86_400 * 12), kind: "note",
                                      body: "A few articles to read later."))
     }

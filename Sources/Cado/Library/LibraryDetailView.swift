@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The selected note (#42): a header (title, date, duration, app), any
-/// notices, then the body: Me/Them turns and Markdown blocks
+/// notices, then the body: Me/Others turns and Markdown blocks
 /// (`NoteReading`), in a reading column. Copy Transcript (⇧⌘C) and Show in
 /// Finder sit under the header: the window has no toolbar (a toolbar here
 /// would be Liquid Glass on macOS 26, which Cado doesn't adopt).
@@ -149,8 +149,8 @@ private struct NoticeView: View {
     }
 }
 
-/// One Me/Them turn: a speaker label (with a symbol, so it isn't colour
-/// alone) and a rule down the left, solid green for Me, grey for Them.
+/// One Me/Others turn: a speaker label (with a symbol, so it isn't colour
+/// alone) and a rule down the left, solid green for Me, grey for Others.
 /// A timestamp shows only when the turn has one.
 struct TurnView: View {
     let turn: NoteReading.Turn

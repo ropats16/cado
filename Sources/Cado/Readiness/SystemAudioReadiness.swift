@@ -1,6 +1,6 @@
 import Foundation
 
-/// Why a meeting's "Them" track (system audio) might not record, and how to
+/// Why a meeting's "Others" track (system audio) might not record, and how to
 /// explain it. Meeting-only: dictation readiness (`AppReadiness`) never looks
 /// at system audio.
 enum SystemAudioIssue: Equatable {

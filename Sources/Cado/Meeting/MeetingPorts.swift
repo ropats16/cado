@@ -21,7 +21,7 @@ protocol MeetingStream: AnyObject {
 }
 
 /// Makes a meeting's two streams: the mic ("Me") and the app's audio
-/// ("Them"). Each holds at most `maxSeconds`.
+/// ("Others"). Each holds at most `maxSeconds`.
 protocol MeetingRecorder: AnyObject {
     func streams(for app: MeetingApp, maxSeconds: Double) -> (me: MeetingStream, them: MeetingStream)
 }

@@ -134,11 +134,11 @@ final class MeetingReplayTests: XCTestCase {
             duration: 10
             ---
 
-            Recorded from Zoom (Them) and your microphone (Me).
+            Recorded from Zoom (Others) and your microphone (Me).
 
             **Me:** Hello, can you hear me?
 
-            **Them:** Yes, loud and clear. Shall we start?
+            **Others:** Yes, loud and clear. Shall we start?
 
             **Me:** Great, let's go.
 
@@ -159,9 +159,9 @@ final class MeetingReplayTests: XCTestCase {
         run.clock.advance(by: 9.5)
 
         let note = try await stop(run)
-        XCTAssertTrue(note.contains("> No sound was captured from Zoom, so Them may be missing."))
+        XCTAssertTrue(note.contains("> No sound was captured from Zoom, so Others may be missing."))
         XCTAssertTrue(note.contains("**Me:** Hello, can you hear me?"))
-        XCTAssertFalse(note.contains("**Them:**"))
+        XCTAssertFalse(note.contains("**Others:**"))
     }
 
     /// Them's file ends mid-meeting (its source stops by itself): Me goes on,
@@ -183,6 +183,6 @@ final class MeetingReplayTests: XCTestCase {
 
         let note = try await stop(run)
         XCTAssertTrue(note.contains("> Zoom's audio stopped recording at 0:04; after that only your microphone was recorded."))
-        XCTAssertTrue(note.contains("**Me:** Hello, can you hear me?\n\n**Them:** Yes, loud and clear.\n\n**Me:** Great, let's go."))
+        XCTAssertTrue(note.contains("**Me:** Hello, can you hear me?\n\n**Others:** Yes, loud and clear.\n\n**Me:** Great, let's go."))
     }
 }

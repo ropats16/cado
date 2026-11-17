@@ -4,7 +4,7 @@ import Foundation
 /// `Cado --meeting-test --me <me.wav> --them <them.wav> [--app <name>] [--notes <dir>] [--model <file>] [--engine <id>]`
 ///
 /// Runs a whole meeting (#30) end to end without a mic, a meeting app or any
-/// permission: the two WAV files play as Me and Them through the same
+/// permission: the two WAV files play as Me and Others through the same
 /// captures, `MeetingSession`, chunking, real engine (as `--selftest` picks
 /// it) and `NotesLibrary` the app uses, then the note is printed. Notes go
 /// to `--notes` (default: a fresh temp folder), never the user's notes

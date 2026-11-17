@@ -38,7 +38,7 @@ enum MeetingApps {
 }
 
 /// Which Core Audio processes are an app's: how a tap follows one app, and
-/// only that app — "Them" is never another app's audio.
+/// only that app — "Others" is never another app's audio.
 ///
 /// A process belongs to the app (`bundleID`, main `pid`) when:
 /// 1. it is the app's process, or the app's pid comes first in its chain of

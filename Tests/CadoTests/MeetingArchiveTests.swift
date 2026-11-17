@@ -37,7 +37,7 @@ final class MeetingArchiveTests: XCTestCase {
         let again = try archive.keep([], note: "# Note", name: "M", into: folder)
 
         XCTAssertEqual(again, folder)
-        XCTAssertEqual(try names(in: folder), ["Note.md", "Them.wav"])
+        XCTAssertEqual(try names(in: folder), ["Note.md", "Others.wav"])
         XCTAssertEqual(try names(in: root), ["M"])
     }
 }

@@ -134,6 +134,11 @@ final class LibrarySectionsTests: XCTestCase {
                        "Weekly sync.md. Today at 14:32. 31 minutes. Recorded from Zoom. Me: So, the budget?")
     }
 
+    func testAnOldThemPreviewShowsOthers() {
+        let r = row(note("Old.md", "2026-11-18T14:32:00Z", preview: "**Me:** hi **Them:** hello **Others:** yo"))
+        XCTAssertEqual(r.preview, "Me: hi Others: hello Others: yo")
+    }
+
     func testOlderRowsSayTheDay() {
         XCTAssertEqual(row(note("y.md", "2026-11-17T08:05:00Z")).day, nil)
         XCTAssertEqual(row(note("y.md", "2026-11-17T08:05:00Z")).accessibilityLabel.contains("Yesterday at 08:05"), true)

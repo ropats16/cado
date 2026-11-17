@@ -62,11 +62,11 @@ final class MeetingNoteTests: XCTestCase {
         XCTAssertEqual(draft.duration, 1830)
         XCTAssertEqual(draft.date, start)
         XCTAssertEqual(draft.body, """
-            Recorded from Zoom (Them) and your microphone (Me).
+            Recorded from Zoom (Others) and your microphone (Me).
 
             **Me:** Hi.
 
-            **Them:** Hello.
+            **Others:** Hello.
 
             """)
     }
@@ -78,7 +78,7 @@ final class MeetingNoteTests: XCTestCase {
                                          .capReached(7200), .transcriptionFailed(failed: 2, of: 9, reason: "No model."),
                                          .audioKept(URL(fileURLWithPath: "/tmp/a b"))])
         let lines = note.body.components(separatedBy: "\n")
-        XCTAssertEqual(lines[2], "> No sound was captured from Zoom, so Them may be missing. "
+        XCTAssertEqual(lines[2], "> No sound was captured from Zoom, so Others may be missing. "
                        + SystemAudioIssue.heardOnlySilence.detail)
         XCTAssertEqual(lines[3], "> Zoom's audio stopped recording at 12:34; after that only your microphone was recorded.")
         XCTAssertEqual(lines[4], "> Recording stopped at the 2-hour limit.")

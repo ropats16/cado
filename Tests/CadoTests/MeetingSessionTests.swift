@@ -172,11 +172,11 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertEqual(draft.kind, "meeting")
         XCTAssertEqual(draft.duration, 10)
         XCTAssertEqual(draft.body, """
-            Recorded from Zoom (Them) and your microphone (Me).
+            Recorded from Zoom (Others) and your microphone (Me).
 
             **Me:** Hello from me.
 
-            **Them:** Hi from them.
+            **Others:** Hi from them.
 
             **Me:** Bye now.
 
@@ -219,7 +219,7 @@ final class MeetingSessionTests: XCTestCase {
         recorder.me.finish(audio(10, [(2, 3, 0.2)]))           // 2 s in
         recorder.them.finish(audio(10, [(0.5, 1.5, 0.3)]))     // 3.5 s in
         engine.finishAll()
-        XCTAssertTrue(notes.saved[0].body.contains("**Me:** Hello from me.\n\n**Them:** Hi from them."))
+        XCTAssertTrue(notes.saved[0].body.contains("**Me:** Hello from me.\n\n**Others:** Hi from them."))
     }
 
     func testDictationIsOnlyRefusedWhileRecording() {
@@ -266,10 +266,10 @@ final class MeetingSessionTests: XCTestCase {
     func testASilentThemIsHintedWithTheReadinessText() {
         record(them: audio(10, []))
         let body = notes.saved[0].body
-        XCTAssertTrue(body.contains("> No sound was captured from Zoom, so Them may be missing. "
+        XCTAssertTrue(body.contains("> No sound was captured from Zoom, so Others may be missing. "
                                     + SystemAudioIssue.heardOnlySilence.detail))
         XCTAssertTrue(body.contains("**Me:** Hello from me. Bye now."))
-        XCTAssertFalse(body.contains("**Them:**"))
+        XCTAssertFalse(body.contains("**Others:**"))
         XCTAssertTrue(feedback.notices.last!.body.contains("no sound came from Zoom"))
     }
 
@@ -403,7 +403,7 @@ final class MeetingSessionTests: XCTestCase {
         XCTAssertEqual(archive.kept.count, 1)
         XCTAssertEqual(archive.kept[0].audio.count, 2)
         XCTAssertTrue(archive.kept[0].note?.contains("kind: \"meeting\"") == true)
-        XCTAssertTrue(archive.kept[0].note?.contains("**Them:** Hi from them.") == true)
+        XCTAssertTrue(archive.kept[0].note?.contains("**Others:** Hi from them.") == true)
         XCTAssertEqual(feedback.titles, ["Couldn't save the meeting note"])
         XCTAssertEqual(feedback.savedNotes, [], "No note to open")
         XCTAssertEqual(session.status, .idle)

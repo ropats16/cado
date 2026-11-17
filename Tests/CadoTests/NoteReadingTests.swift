@@ -54,13 +54,59 @@ final class NoteReadingTests: XCTestCase {
 
     func testTurnsAreLabelledForVoiceOver() {
         let turns = reading(note(meetingBody())).turns
-        XCTAssertEqual(turns.map(\.speakerLabel), ["Me", "Them", "Me"])
-        XCTAssertEqual(turns[1].accessibilityLabel, "Them: Unchanged.")
+        XCTAssertEqual(turns.map(\.speakerLabel), ["Me", "Others", "Me"])
+        XCTAssertEqual(turns[1].accessibilityLabel, "Others: Unchanged.")
+    }
+
+    // MARK: Notes written before the label was "Others" (still on disk as "Them")
+
+    private let legacyBody = """
+        Recorded from Zoom (Them) and your microphone (Me).
+
+        > Recording stopped at the 2-hour limit.
+
+        **Me:** So, the *budget*?
+
+        **Them:** Unchanged.
+
+        **Me:** Great.
+        """
+
+    func testAnOldThemNoteReadsLikeANewOneAndShowsOthers() {
+        let old = reading(note(legacyBody))
+        let new = reading(note(meetingBody(caveats: [.capReached(7200)])))
+        XCTAssertEqual(old.header.app, "Zoom")
+        XCTAssertEqual(old.notices, new.notices)
+        XCTAssertEqual(old.turns, new.turns)
+        XCTAssertEqual(old.turns.map(\.speaker), [.me, .them, .me])
+        XCTAssertEqual(old.turns.map(\.speakerLabel), ["Me", "Others", "Me"])
+        XCTAssertEqual(old.transcriptText, new.transcriptText)
+        XCTAssertEqual(old.items.count, 3)
+    }
+
+    func testANoteMixingBothSpellingsIsHandled() {
+        let r = reading(note("Recorded from Zoom (Others) and your microphone (Me).\n\n**Me:** a\n\n**Them:** b\n\n**Others:** c"))
+        XCTAssertEqual(r.header.app, "Zoom")
+        XCTAssertEqual(r.turns.map(\.speaker), [.me, .them, .them])
+        XCTAssertEqual(r.turns.map(\.speakerLabel), ["Me", "Others", "Others"])
+    }
+
+    func testTheNewIntroLineAndMarkdownAreWrittenWithOthers() {
+        let body = meetingBody()
+        XCTAssertTrue(body.contains("Recorded from Zoom (Others) and your microphone (Me)."))
+        XCTAssertTrue(body.contains("**Others:** Unchanged."))
+        XCTAssertFalse(body.contains("Them"))
+    }
+
+    func testRecordedAppIsReadFromBothIntroForms() {
+        XCTAssertEqual(MeetingNote.recordedApp(inBody: "Recorded from Zoom (Them) and your microphone (Me).\n"), "Zoom")
+        XCTAssertEqual(MeetingNote.recordedApp(inBody: "Recorded from Zoom (Others) and your microphone (Me).\n"), "Zoom")
+        XCTAssertNil(MeetingNote.recordedApp(inBody: "Recorded from  (Them) and your microphone (Me)."))
     }
 
     func testCopyTextIsTheTurnsWithoutFrontMatterIntroOrMarkup() {
         let r = reading(note(meetingBody(caveats: [.capReached(7200)])))
-        XCTAssertEqual(r.transcriptText, "Me: So, the *budget*?\n\nThem: Unchanged.\n\nMe: Great.")
+        XCTAssertEqual(r.transcriptText, "Me: So, the *budget*?\n\nOthers: Unchanged.\n\nMe: Great.")
     }
 
     func testAMeetingWithNothingTranscribedKeepsItsLine() {
