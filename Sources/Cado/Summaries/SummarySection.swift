@@ -35,7 +35,7 @@ enum SummarySection {
     static let transcriptHeading = "Transcript"
 
     /// The section's Markdown, markers included, ending in a newline.
-    static func markdown(_ outcome: SummaryOutcome, provider: SummaryProvider) -> String {
+    static func markdown(_ outcome: SummaryOutcome, provider: SummaryProvider, model: String? = nil) -> String {
         let summary = outcome.summary
         var lines = [startMarker, "## \(heading)"]
         func list(_ title: String, _ items: [String]) {
@@ -51,7 +51,7 @@ enum SummarySection {
             lines.append("_Part of this meeting couldn't be summarized, so the summary may leave things out._")
             lines.append("")
         }
-        lines.append("_\(provider.attribution)_")
+        lines.append("_\(provider.attribution(model: model))_")
         lines += ["", "## \(transcriptHeading)", endMarker]
         return lines.joined(separator: "\n") + "\n"
     }

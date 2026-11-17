@@ -80,6 +80,52 @@ final class SettingsRenderHarness: XCTestCase {
         }
     }
 
+    /// The Meetings tab's OpenRouter states (#35), all fake: a memory key
+    /// store, no network.
+    func testRenderOpenRouter() async throws {
+        let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["CADO_RENDER_SETTINGS"]!)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        func setup(key: String?) -> OpenRouterSetup { OpenRouterSetup(keys: MemoryKeyStore(key: key), transport: NoNetwork()) }
+        func make(key: String? = nil, _ tweak: @escaping (inout Config) -> Void = { _ in }) -> SettingsViewModel {
+            let vm = makeVM(engine: .whisperKit, status: .ready, login: StubLoginItem(enabled: true),
+                            openRouter: setup(key: key), tweak: tweak)
+            vm.refreshSummaryAvailability()
+            return vm
+        }
+        let scenes: [(String, () -> SettingsViewModel)] = [
+            ("consent", { let vm = make(); vm.chooseSummaryProvider(.openRouter); return vm }),
+            ("key-entry", { make { $0.summaryProvider = "openrouter"; $0.openRouterConsent = true } }),
+            ("configured", { make(key: "sk-fake") { $0.summaryProvider = "openrouter"; $0.openRouterConsent = true } }),
+            ("other-model", { let vm = make(key: "sk-fake") { $0.summaryProvider = "openrouter"; $0.openRouterConsent = true }
+                vm.chooseOpenRouterModel(OpenRouterModelEntry.other)
+                vm.openRouterState.modelDraft = "openai/gpt 4"
+                vm.commitOpenRouterModelDraft()
+                return vm }),
+            ("hand-edited", { make { $0.summaryProvider = "openrouter"; $0.openRouterConsent = false } }),
+            ("key-after-switch-back", { make(key: "sk-fake") }),
+        ]
+        for (name, makeScene) in scenes {
+            for dark in [false, true] {
+                let vm = makeScene()
+                defer { vm.recorder.cancelCapture(vm: vm) }
+                try await render(vm, tab: .meetings, dark: dark,
+                                 to: out.appendingPathComponent("meetings-\(name)-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
+    private final class MemoryKeyStore: SummaryKeyStore, @unchecked Sendable {
+        private var key: String?
+        init(key: String?) { self.key = key }
+        func hasKey() -> Bool { key != nil }
+        func load() -> String? { key }
+        @discardableResult func save(_ key: String) -> Bool { self.key = key; return true }
+        @discardableResult func delete() -> Bool { key = nil; return true }
+    }
+    private struct NoNetwork: OpenRouterTransport {
+        func send(_ request: URLRequest) async throws -> (body: Data, status: Int) { throw URLError(.notConnectedToInternet) }
+    }
+
     /// The About Cado window (#45), top of its credits.
     func testRenderAbout() async throws {
         let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["CADO_RENDER_SETTINGS"]!)
@@ -111,9 +157,11 @@ final class SettingsRenderHarness: XCTestCase {
     private let environment = EngineEnvironment.mac(26)
 
     private func makeVM(engine: EngineKind, status: TranscriptionStatus, login: StubLoginItem,
-                        speech: AppleSpeechAssetState = .installed, installAutomatic: Bool = true) -> SettingsViewModel {
+                        speech: AppleSpeechAssetState = .installed, installAutomatic: Bool = true,
+                        openRouter: OpenRouterSetup = .inert, tweak: (inout Config) -> Void = { _ in }) -> SettingsViewModel {
         let store = ConfigStore(url: tempDir.appendingPathComponent("config-\(UUID().uuidString).json"))
         store.update {
+            tweak(&$0)
             $0.engine = engine.rawValue
             $0.language = "en"
             $0.soundCues = true
@@ -146,7 +194,9 @@ final class SettingsRenderHarness: XCTestCase {
             environment: environment,
             speechAssets: StubSpeechAssets(state: speech),
             modelDownloader: NoDownloads(),
-            modelsDir: modelsDir)
+            modelsDir: modelsDir,
+            summaryCatalog: FakeSummarizerCatalog(),
+            openRouter: openRouter)
     }
 
     /// Everything fine: the model is ready, the rest downloadable.

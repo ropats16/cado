@@ -52,11 +52,15 @@ off (see [Privacy](#privacy)).
   [Meeting notes](#meeting-notes).
 - **Meeting summaries** (macOS 26 with Apple Intelligence): each meeting note
   gets a summary (key points, decisions, action items) written on your Mac.
-  See [Summaries](#summaries).
+  Optionally, and only if you turn it on, OpenRouter's cloud models can write
+  them instead (the meeting's text is then sent to OpenRouter). See
+  [Summaries](#summaries).
 - **100% private.** It only uses the internet to download models: the
   one-time setup download, and Settings › Speech Model's **Download** button, which
   fetches pinned files from `huggingface.co` only when you click it — plus a
-  once-a-day update check on GitHub (Settings › General turns it off).
+  once-a-day update check on GitHub (Settings › General turns it off). The one
+  exception is opt-in: if you choose OpenRouter for meeting summaries, a
+  meeting's text is sent there (see [Network activity](#network-activity)).
 
 ---
 
@@ -402,8 +406,8 @@ and says why).
 ### Summaries
 
 Needs macOS 26 or later with Apple Intelligence turned on (System Settings ›
-Apple Intelligence & Siri). Elsewhere, Settings › Meetings says why
-and nothing changes.
+Apple Intelligence & Siri), or OpenRouter set up (below). Otherwise Settings ›
+Meetings says why and nothing changes.
 
 - **After a meeting:** once its note is saved, Cado asks Apple Intelligence's
   on-device model for a summary and adds it to the note: a **Summary** section
@@ -429,7 +433,34 @@ and nothing changes.
   (`<!-- cado:summary -->` … `<!-- /cado:summary -->`) that Obsidian and other
   Markdown apps don't show; they let Cado find and replace it. Edit inside them
   and a regenerate replaces your edits; outside them, edits are kept.
-- **Summaries can be wrong.** They come from a small model reading a speech
+- **OpenRouter instead of Apple Intelligence (optional, sends text off your
+  Mac):** on a Mac that can't run Apple Intelligence, or if you prefer a
+  bigger model, Settings › Meetings › **Written by** can be set to
+  **OpenRouter**. Cado then sends each meeting's **text** (what was said, as
+  Me/Others lines; never audio) over the internet to
+  [OpenRouter](https://openrouter.ai) and, through it, to the company that
+  runs the model you chose, which writes the summary. Choosing it shows a
+  warning and asks you to confirm (**Send Meeting Text to OpenRouter**); you
+  then paste your OpenRouter API key and pick a model (a short list, or
+  **Other…** to type any model name from openrouter.ai/models, which is used
+  once it looks like `provider/model-name`; **Refresh** fetches OpenRouter's
+  full list). Once you have confirmed and saved a key, every new meeting's
+  text is sent automatically after it is saved, while **Summarize meetings**
+  is on. Until you have confirmed *and* saved a key, nothing is sent (the
+  switch only decides whether summaries are made automatically). Cado asks
+  OpenRouter to use only providers that don't keep or train on your text, so
+  some models may be unavailable; those providers' terms still apply, not
+  Cado's. Apple Intelligence stays the default. To stop: choose Apple
+  Intelligence again (that also withdraws your confirmation, so choosing
+  OpenRouter asks again) or **Remove Key**; a summary already being written
+  stops before its next request. The key is stored in your Mac's Keychain,
+  never in the config file or logs, and **Remove Key** is offered whenever a
+  key is stored, even after switching back. The note's summary says which
+  model wrote it. OpenRouter may charge your OpenRouter account. If a request
+  is refused (for example a model your data policy rules out) or the account
+  is out of credits, the note keeps its old summary and the Library's summary
+  card says why.
+- **Summaries can be wrong.** They come from a model reading a speech
   transcript; the note says so under each summary, and the transcript below
   is what was said.
 
@@ -557,7 +588,7 @@ opens the Settings tab with that hotkey (Dictation, or Meetings for `meetingHotk
 | `dictationHistory`    | Keep the last 10 dictations for **Recent Dictations** in the menu (default `false`). |
 | `keepMeetingAudio`    | Keep a meeting's audio after its note is saved (default `false`: deleted). |
 | `meetingSummaries`    | Summarize each meeting note after it's saved (default `true`; needs macOS 26 with Apple Intelligence). |
-| `summaryProvider`     | Who writes summaries: `on-device` (default, Apple Intelligence on this Mac). |
+| `summaryProvider`     | Who writes summaries: `on-device` (default, Apple Intelligence on this Mac) or `openrouter` (only used once `openRouterConsent` is `true`; Settings asks you to confirm otherwise). |
 | `meetingDetection`    | Ask "Record this meeting?" / "Stop recording?" when a meeting app starts or stops using the mic (default `true`; macOS 14.4+). Never records by itself. |
 | `maxMeetingMinutes`   | A meeting stops by itself after this many minutes (default `120`; `0` = Off; more than `1440` counts as 1440, so a meeting always stops after 24 hours). |
 | `meetingConsentShown` | The one-time recording-consent reminder was acknowledged (default `false`). |
@@ -625,7 +656,9 @@ the engine's Automatic pick (add `--engine parakeet`, `whisperkit` or
 ## Privacy
 
 Everything runs on your Mac. No accounts, no tracking, and no audio or text
-ever leaves your machine. The only things that touch the network are model
+ever leaves your machine, unless you opt in to OpenRouter summaries (Settings ›
+Meetings), which sends a meeting's text, never audio, to OpenRouter. The only
+other things that touch the network are model
 downloads (when you run setup or click **Download**), the update check (once
 a day; off in Settings › General) and an optional, off-by-default anonymous
 usage count you can switch on — see
@@ -647,16 +680,19 @@ the note is safely saved. The audio is kept after that
 only if you turn on **Keep meeting audio**, or if part of the meeting couldn't
 be transcribed. It never leaves your Mac.
 
-Meeting [summaries](#summaries) are written by Apple Intelligence's on-device
-model: the transcript never leaves your Mac.
+Meeting [summaries](#summaries) are by default written by Apple Intelligence's
+on-device model: the transcript never leaves your Mac. Only if you opt in to
+OpenRouter in Settings (with a warning and a confirmation) is a meeting's
+text sent to OpenRouter and the model's company to write the summary.
 
 ---
 
 ## Network activity
 
-Every host Cado or its setup scripts contact, and when. Nothing here sends
-your audio, transcripts or settings anywhere; each request only fetches a
-file.
+Every host Cado or its setup scripts contact, and when. Your audio and
+settings are never sent anywhere. Your transcripts are sent in one case only:
+the optional OpenRouter summaries below (off by default, behind a warning and
+a confirmation). Every other request only fetches a file.
 
 | Host | When | What's sent / received | Opt-in? |
 | --- | --- | --- | --- |
@@ -665,9 +701,11 @@ file.
 | Apple | In the app, only when you click **Download** for an Apple Speech model in Settings › Speech Model | Cado asks macOS to install the language model; macOS downloads it from Apple, not Cado. | Yes, per click |
 | `github.com` | Release builds of the app: about once a day while Cado runs, and when you choose **Check for Updates…** in the menu (or **Check Now** in Settings › General) | Fetches the update feed, `github.com/ropats16/cado/releases/latest/download/appcast.xml` ([Sparkle](https://sparkle-project.org)). If there's a newer version, Cado asks before installing it (unless you tick "Automatically download and install updates" in that prompt), then downloads its DMG from the same GitHub release (GitHub redirects both the feed and the DMG to `release-assets.githubusercontent.com`); the download must match the release's Ed25519 signature and Cado's code signature, or it's discarded. No system profile or identifier is sent (just a normal HTTPS request, with Cado's version in the User-Agent). Builds made with `make install`/`make package` never check. | On by default; turn off **Automatically check for updates** in Settings › General |
 | `nom.telemetrydeck.com` | In the app, once per launch, only if you turned on **Send anonymous usage count** (onboarding, or Settings › General) | One small JSON signal: a random anonymous ID (SHA-256 hashed; deleted if you turn it off), Cado's version, macOS version (major.minor) and chip type (arm64/x86_64). Never audio, text or file names. Only sent by a build with a TelemetryDeck app ID; Cado 0.1.0 has none, so this switch sends nothing yet. | Yes, **off by default** |
+| `openrouter.ai` | Only if you chose **OpenRouter** in Settings › Meetings › Written by, confirmed the warning, and saved an API key: after each meeting note is saved (if **Summarize meetings** is on), and when you click **Summarize** / **Regenerate Summary** in the Library | The meeting's **transcript text** (Me/Others lines), Cado's summary instructions, the model name you chose, and a data-policy setting asking OpenRouter to route only to providers that don't keep or train on your text (so some models may be refused). Headers: your API key as `Authorization` (so OpenRouter can bill your account), `Content-Type`, and the system's default `User-Agent` (Cado's version plus the macOS and network-library versions). A long meeting is sent in several parts. OpenRouter passes the text to the company that runs the model, whose terms apply. Never audio, file names, your name or any ID of this Mac. One attempt per request (a busy answer is retried a few times over about a minute); removing the key or switching back to Apple Intelligence stops a run before its next request. Cado doesn't log the text. The key is kept in your Keychain. | Yes, **off by default**; turn off by choosing Apple Intelligence under Written by (or remove the key) |
+| `openrouter.ai` | Only when you click **Refresh** next to the model list | A plain `GET` of OpenRouter's public model list: no key, no text, no body; only the system's default `User-Agent` header. The names are shown in the picker and not saved. | Yes, per click |
 
-Meeting summaries (Apple Intelligence's on-device model) contact nothing:
-macOS downloads and updates that model itself, not Cado.
+Meeting summaries with Apple Intelligence (the default) contact nothing: macOS
+downloads and updates that model itself, not Cado.
 
 Downloads from `huggingface.co` are mostly redirected to Hugging Face's CDN
 (`*.hf.co`, e.g. `us.aws.cdn.hf.co`; the host varies by region). The speech
