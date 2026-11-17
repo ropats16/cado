@@ -11,7 +11,8 @@ Already verified without a human:
   give-up that dies writing its note is set aside next launch; an attempt the
   journal can't take is marked `.tried` once, another waits ("Couldn't finish
   a meeting yet"), and with room it goes on; a give-up the journal can't take
-  waits; a clean quit clears `.tried`; a quit `.appQuit` couldn't journal is
+  is marked `.gave-up` and writes its note immediately when that mark can
+  safely count it (otherwise it waits once, then is set aside); a clean quit clears `.tried`; a quit `.appQuit` couldn't journal is
   still "Cado was quit…"; Record Meeting during a recovery holds it at a chunk
   boundary (the passage in the engine is journaled first), the new note comes
   first, then the recovered one with every passage once; quitting while held
@@ -65,6 +66,18 @@ Already verified without a human:
   plain `fsync`. Not measured: battery over a real hour (extrapolated: one
   ~5 ms drive flush every 5 s). It now runs on a utility queue, not the main
   thread.
+
+The final rename-failure regression tests also cover:
+- An old `.unsaved` mark that cannot be removed stops recovery before another
+  note write; the untouched recording is set aside with an explanation.
+- A `.gave-up` mark whose removal fails cannot be overtaken by a failed-save
+  event. A combined `.gave-up`/`.unsaved` name preserves the order; if neither
+  the journal nor the name can safely keep the outcome, recovery stops.
+- If moves and renames are both denied but the journal is writable, the
+  terminal decision is journaled and later launches leave the recording alone.
+- Holding or quitting a folder-marked give-up before its note is saved clears
+  the mark so the note is retried. If even that pause cannot be recorded
+  safely, the recording is set aside and is not resumed after a live meeting.
 
 ## Give-up (from #31; not in meeting-31.md)
 
@@ -146,6 +159,19 @@ the note file is written in `MeetingSession.complete`, kill Cado there.
       relaunch: the folder name goes back to plain `<id>` while it recovers,
       then the note appears saying it couldn't be saved when the meeting
       ended.
+
+## Folder renames denied while the journal is writable
+
+- [ ] On a disposable leftover recording marked `.unsaved`, deny renaming
+      or moving its folder while keeping `events.jsonl` writable. Relaunch:
+      recovery stops before writing another note, preserves the raw recording,
+      and explains that it could not safely keep track of finishing it.
+      Relaunch again: no repeated notice or transcription. Restore permissions
+      after this check; the preserved recording remains available for inspection.
+- [ ] With a give-up's journal full but the notes folder writable, relaunch:
+      `.gave-up` is used while its note is saved, without waiting for another
+      launch. Repeat with a new meeting started or a clean quit before the
+      note save: the old note is completed after resuming or relaunching.
 
 ## A slow disk
 

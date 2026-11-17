@@ -33,6 +33,8 @@ import Foundation
 /// the journal ahead of anything written after it, and then off the name.
 final class RecoverySpoolHandle: MeetingSpoolHandle {
     let inner: MeetingSpoolHandle
+    /// Terminal in this session, even if the folder could not be moved or renamed.
+    var isSetAside = false
     /// This attempt's start is in the name (`.tried`), not yet in the journal.
     private(set) var startOnlyInName = false
     /// The start is journaled, but the rename dropping `.tried` failed: tried again on the next write.
@@ -45,6 +47,10 @@ final class RecoverySpoolHandle: MeetingSpoolHandle {
     /// Journals that an attempt begins, else marks it `.tried`; false if
     /// neither (or it was marked already: an attempt the guard can't count).
     func beginAttempt() -> Bool {
+        guard !isSetAside else { return false }
+        if gaveUpOnlyInName != nil || inner.folderMarks.contains(.gaveUp) {
+            guard journalPendingEvents() else { return false }
+        }
         if inner.record(.recoveryStarted) {
             startOnlyInName = false
             markToDrop = true
@@ -85,8 +91,10 @@ final class RecoverySpoolHandle: MeetingSpoolHandle {
         }
     }
 
-    /// The start (then a give-up), if still only in the name: true once journaled.
-    private func journalStart() -> Bool {
+    /// Journal pending events, then remove a give-up's mark before later
+    /// events can overtake it. False while that ordering cannot be kept.
+    private func journalPendingEvents() -> Bool {
+        guard !isSetAside else { return false }
         if startOnlyInName {
             guard inner.record(.recoveryStarted) else { return false }
             startOnlyInName = false
@@ -98,11 +106,13 @@ final class RecoverySpoolHandle: MeetingSpoolHandle {
             markToDrop = true
         }
         if markToDrop { dropMarks() }
-        return true
+        // A stale give-up would be replayed after the next event, turning a
+        // failed save or a clean pause into a crash. Do not let it be overtaken.
+        return !inner.folderMarks.contains(.gaveUp)
     }
 
-    func record(_ event: SpoolEvent) -> Bool { journalStart() && inner.record(event) }
-    func recordFlushingLater(_ event: SpoolEvent) -> Bool { journalStart() && inner.recordFlushingLater(event) }
+    func record(_ event: SpoolEvent) -> Bool { journalPendingEvents() && inner.record(event) }
+    func recordFlushingLater(_ event: SpoolEvent) -> Bool { journalPendingEvents() && inner.recordFlushingLater(event) }
 
     func setMarks(_ marks: Set<SpoolFolderMark>) -> Bool {
         guard inner.setMarks(marks) else { return false }

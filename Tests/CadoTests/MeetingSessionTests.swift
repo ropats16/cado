@@ -2611,6 +2611,123 @@ extension MeetingSessionTests {
         XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting"])
     }
 
+    func testAnUnsavedMarkThatCannotBeMigratedStopsBeforeWritingAnotherNote() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides + Array(repeating: .recoveryStarted, count: 3),
+                         marks: [.noteNotSaved])
+        h.canMark = false
+        try relaunch(h)
+        XCTAssertTrue(notes.saved.isEmpty)
+        XCTAssertFalse(h.events.contains { if case .recoveryGaveUp = $0 { return true }; return false })
+        XCTAssertNotNil(h.movedTo)
+        XCTAssertFalse(h.inner.isDiscarded)
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting"])
+    }
+
+    func testSetAsideIsRememberedWhenOnlyTheJournalCanBeWritten() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides, marks: [.noteNotSaved])
+        h.canMark = false
+        h.canMove = false
+        try relaunch(h)
+        XCTAssertTrue(h.events.contains(.toldUser(.recordingSetAside)))
+        let events = h.events
+        try relaunch(h)
+        XCTAssertEqual(h.events, events)
+        XCTAssertTrue(engine.jobs.isEmpty)
+        XCTAssertTrue(notes.saved.isEmpty)
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting"])
+    }
+
+    /// The give-up reaches the journal but its rename fails. The failed note
+    /// must be represented after it, by the combined name, before any more events.
+    func testAStaleGiveUpCannotOvertakeItsFailedNote() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides + [.recoveryStarted, .recoveryStarted])
+        h.reopen(refusing: { if case .recoveryGaveUp = $0 { return h.folderMarks.isEmpty }; return false })
+        h.renameFails = { !$0.contains(.gaveUp) }
+        notes.error = Failure("No room for the note")
+        archive.noteError = Failure("No room for the fallback note")
+        makeSession().recoverLeftovers()
+        XCTAssertEqual(h.folderMarks, [.gaveUp, .noteNotSaved])
+        XCTAssertFalse(h.events.contains { if case .noteSaveFailed = $0 { return true }; return false },
+                       "No journal event can overtake the give-up mark")
+        XCTAssertFalse(RecoveryPlan.diedAfterGivingUp(h.events + SpoolFolderMark.events(for: h.folderMarks)))
+        h.renameFails = { _ in false }
+        notes.error = nil
+        archive.noteError = nil
+        try relaunch(h)
+        XCTAssertEqual(notes.saved.count, 1)
+        XCTAssertNil(h.movedTo)
+    }
+
+    func testAnUnrecordableFailedGiveUpIsExplicitlySetAside() throws {
+        let h = leftover(of: meetingWithZoom(), bothSides + [.recoveryStarted, .recoveryStarted])
+        h.reopen(refusing: { if case .recoveryGaveUp = $0 { return h.folderMarks.isEmpty }; return false })
+        h.renameFails = { $0 != [.gaveUp] }
+        h.canMove = false
+        notes.error = Failure("No room for the note")
+        archive.noteError = Failure("No room for the fallback note")
+        makeSession().recoverLeftovers()
+        XCTAssertTrue(h.events.contains(.toldUser(.recordingSetAside)), "Bypasses the pending-mark gate")
+        XCTAssertFalse(h.inner.isDiscarded)
+        XCTAssertEqual(feedback.titles, ["Couldn't finish a meeting"])
+        let events = h.events
+        try relaunch(h)
+        XCTAssertEqual(h.events, events)
+        XCTAssertEqual(feedback.titles.count, 1)
+    }
+
+    private func markedGiveUpPausedBeforeSaving(quit: Bool, renameBlocked: Bool = false) throws {
+        var queued: [(work: () -> Void, done: () -> Void)] = []
+        let h = leftover(of: meetingWithZoom(), bothSides + [.recoveryStarted, .recoveryStarted])
+        h.reopen(refusing: { _ in true })
+        session = makeSession(background: { queued.append(($0, $1)) })
+        session.recoverLeftovers()
+        XCTAssertEqual(h.folderMarks, [.gaveUp])
+        XCTAssertTrue(notes.saved.isEmpty)
+        h.canMark = !renameBlocked
+        if quit {
+            session.quit {}
+        } else {
+            startBoth()
+        }
+        if renameBlocked {
+            XCTAssertNotNil(h.movedTo)
+            XCTAssertFalse(h.inner.isDiscarded)
+            // Stopping the new live meeting must not resume the set-aside one.
+            if !quit {
+                session.stop()
+                recorder.me.finish()
+                recorder.them.finish()
+                while !queued.isEmpty {
+                    let item = queued.removeFirst()
+                    item.work(); item.done()
+                }
+                XCTAssertEqual(session.status, .idle)
+                XCTAssertTrue(notes.saved.isEmpty)
+            }
+        } else {
+            XCTAssertEqual(h.folderMarks, [])
+            try relaunch(h)
+            XCTAssertNil(h.movedTo)
+            XCTAssertEqual(notes.saved.count, 1)
+        }
+    }
+
+    func testAMarkedGiveUpHeldBeforeItsNoteIsRetried() throws {
+        try markedGiveUpPausedBeforeSaving(quit: false)
+    }
+
+    func testAMarkedGiveUpQuitBeforeItsNoteIsRetried() throws {
+        try markedGiveUpPausedBeforeSaving(quit: true)
+    }
+
+    func testAMarkedGiveUpWithAnUnrecordableHoldIsNotResumed() throws {
+        try markedGiveUpPausedBeforeSaving(quit: false, renameBlocked: true)
+    }
+
+    func testAMarkedGiveUpWithAnUnrecordableQuitIsSetAside() throws {
+        try markedGiveUpPausedBeforeSaving(quit: true, renameBlocked: true)
+    }
+
     /// A clean quit during an attempt the journal can't take doesn't count.
     func testAQuitDuringAnUnjournaledAttemptLeavesNoMark() throws {
         let h = leftover(of: meetingWithZoom(), bothSides)

@@ -484,7 +484,9 @@ final class MeetingSession {
     /// still writes the note and keeps the audio.
     private func journalPause(_ spool: MeetingSpoolHandle, forLiveMeeting: Bool = false) {
         _ = forLiveMeeting ? spool.recordFlushingLater(.recoveryPaused) : spool.record(.recoveryPaused)
-        endAttemptMark(spool)   // either way
+        if !endAttemptMark(spool), spool.folderMarks.contains(.gaveUp) {
+            setAsideForMarks(spool)
+        }
     }
 
     /// Recovers the meetings earlier runs left unfinished (crashed, killed,
@@ -895,9 +897,10 @@ final class MeetingSession {
     }
 
     /// The notes library wouldn't take the note: into the archive with the
-    /// audio; if even that fails, a spool with a folder stays (whatever
-    /// failed to write) and the next launch finishes the meeting. Only one
-    /// with no folder (all in memory) is lost, and the notice says so.
+    /// audio; if even that fails, a spool with a folder stays for the next
+    /// launch, unless recovery's outcome cannot be safely recorded: then it
+    /// is set aside. Only one with no folder (all in memory) is lost, and the
+    /// notice says so.
     private func noteNotSaved(_ draft: NoteDraft, _ error: Error, _ meeting: Meeting, folder: URL?, hasAudio: Bool) {
         Log.error("Couldn't save the meeting note (meeting \(meeting.spool.meeting.id)): \(Self.logged(error))")
         let spool = meeting.spool, title = title(meeting)
@@ -923,11 +926,15 @@ final class MeetingSession {
                 feedback.notify(title: "Couldn't save the meeting note", body: "\(reason) \(audio)")
             }
         } else if spool.hasFolder {
-            // Stays, whatever failed to write: the next launch finishes it.
-            // The attempt (if a recovery) ended here, so its `.tried` mark goes either way.
+            // Keep the failed save for the next launch, or explicitly set
+            // recovery aside if its outcome cannot be kept in the right order.
+            // The attempt ended here, so its `.tried` mark goes either way.
             if spool.record(.noteSaveFailed(reason: reason)) {
                 endAttemptMark(spool)
             } else if !spool.setMarks(spool.folderMarks.subtracting([.tried]).union([.noteNotSaved])) {
+                // No safely ordered outcome can be kept. Preserve the raw recording
+                // and say that recovery stopped instead of promising another try.
+                if meeting.isRecovery { return setAsideForMarks(spool) }
                 Log.error("Meeting: couldn't note in the spool that the note wasn't saved.")
             }
             Log.error("Meeting: the note couldn't be saved anywhere; the meeting stays in its spool for the next launch.")
@@ -1170,6 +1177,11 @@ final class MeetingSession {
     /// was short), the pause is journaled first: the hold must not count as
     /// an attempt that got nowhere. That passage is then this attempt's.
     private func resume(_ recovery: Meeting) {
+        if (recovery.spool as? RecoverySpoolHandle)?.isSetAside == true {
+            state = .idle
+            report()
+            return startNextRecovery()
+        }
         recovery.onHold = false
         state = recovery.allEnded ? .transcribing(recovery) : .finishing(recovery)
         report()
@@ -1205,6 +1217,9 @@ final class MeetingSession {
     /// and transcribes what's left. One already written down only gets its
     /// audio copy finished.
     private func recover(_ leftover: LeftoverMeeting) {
+        // The journal may be the only writable place when directory renames
+        // and moves are denied. Honor the terminal decision before any work.
+        guard !leftover.events.contains(.toldUser(.recordingSetAside)) else { return }
         if leftover.isUnidentified { return keepUnidentified(leftover.handle) }
         let handle = leftover.handle
         let info = handle.meeting
@@ -1276,7 +1291,7 @@ final class MeetingSession {
         if RecoveryPlan.diedAfterGivingUp(events) {
             return putAside(handle, events, title: title)
         }
-        journalMarks(handle)
+        guard journalMarks(handle) else { return setAsideForMarks(handle) }
         meetingCount += 1
         // Through `RecoverySpoolHandle`: an attempt's start is journaled before anything else of it.
         let meeting = Meeting(id: meetingCount, appName: info.appName, startedAt: clock.now, startDate: info.startDate,
@@ -1313,25 +1328,27 @@ final class MeetingSession {
 
     // A full disk must not switch off the crash-loop guard (#48): an attempt
     // the journal can't count is counted by the folder's name (`.tried`),
-    // once; one more, or a give-up the journal can't take, waits for a
-    // launch with room, once, then is set aside (`waitForRoom`). And a mark has no place in time, so once the journal
+    // once. A give-up uses `.gaveUp` when its journal write fails. If neither
+    // can be safely counted, recovery waits once for room, then is set aside.
+    // A mark has no place in time, so once the journal
     // takes events again the marks go into it and the name goes back to
     // plain: a later `.recoveryGaveUp` is then read in its right place.
 
     /// The marks that stand for journal events go into the journal, and off
     /// the name. The name goes first: if the journal then refuses, the name
     /// says again what it couldn't take (never a mark journaled twice).
-    private func journalMarks(_ handle: MeetingSpoolHandle) {
+    private func journalMarks(_ handle: MeetingSpoolHandle) -> Bool {
         let marks = handle.folderMarks.filter { $0.event != nil }
-        guard !marks.isEmpty, handle.setMarks(handle.folderMarks.subtracting(marks)) else { return }
+        guard !marks.isEmpty else { return true }
+        guard handle.setMarks(handle.folderMarks.subtracting(marks)) else { return false }
         var left = Set(marks)
         for mark in SpoolFolderMark.ordered(left) {
             guard let event = mark.event, handle.record(event) else { break }
             left.remove(mark)
         }
-        guard !left.isEmpty else { return }
+        guard !left.isEmpty else { return true }
         Log.info("Meeting recovery: the journal is still full; the spool's name keeps what it couldn't take.")
-        handle.setMarks(handle.folderMarks.union(left))
+        return handle.setMarks(handle.folderMarks.union(left))
     }
 
     /// Journals that an attempt begins, else marks it `.tried`
@@ -1343,9 +1360,18 @@ final class MeetingSession {
     /// The attempt ended (a note saved or not, a clean quit): its mark goes,
     /// and a give-up's: journaled by then (`RecoverySpoolHandle`), or, if
     /// not (a pause the journal can't take), the give-up is decided again.
-    private func endAttemptMark(_ spool: MeetingSpoolHandle) {
+    @discardableResult
+    private func endAttemptMark(_ spool: MeetingSpoolHandle) -> Bool {
         let marks = spool.folderMarks.intersection([.tried, .gaveUp])
-        if !marks.isEmpty { spool.setMarks(spool.folderMarks.subtracting(marks)) }
+        return marks.isEmpty || spool.setMarks(spool.folderMarks.subtracting(marks))
+    }
+
+    private func setAsideForMarks(_ spool: MeetingSpoolHandle) {
+        let info = spool.meeting
+        let title = MeetingNote.title(appName: info.appName, start: info.startDate, event: info.event,
+                                      locale: locale, timeZone: timeZone)
+        setAside(spool, title: title,
+                 why: "Cado couldn't safely keep track of finishing “\(title)”")
     }
 
     /// The journal can't take what recovery must write first: the meeting
@@ -1543,6 +1569,9 @@ final class MeetingSession {
     /// (`.setAside`), and journaled so too; only if neither can be written
     /// is the user told again on a later launch.
     private func setAside(_ handle: MeetingSpoolHandle, title: String, why: String) {
+        let recovery = handle as? RecoverySpoolHandle
+        guard recovery?.isSetAside != true else { return }
+        recovery?.isSetAside = true
         let folder = newArchiveFolder(title)
         let moved = folder.flatMap { handle.moveFolder(into: $0) } != nil
         if !moved, !handle.setMarks(handle.folderMarks.union([.setAside])) {
@@ -1552,7 +1581,9 @@ final class MeetingSession {
         feedback.notify(title: "Couldn't finish a meeting",
                         body: "\(why) and has stopped trying. Its recording is kept, unchanged, in "
                             + "\(place ?? "Cado's Meetings In Progress folder").")
-        if !moved { handle.record(.toldUser(.recordingSetAside)) }   // after telling: twice is better than never
+        // Terminal bookkeeping must bypass the wrapper's pending-event gate:
+        // this journal may be the only writable place left.
+        if !moved { (recovery?.inner ?? handle).record(.toldUser(.recordingSetAside)) }
     }
 
     // MARK: - Helpers

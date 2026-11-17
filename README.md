@@ -448,7 +448,10 @@ and says why).
   after, or Cado can't write to its Meetings In Progress folder at all (no
   permission, a read-only disk), it stops trying: the untouched recording is
   moved to the `Meeting Audio` folder and Cado says why and where, once
-  ("Couldn't finish a meeting").
+  ("Couldn't finish a meeting"). If the folder cannot be renamed to keep
+  recovery's progress in the right order, Cado also stops and preserves the
+  recording rather than risking repeated recovery crashes. If it cannot move
+  the recording, it keeps it in place and tells you where.
 - **Limits:** a meeting stops by itself after the **Max meeting length**
   (Settings → Meetings: 30 minutes to 4 hours, default 2 hours, or Off), with
   a notification; the note is still written and says so. Off still stops a
