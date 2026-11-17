@@ -2,7 +2,7 @@
 
 What the tests can't reach: a real meeting app on the real mic (Core Audio
 `IsRunningInput`), real notification buttons, the real event tap, real
-right-clicks on the panel, the consent alert. Decisions:
+right-click menus on the panel, VoiceOver, the consent alert. Decisions:
 [../meeting-detection-32.md](../meeting-detection-32.md).
 
 Already verified without a human:
@@ -18,8 +18,13 @@ Already verified without a human:
   explains; detection off reads nothing; notification buttons carry their
   question.
 - `MascotMeetingTests`, `MascotOverlayPanelTests`: asking mascot, click
-  records, click on meeting mascot stops, right-click starts/stops, plain
-  click and drag unchanged.
+  records, click on meeting mascot stops, the right-click menu's first item
+  (Record Meeting / Stop Recording, disabled when no meeting can start, none
+  while dictating) and its VoiceOver action, VoiceOver labels for the asking
+  and meeting mascot, plain click and drag unchanged.
+- `StatusMenuContentTests`, `SettingsMeetingsTests`: a meeting-hotkey problem
+  points to Settings › Meetings; a clash with a dictation hotkey shows in both
+  tabs.
 - `MeetingToggleTests` (incl. consent once), `MeetingHotkeyTests`,
   `MeetingLimitTests`, `MeetingSessionTests` (max length read at start, Off
   stops at 24 h, the note says so), `SettingsMeetingsTests`.
@@ -55,8 +60,15 @@ macOS 14.4 or later. Watch the log: `log stream --predicate 'process == "Cado"'`
    again → asked again.
 4. **Mascot answers.** New call, click the badged mascot → records. Click the
    mascot while recording → stops. Right-click the resting mascot (Always
-   show on) with Zoom running → starts; right-click again → stops. Drag the
-   mascot in each state → it moves, nothing starts or stops.
+   show on) with Zoom running → menu: Record Meeting, Hide Mascot, Settings…;
+   Record Meeting → starts. Right-click again → Stop Recording first → stops.
+   Control-click → the same menu. Quit every meeting app, right-click →
+   Record Meeting greyed out. Right-click the badged mascot → Record Meeting
+   records the asked-about app. While dictating, right-click → no meeting
+   item. Drag the mascot in each state → it moves, nothing starts or stops.
+   VoiceOver on: the badged mascot reads "Cado mascot: record this meeting?",
+   the meeting one "Cado is recording a meeting"; the actions (VO-⌘-Space)
+   list Record Meeting / Stop Recording.
 5. **Notifications off.** Turn Cado's notifications off in System Settings.
    Join a call → still "Record?" in the menu bar, menu and mascot.
 6. **Stop?** While recording a Zoom call, leave the call (or quit Zoom).
@@ -74,8 +86,10 @@ macOS 14.4 or later. Watch the log: `log stream --predicate 'process == "Cado"'`
    stops. With Zoom and Chrome running, neither on a call → the avocado menu
    opens. Nothing running → "Meeting not started" notification. During
    "Transcribing Meeting…" → "still writing down the last meeting".
-   Rebind in Settings › Hotkeys › Record meeting to ⇧⌘R → works at once;
-   rebind to ⌃⇧ → the clash warning; Reset to Default → ⌃⌥M.
+   Rebind in Settings › Meetings › Hotkey › Change… to ⇧⌘R → works at once;
+   rebind to ⌃⇧ → the clash warning under it (and under Dictation's
+   Hotkeys); the menu's issue row opens the Meetings tab; Reset to Default →
+   ⌃⌥M. Start a capture, switch tab → capture cancelled, ⌃⌥M works.
 10. **Detection off.** Settings › Meetings › Ask to record meetings off →
     join a call: nothing asked; ⌃⌥M and the menu still work.
 11. **Max length.** Hand-edit `"maxMeetingMinutes": 1`, relaunch, record →

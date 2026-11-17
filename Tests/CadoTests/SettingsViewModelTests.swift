@@ -360,7 +360,7 @@ final class SettingsViewModelTests: XCTestCase {
         vm.commitHotkey(conflicting, for: .hold)
         XCTAssertNotNil(vm.hotkeyWarning, "hotkeyWarning must be set when hold == toggle")
         XCTAssertEqual(vm.hotkeyWarning, "Hold to talk and Toggle to talk use the same keys (\(conflicting)). "
-                           + "Record a different shortcut, or click Reset to Default.")
+                           + "Click Change… to choose a different shortcut, or Reset to Default.")
         UserFacingCopy.assertPlain(vm.hotkeyWarning)
     }
 
@@ -424,6 +424,21 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertFalse(vm.isCapturing, "isCapturing must be false after cancelCapture")
         XCTAssertNil(vm.recorder.captureTarget, "captureTarget must be nil after cancelCapture")
         XCTAssertGreaterThan(reloadCount, reloadBefore, "cancelCapture must call reloadHotkeys to resume tap")
+    }
+
+    /// Switching tabs mid-capture must stop the key monitor and resume the
+    /// global hotkeys, not leave Change… recording behind another tab.
+    func testSwitchingTabsCancelsHotkeyCapture() {
+        let vm = makeVMWithSpies()
+        let window = SettingsWindowController.makeWindow(viewModel: vm, tab: .dictation)
+        guard let settingsWindow = window as? SettingsWindowController.SettingsWindow else {
+            return XCTFail("not the settings window")
+        }
+        vm.recorder.startCapture(for: .hold, vm: vm)
+        XCTAssertNotNil(vm.recorder.captureTarget)
+        settingsWindow.toolbarController.select(.speechModel)
+        XCTAssertNil(vm.recorder.captureTarget, "captureTarget must clear on a tab switch")
+        XCTAssertFalse(vm.isCapturing)
     }
 
     // MARK: - holdDescription / toggleDescription

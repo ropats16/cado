@@ -39,7 +39,8 @@ extension Brand.Pose {
 /// and the view's tracking area (over this panel). A press on the body is a
 /// click or a drag (`MascotGesture`); a drag moves the window by hand
 /// (`performDrag` would swallow the mouse-up) and saves the spot it ends at.
-/// A right- or Control-click is `onSecondaryClick` (#32).
+/// A right- or Control-click opens the context menu (#45): Record Meeting /
+/// Stop Recording (#32), Hide Mascot, Settings….
 /// Never key, main or activating: focus stays in the text field being
 /// dictated into.
 ///
@@ -55,7 +56,16 @@ final class MascotOverlayPanel: MascotSurface {
     /// The window, once shown and until discarded.
     private(set) var window: NSPanel?
     var onClick: (() -> Void)?
-    var onSecondaryClick: (() -> Void)?
+    /// The right-click menu's items (#45). Hide (offered while the mascot
+    /// rests) turns "Always show the mascot" off, so it goes until the next dictation; Settings… opens the Settings window.
+    var onHide: (() -> Void)?
+    var onOpenSettings: (() -> Void)?
+    /// The menu's first item, Record Meeting / Stop Recording (#32): asked
+    /// for as the menu opens; nil = none.
+    var meetingItem: (() -> MascotMeetingItem?)?
+    var onMeetingItem: (() -> Void)?
+    /// What's on screen, for VoiceOver.
+    private(set) var visual: OverlayVisual = .hidden
     /// Applied live, and re-asserted on every show.
     var showsInScreenShares = false {
         didSet { if let window { applySharing(window) } }
@@ -66,9 +76,8 @@ final class MascotOverlayPanel: MascotSurface {
     /// The last alpha asked for, applied to a panel built after it was set
     /// (the director sets 0 just before the first `show`).
     private var alpha: Double = 1
-    /// The press under way, the window's origin at it, and whether it's a
-    /// right- or Control-click; nil between presses.
-    private var press: (gesture: MascotGesture, origin: CGPoint, secondary: Bool)?
+    /// The press under way and the window's origin at it; nil between presses.
+    private var press: (gesture: MascotGesture, origin: CGPoint)?
     /// Pointer moves over other apps, while on screen.
     private var mouseMonitor: Any?
     /// The same over Cado's own windows.
@@ -132,7 +141,33 @@ final class MascotOverlayPanel: MascotSurface {
         window = nil
     }
 
+    /// The right-click menu (#45), built per click so it follows the callbacks
+    /// and the meeting item (#32) follows what a meeting can do now.
+    func contextMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        if let meeting = meetingItem?() {
+            let item = NSMenuItem(title: meeting.title, action: #selector(menuMeeting), keyEquivalent: "")
+            item.target = self
+            item.isEnabled = meeting.isEnabled
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
+        let hide = NSMenuItem(title: MascotAccessibility.hideTitle, action: #selector(menuHide), keyEquivalent: "")
+        let settings = NSMenuItem(title: MascotAccessibility.settingsTitle, action: #selector(menuSettings), keyEquivalent: "")
+        for item in [hide, settings] { item.target = self; menu.addItem(item) }
+        hide.isEnabled = canHide
+        return menu
+    }
+    /// Hide only does something while the mascot rests on screen: during a
+    /// dictation or meeting the mascot shows regardless of the setting.
+    var canHide: Bool { model.isMini }
+    @objc private func menuHide() { onHide?() }
+    @objc private func menuSettings() { onOpenSettings?() }
+    @objc private func menuMeeting() { onMeetingItem?() }
+
     func render(_ visual: OverlayVisual) {
+        self.visual = visual
         model.pose = Brand.Pose(visual)
         model.isMini = visual == .resting
         model.isAsking = visual == .asking
@@ -162,9 +197,9 @@ final class MascotOverlayPanel: MascotSurface {
         pointerMoved(to: point)
     }
 
-    func pointerDown(at point: CGPoint, secondary: Bool = false) {
+    func pointerDown(at point: CGPoint) {
         guard let window else { return }
-        press = (MascotGesture(down: point), window.frame.origin, secondary)
+        press = (MascotGesture(down: point), window.frame.origin)
     }
 
     func pointerDragged(to point: CGPoint) {
@@ -178,7 +213,7 @@ final class MascotOverlayPanel: MascotSurface {
         self.press = nil
         switch press.gesture.ended(at: point) {
         case .click:
-            press.secondary ? onSecondaryClick?() : onClick?()
+            onClick?()
         case .drag(let offset):
             window.setFrameOrigin(press.origin.offset(by: offset))
             let settled = placement.remember(windowFrame: window.frame)
@@ -299,21 +334,78 @@ final class MascotHostingView: NSHostingView<MascotView> {
         return isOnBody(local) ? self : nil
     }
 
+    /// Right-click on the body (Control-click too): Record Meeting / Stop
+    /// Recording (#32), Hide, Settings… (#45).
+    override func menu(for event: NSEvent) -> NSMenu? { owner?.contextMenu() }
+
+    // VoiceOver (#45): one button. Pressing it does what a click does; the
+    // meeting item, Hide and Settings… are its actions, as the right-click
+    // menu has them.
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? {
+        MascotAccessibility.label(for: owner?.visual ?? .resting, pose: rootView.model.pose)
+    }
+    override func accessibilityHelp() -> String? { MascotAccessibility.help(for: owner?.visual ?? .resting) }
+    override func accessibilityPerformPress() -> Bool {
+        guard let onClick = owner?.onClick else { return false }
+        onClick()
+        return true
+    }
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        var actions: [NSAccessibilityCustomAction] = []
+        if let meeting = owner?.meetingItem?(), meeting.isEnabled {
+            actions.append(NSAccessibilityCustomAction(name: meeting.title) { [weak self] in
+                self?.owner?.onMeetingItem?(); return true })
+        }
+        if owner?.canHide == true {
+            actions.append(NSAccessibilityCustomAction(name: MascotAccessibility.hideTitle) { [weak self] in
+                self?.owner?.onHide?(); return true })
+        }
+        actions.append(NSAccessibilityCustomAction(name: MascotAccessibility.settingsTitle) { [weak self] in
+            self?.owner?.onOpenSettings?(); return true })
+        return actions
+    }
+
     /// The app is never active, so every click is a first click.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override func mouseDown(with event: NSEvent) {
-        owner?.pointerDown(at: NSEvent.mouseLocation, secondary: event.modifierFlags.contains(.control))
-    }
-    /// A right-click starts or stops a meeting (#32); it can drag too.
-    override func rightMouseDown(with event: NSEvent) { owner?.pointerDown(at: NSEvent.mouseLocation, secondary: true) }
-    override func rightMouseDragged(with event: NSEvent) { owner?.pointerDragged(to: NSEvent.mouseLocation) }
-    override func rightMouseUp(with event: NSEvent) { owner?.pointerUp(at: NSEvent.mouseLocation) }
+    override func mouseDown(with event: NSEvent) { owner?.pointerDown(at: NSEvent.mouseLocation) }
     override func mouseDragged(with event: NSEvent) { owner?.pointerDragged(to: NSEvent.mouseLocation) }
     override func mouseUp(with event: NSEvent) { owner?.pointerUp(at: NSEvent.mouseLocation) }
     override func mouseMoved(with event: NSEvent) { owner?.pointerMovedFreely(to: NSEvent.mouseLocation) }
     override func mouseEntered(with event: NSEvent) { owner?.pointerMoved(to: NSEvent.mouseLocation) }
     override func mouseExited(with event: NSEvent) { owner?.pointerMoved(to: NSEvent.mouseLocation) }
+}
+
+/// The mascot's words for the right-click menu and VoiceOver.
+enum MascotAccessibility {
+    static let label = "Cado mascot"
+    static let askingLabel = "Cado mascot: record this meeting?"
+    static let meetingLabel = "Cado is recording a meeting"
+    static let help = "Click to start or stop dictating."
+    static let askingHelp = "Click to record this meeting."
+    static let meetingHelp = "Click to stop recording the meeting."
+    static let hideTitle = "Hide Mascot"
+    static let settingsTitle = "Settings…"
+
+    /// What VoiceOver calls the mascot: what it's doing, or asking (#32).
+    static func label(for visual: OverlayVisual, pose: Brand.Pose) -> String {
+        switch visual {
+        case .asking: return askingLabel
+        case .meeting: return meetingLabel
+        default: return pose == .idle ? label : MascotView.accessibilityLabel(for: pose)
+        }
+    }
+
+    /// What a press (a click) does now.
+    static func help(for visual: OverlayVisual) -> String {
+        switch visual {
+        case .asking: return askingHelp
+        case .meeting: return meetingHelp
+        default: return help
+        }
+    }
 }
 
 private extension CGPoint {

@@ -1,7 +1,8 @@
 import Foundation
 
-/// What the meeting hotkey, or a right-click on the mascot, does (#32): stop
-/// the meeting recording, or start one with the app that's on a call. Pure.
+/// What the meeting hotkey, or the mascot's Record Meeting / Stop Recording,
+/// does (#32): stop the meeting recording, or start one with the app that's
+/// on a call. Pure.
 enum MeetingToggle: Equatable {
     case start(MeetingApp)
     case stop

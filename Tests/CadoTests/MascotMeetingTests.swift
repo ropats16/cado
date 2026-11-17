@@ -2,8 +2,9 @@ import XCTest
 @testable import Cado
 
 /// The mascot and meetings (#32): the asking mascot, a click on it records,
-/// a click on the meeting mascot stops, a right-click starts or stops; the
-/// dictation clicks and drags stay as they were.
+/// a click on the meeting mascot stops, the right-click menu's Record
+/// Meeting / Stop Recording starts or stops; the dictation clicks and drags
+/// stay as they were.
 final class MascotMeetingTests: XCTestCase {
     private var panel: FakeOverlayPanel!
     private var clock: ManualClock!
@@ -48,33 +49,51 @@ final class MascotMeetingTests: XCTestCase {
         director.clicked()
         XCTAssertEqual(records, 1)
         XCTAssertEqual(dictationToggles, 0, "not a dictation")
-        director.secondaryClicked()
-        XCTAssertEqual(records, 2, "a right-click means the same there")
+        XCTAssertEqual(director.meetingItem, MascotMeetingItem(title: "Record Meeting", isEnabled: true))
+        director.meetingItemChosen()
+        XCTAssertEqual(records, 2, "its menu item means the same there")
     }
 
     func testAClickOnTheMeetingMascotStopsIt() {
         director.activityChanged(.meetingLive)
         director.clicked()
-        director.secondaryClicked()
+        XCTAssertEqual(director.meetingItem, MascotMeetingItem(title: "Stop Recording", isEnabled: true))
+        director.meetingItemChosen()
         XCTAssertEqual(meetingToggles, 2)
         XCTAssertEqual(dictationToggles, 0)
     }
 
-    func testARightClickOnTheRestingMascotStartsAMeetingAndAClickStillDictates() {
+    /// The right-click menu (#45) leads with Record Meeting (#32); a plain
+    /// click still dictates.
+    func testTheRestingMascotsMenuStartsAMeetingAndAClickStillDictates() {
         director.alwaysVisible = true
-        director.secondaryClicked()
+        XCTAssertEqual(director.meetingItem, MascotMeetingItem(title: "Record Meeting", isEnabled: true))
+        director.meetingItemChosen()
         XCTAssertEqual(meetingToggles, 1)
         director.clicked()
         XCTAssertEqual(dictationToggles, 1, "the plain click is unchanged")
     }
 
-    func testRightClicksAreIgnoredWhileDictating() {
+    func testRecordMeetingIsDisabledWhenAMeetingCantStart() {
+        var canStart = false
+        director.canStartMeeting = { canStart }
+        director.alwaysVisible = true
+        XCTAssertEqual(director.meetingItem, MascotMeetingItem(title: "Record Meeting", isEnabled: false))
+        director.meetingItemChosen()
+        XCTAssertEqual(meetingToggles, 0)
+        canStart = true
+        XCTAssertEqual(director.meetingItem?.isEnabled, true, "read as the menu opens")
+    }
+
+    func testNoMeetingItemWhileDictatingOrHidden() {
+        XCTAssertNil(director.meetingItem, "hidden")
         director.activityChanged(.dictating)
-        director.secondaryClicked()
+        XCTAssertNil(director.meetingItem)
         director.activityChanged(.transcribing)
-        director.secondaryClicked()
+        XCTAssertNil(director.meetingItem)
         director.textLanded()
-        director.secondaryClicked()
+        XCTAssertNil(director.meetingItem)
+        director.meetingItemChosen()
         XCTAssertEqual(meetingToggles + records, 0)
     }
 
@@ -82,13 +101,16 @@ final class MascotMeetingTests: XCTestCase {
         let feed = AppActivityFeed()
         var toggles = 0, recordsSeen = 0
         let overlay = MascotOverlay(feed: feed, panel: panel, clock: clock, settings: .init(alwaysVisible: true),
-                                    onRecordMeeting: { recordsSeen += 1 }, onToggleMeeting: { toggles += 1 })
-        panel.secondaryClick()
+                                    onRecordMeeting: { recordsSeen += 1 }, onToggleMeeting: { toggles += 1 },
+                                    canStartMeeting: { true })
+        XCTAssertEqual(panel.menuMeetingItem?.title, "Record Meeting")
+        panel.chooseMeetingItem()
         XCTAssertEqual(toggles, 1)
         overlay.setAsking(true)
         panel.click()
         XCTAssertEqual(recordsSeen, 1)
         feed.meetingStatusChanged(.recording(app: "Zoom", startedAt: 0, lost: []))
+        XCTAssertEqual(panel.menuMeetingItem?.title, "Stop Recording")
         panel.click()
         XCTAssertEqual(toggles, 2)
     }

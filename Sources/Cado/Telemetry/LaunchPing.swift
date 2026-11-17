@@ -149,7 +149,7 @@ final class LaunchPing: @unchecked Sendable {
 
 /// The words shown beside the choice, in onboarding and Settings.
 enum UsagePingCopy {
-    /// The setting's one name, in onboarding and Settings › Usage Count.
+    /// The setting's one name, in onboarding and Settings › General.
     static let title = "Send anonymous usage count"
     static let onboardingDetail = "Off unless you turn it on. Once per launch Cado sends an anonymous random ID, "
         + "its version, your macOS version and chip type. Never audio, text or files."

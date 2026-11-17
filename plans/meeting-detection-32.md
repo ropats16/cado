@@ -33,8 +33,11 @@ filtering browsers out is one check in `MicUsers.meetingApps`.
   nothing. Letter names are US-layout positions.
 - **Mascot:** plain click keeps its dictation meaning when resting/listening;
   on the meeting mascot it stops the meeting; on the asking mascot it records.
-  Right-click / Control-click starts or stops a meeting (same rules as the
-  hotkey). Drag unchanged.
+  Its right-click / Control-click menu (#45: Hide Mascot, Settings…) leads
+  with Record Meeting / Stop Recording (same rules as the hotkey; disabled
+  when the hotkey would only explain why it can't start; none while
+  dictating), also a VoiceOver action. Drag unchanged. (Before merging #45 a
+  right-click started/stopped directly; the menu replaced that.)
 - **Consent reminder:** an alert (Record / Cancel) before the first recording
   from any entry point; saved only on Record (cancel shows it next time).
 - **Max meeting length:** 30 min, 1, 2 (default, as before), 3, 4 h, Off; Off

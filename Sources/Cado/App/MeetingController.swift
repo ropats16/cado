@@ -43,7 +43,7 @@ final class MeetingController: MeetingActivity, MeetingRecording {
     /// `activity`: the app-wide feed (the overlay). `notes`: the notes
     /// library meeting notes are saved to. `systemAudio`: the permission as
     /// observed (`Permissions.systemAudio`), read when the menu renders and
-    /// when a meeting ends. `keepAudio`: Settings › Notes › Keep meeting
+    /// when a meeting ends. `keepAudio`: Settings › Meetings › Keep meeting
     /// audio, read when a meeting ends. `maxSeconds`: Settings › Meetings ›
     /// Max meeting length (nil = Off), read as a meeting starts. `consent`:
     /// the one-time reminder every start passes.

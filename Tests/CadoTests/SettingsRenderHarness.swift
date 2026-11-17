@@ -60,17 +60,49 @@ final class SettingsRenderHarness: XCTestCase {
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let prefix = ProcessInfo.processInfo.environment["CADO_RENDER_PREFIX"] ?? "settings"
 
-        let scenes: [(String, () async -> SettingsViewModel)] = [
-            ("", overview), ("-issues", issues), ("-apple-speech", appleSpeech),
-            ("-long-list-downloading", longListDownloading), ("-long-list-missing", longListMissing),
+        let all = SettingsTab.allCases
+        let scenes: [(String, [SettingsTab], () async -> SettingsViewModel)] = [
+            ("", all, overview), ("-issues", [.general, .dictation, .speechModel], issues),
+            ("-apple-speech", [.speechModel], appleSpeech),
+            ("-long-list-downloading", [.speechModel], longListDownloading),
+            ("-long-list-missing", [.speechModel], longListMissing),
+            ("-meeting-hotkey-clash", [.meetings], meetingHotkeyClash),
         ]
-        for (name, make) in scenes {
-            for dark in [false, true] {
-                let vm = await make()
-                let file = out.appendingPathComponent("\(prefix)\(name)-\(dark ? "dark" : "light").png")
-                defer { vm.recorder.cancelCapture(vm: vm) }
-                try await render(vm, dark: dark, to: file)
+        for (name, tabs, make) in scenes {
+            for tab in tabs {
+                for dark in [false, true] {
+                    let vm = await make()
+                    let file = out.appendingPathComponent("\(prefix)\(name)-\(tab.rawValue)-\(dark ? "dark" : "light").png")
+                    defer { vm.recorder.cancelCapture(vm: vm) }
+                    try await render(vm, tab: tab, dark: dark, to: file)
+                }
             }
+        }
+    }
+
+    /// The About Cado window (#45), top of its credits.
+    func testRenderAbout() async throws {
+        let out = URL(fileURLWithPath: ProcessInfo.processInfo.environment["CADO_RENDER_SETTINGS"]!)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let prefix = ProcessInfo.processInfo.environment["CADO_RENDER_PREFIX"] ?? "settings"
+        _ = NSApplication.shared
+        for dark in [false, true] {
+            let window = AboutWindowController.makeWindow(version: "Version 0.3.0 (12)")
+            window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
+            try await settle()
+            let view = window.contentView!.superview ?? window.contentView!
+            let size = view.bounds.size
+            let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
+                                       bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+            rep.size = size
+            NSAppearance(named: dark ? .darkAqua : .aqua)!.performAsCurrentDrawingAppearance {
+                view.cacheDisplay(in: view.bounds, to: rep)
+            }
+            try rep.representation(using: .png, properties: [:])!
+                .write(to: out.appendingPathComponent("\(prefix)-about-\(dark ? "dark" : "light").png"))
+            window.close()
         }
     }
 
@@ -137,6 +169,13 @@ final class SettingsRenderHarness: XCTestCase {
         return vm
     }
 
+    /// The meeting hotkey set to Hold to talk's keys (#32): the warning by it.
+    private func meetingHotkeyClash() async -> SettingsViewModel {
+        let vm = makeVM(engine: .whisperKit, status: .ready, login: StubLoginItem(enabled: true))
+        vm.commitHotkey(vm.holdBinding, for: .meeting)
+        return vm
+    }
+
     /// whisper's long Download list (closed when idle) with one download
     /// under way and one failed: it opens by itself.
     private func longListDownloading() async -> SettingsViewModel {
@@ -166,9 +205,9 @@ final class SettingsRenderHarness: XCTestCase {
 
     /// Hosts the view like `SettingsWindowController` does, grows the window to
     /// fit the whole form (no scrolling), and writes the frame at 2x.
-    private func render(_ vm: SettingsViewModel, dark: Bool, to file: URL) async throws {
+    private func render(_ vm: SettingsViewModel, tab: SettingsTab, dark: Bool, to file: URL) async throws {
         _ = NSApplication.shared
-        let window = SettingsWindowController.makeWindow(viewModel: vm)
+        let window = SettingsWindowController.makeWindow(viewModel: vm, tab: tab)
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
         try await settle()

@@ -76,10 +76,9 @@ final class MeetingAssistant {
         decide()
     }
 
-    /// The meeting hotkey, or a right-click on an idle mascot.
+    /// The meeting hotkey, or the mascot's Record Meeting / Stop Recording.
     func toggle() {
-        switch MeetingToggle.decide(status: meetings.status, prompt: detector.prompt, usingMic: usingMic,
-                                    choice: meetings.status == .idle ? meetings.currentChoice() : .nothing) {
+        switch decision {
         case .start(let app):
             if let prompt = detector.prompt, prompt.isRecord, prompt.app == app { return answer(prompt, yes: true) }
             meetings.perform(.start(app))
@@ -91,6 +90,18 @@ final class MeetingAssistant {
             Log.info("Meeting hotkey: \(body)")
             onExplain?(title, body)
         }
+    }
+
+    /// The meeting hotkey or the mascot's menu item would start or stop a
+    /// meeting now (or let the user pick the app), not just say why it can't.
+    var canToggle: Bool {
+        if case .explain = decision { return false }
+        return true
+    }
+
+    private var decision: MeetingToggle {
+        MeetingToggle.decide(status: meetings.status, prompt: detector.prompt, usingMic: usingMic,
+                             choice: meetings.status == .idle ? meetings.currentChoice() : .nothing)
     }
 
     /// A click on the asking mascot: Record.

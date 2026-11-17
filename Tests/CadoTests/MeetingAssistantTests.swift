@@ -174,6 +174,23 @@ final class MeetingAssistantTests: XCTestCase {
         XCTAssertEqual(meetings.actions, [])
     }
 
+    /// The mascot's Record Meeting is offered only when it would do
+    /// something, not just say why it can't.
+    func testCanToggleOnlyWhenAMeetingCanStartOrStop() {
+        meetings.choice = .nothing
+        XCTAssertFalse(assistant.canToggle, "no meeting app open")
+        meetings.choice = .several([])
+        XCTAssertTrue(assistant.canToggle, "the menu lets the user pick")
+        meetings.status = .transcribing(app: "Zoom", done: 0, total: 2)
+        XCTAssertFalse(assistant.canToggle, "still writing down the last one")
+        meetings.status = .recording(app: "Zoom", startedAt: 0, lost: [])
+        XCTAssertTrue(assistant.canToggle, "it stops")
+        meetings.status = .idle
+        meetings.choice = .nothing
+        zoomCallStarts()
+        XCTAssertTrue(assistant.canToggle, "the asked-about call")
+    }
+
     func testPollsEveryFewSeconds() {
         let reads = feed.reads
         wait(MeetingAssistant.pollInterval * 3)

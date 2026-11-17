@@ -166,7 +166,7 @@ final class OnboardingContentTests: XCTestCase {
         let step = content(engine: .missing, options: [byCommand]).step(.model)
         XCTAssertEqual(step.state, .todo)
         XCTAssertEqual(step.note, "Cado can't download Turbo (English/EU). Choose another speech model in Settings.")
-        XCTAssertEqual(step.primary, OnboardingButton(title: "Open Settings", action: .readiness(.openSettings)))
+        XCTAssertEqual(step.primary, OnboardingButton(title: "Open Settings", action: .readiness(.openSettings(.speechModel))))
     }
 
     func testAnOSManagedModelSendsToSettings() {
@@ -174,7 +174,7 @@ final class OnboardingContentTests: XCTestCase {
                                           title: "Apple Speech", detail: "Managed by macOS", isRecommended: true,
                                           isInstalled: false, fetch: .settings)
         let step = content(engine: .missing, options: [apple]).step(.model)
-        XCTAssertEqual(step.primary, OnboardingButton(title: "Open Settings", action: .readiness(.openSettings)))
+        XCTAssertEqual(step.primary, OnboardingButton(title: "Open Settings", action: .readiness(.openSettings(.speechModel))))
     }
 
     func testAVerifyingOrLoadingModelIsSettling() {

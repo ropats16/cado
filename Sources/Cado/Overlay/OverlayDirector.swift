@@ -1,5 +1,14 @@
 import Foundation
 
+/// The mascot's right-click menu item for meetings (#32), worded as the
+/// status menu's meeting items are.
+struct MascotMeetingItem: Equatable {
+    static let record = "Record Meeting"
+    static let stop = "Stop Recording"
+    let title: String
+    let isEnabled: Bool
+}
+
 /// What the mascot overlay shows (#19).
 enum OverlayVisual: Equatable {
     case hidden
@@ -84,9 +93,12 @@ protocol OverlayPanel: AnyObject {
 ///   celebration; a fading-out mascot is gone as far as the user is
 ///   concerned. On the meeting mascot it stops the meeting, and on the
 ///   asking one it records (#32).
-/// - `secondaryClicked` (a right- or Control-click) starts or stops a
-///   meeting where the mascot is idle or recording one (resting, asking,
-///   meeting); elsewhere it's dropped.
+/// - `meetingItem` is the right-click menu's first item (#32): Record
+///   Meeting on the asking mascot, Stop Recording on the meeting one, Record
+///   Meeting on the resting one (disabled while `canStartMeeting` says no);
+///   none while dictating, transcribing or celebrating. Choosing it
+///   (`meetingItemChosen`) records what's asked, or starts or stops a
+///   meeting as the meeting hotkey does.
 /// - `asking` (#32) shows the asking mascot while idle, even with
 ///   `alwaysVisible` off; it changes nothing while active or celebrating.
 ///
@@ -131,9 +143,12 @@ final class OverlayDirector {
     var onToggleDictation: (() -> Void)?
     /// A click on the asking mascot: record the meeting asked about.
     var onRecordMeeting: (() -> Void)?
-    /// A click on the meeting mascot, or a right-click on an idle one:
+    /// A click on the meeting mascot, or its menu item on an idle one:
     /// start or stop a meeting, as the meeting hotkey does.
     var onToggleMeeting: (() -> Void)?
+    /// A meeting can start now (not still finishing the last, a meeting app
+    /// open); read as the right-click menu opens.
+    var canStartMeeting: () -> Bool = { true }
 
     init(panel: OverlayPanel, clock: Clock = SystemClock()) {
         self.panel = panel
@@ -172,13 +187,20 @@ final class OverlayDirector {
         }
     }
 
-    /// A right- or Control-click on the mascot's body.
-    func secondaryClicked() {
+    /// The right-click menu's meeting item now; nil = none.
+    var meetingItem: MascotMeetingItem? {
         switch visual {
-        case .asking: onRecordMeeting?()
-        case .resting, .meeting: onToggleMeeting?()
-        case .hidden, .listening, .thinking, .done: break
+        case .asking: return MascotMeetingItem(title: MascotMeetingItem.record, isEnabled: true)
+        case .meeting: return MascotMeetingItem(title: MascotMeetingItem.stop, isEnabled: true)
+        case .resting: return MascotMeetingItem(title: MascotMeetingItem.record, isEnabled: canStartMeeting())
+        case .hidden, .listening, .thinking, .done: return nil
         }
+    }
+
+    /// The meeting item was chosen (the menu, or VoiceOver's action).
+    func meetingItemChosen() {
+        guard meetingItem?.isEnabled == true else { return }
+        visual == .asking ? onRecordMeeting?() : onToggleMeeting?()
     }
 
     func systemStateChanged() {

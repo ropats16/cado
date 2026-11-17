@@ -69,13 +69,25 @@ final class SettingsMeetingsTests: XCTestCase {
         XCTAssertEqual(configStore.config.meetingHotkey, binding)
         XCTAssertEqual(vm.meetingHotkeyDescription, "⇧⌘R")
         XCTAssertEqual(reloads, 1, "the tap is reinstalled with it")
-        XCTAssertNil(vm.hotkeyWarning)
+        XCTAssertNil(vm.meetingHotkeyWarning)
 
         vm.commitHotkey(configStore.config.hold, for: .meeting)
-        XCTAssertEqual(vm.hotkeyWarning, "Record meeting and Hold to talk use the same keys (⌃ ⇧). "
-                       + "Record a different shortcut, or click Reset to Default.")
+        let clash = "Record meeting and Hold to talk use the same keys (⌃ ⇧). "
+            + "Click Change… to choose a different shortcut, or Reset to Default."
+        XCTAssertEqual(vm.meetingHotkeyWarning, clash, "the Meetings tab, by the meeting hotkey")
+        XCTAssertEqual(vm.hotkeyWarning, clash, "and the Dictation tab, by Hold to talk")
         vm.resetHotkey(.meeting)
         XCTAssertEqual(configStore.config.meetingHotkey, .controlOptionM)
+        XCTAssertNil(vm.meetingHotkeyWarning)
+        XCTAssertNil(vm.hotkeyWarning)
+    }
+
+    /// A problem only the meeting hotkey has shows in the Meetings tab only.
+    func testAMeetingHotkeyProblemShowsInMeetingsOnly() {
+        let vm = makeVM()
+        vm.commitHotkey(KeyBinding(keyCode: KeyBinding.escapeKeyCode, modifiers: ["control"]), for: .meeting)
+        XCTAssertEqual(vm.meetingHotkeyWarning, "Record meeting uses the cancel key, so pressing it may cancel a dictation too. "
+                       + "Click Change… to choose a different shortcut, or Reset to Default.")
         XCTAssertNil(vm.hotkeyWarning)
     }
 

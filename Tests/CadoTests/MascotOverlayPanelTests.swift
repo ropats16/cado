@@ -226,6 +226,62 @@ final class MascotOverlayPanelTests: XCTestCase {
         XCTAssertNil(view.hitTest(view.convert(CGPoint(x: full.maxX - 2, y: full.minY + 2), to: view.superview)))
     }
 
+    /// Right-click menu (#45): Hide Mascot and Settings…, wired to the callbacks.
+    func testRightClickMenuHasHideAndSettings() throws {
+        let adapter = try makeAdapter()
+        var hid = 0, opened = 0
+        adapter.onHide = { hid += 1 }
+        adapter.onOpenSettings = { opened += 1 }
+        adapter.render(.resting)
+        adapter.show()
+        let view = try XCTUnwrap(adapter.window?.contentView as? MascotHostingView)
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [],
+                                                     timestamp: 0, windowNumber: 0, context: nil,
+                                                     eventNumber: 0, clickCount: 1, pressure: 1))
+        let menu = try XCTUnwrap(view.menu(for: event))
+        XCTAssertEqual(menu.items.map(\.title), ["Hide Mascot", "Settings…"])
+        for item in menu.items { _ = item.target?.perform(item.action) }
+        XCTAssertEqual(hid, 1)
+        XCTAssertEqual(opened, 1)
+    }
+
+    /// VoiceOver (#45): one named button; pressing it is a click; Hide and
+    /// Settings… are its actions.
+    func testVoiceOverSeesAButtonThatClicks() throws {
+        let adapter = try makeAdapter()
+        var clicks = 0
+        adapter.onClick = { clicks += 1 }
+        adapter.show()
+        let view = try XCTUnwrap(adapter.window?.contentView as? MascotHostingView)
+        XCTAssertTrue(view.isAccessibilityElement())
+        XCTAssertEqual(view.accessibilityRole(), .button)
+        XCTAssertEqual(view.accessibilityLabel(), "Cado mascot")
+        adapter.render(.listening)
+        XCTAssertEqual(view.accessibilityLabel(), "Cado is listening")
+        adapter.render(.thinking)
+        XCTAssertEqual(view.accessibilityLabel(), "Cado is transcribing")
+        adapter.render(.resting)
+        XCTAssertNotNil(view.accessibilityHelp())
+        XCTAssertTrue(view.accessibilityPerformPress())
+        XCTAssertEqual(clicks, 1)
+        XCTAssertEqual(view.accessibilityCustomActions()?.map(\.name), ["Hide Mascot", "Settings…"])
+    }
+
+    /// Hide does nothing while a dictation shows the mascot: not offered then.
+    func testHideOfferedOnlyWhileResting() throws {
+        let adapter = try makeAdapter()
+        adapter.render(.listening)
+        adapter.show()
+        let view = try XCTUnwrap(adapter.window?.contentView as? MascotHostingView)
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [],
+                                                     timestamp: 0, windowNumber: 0, context: nil,
+                                                     eventNumber: 0, clickCount: 1, pressure: 1))
+        let menu = try XCTUnwrap(view.menu(for: event))
+        XCTAssertEqual(menu.items.first?.isEnabled, false)
+        XCTAssertEqual(menu.items.last?.isEnabled, true)
+        XCTAssertEqual(view.accessibilityCustomActions()?.map(\.name), ["Settings…"])
+    }
+
     /// The window takes mouse events only while the pointer is over the body,
     /// so a click on the margin reaches the app underneath.
     func testTakesMouseEventsOnlyOverTheBody() throws {
@@ -296,28 +352,50 @@ final class MascotOverlayPanelTests: XCTestCase {
         XCTAssertEqual(store.positions, [:])
     }
 
-    /// #32: a right- or Control-click is its own click; the asking look.
-    func testASecondaryClickReportsSeparately() throws {
+    /// #32: the right-click menu leads with the meeting item, and VoiceOver
+    /// has it as an action; the asking look and its words.
+    func testTheMenuAndVoiceOverOfferTheMeetingItem() throws {
         let adapter = try makeAdapter()
-        var clicks = 0, secondary = 0
+        var chosen = 0, clicks = 0
+        var item: MascotMeetingItem? = MascotMeetingItem(title: "Record Meeting", isEnabled: true)
+        adapter.meetingItem = { item }
+        adapter.onMeetingItem = { chosen += 1 }
         adapter.onClick = { clicks += 1 }
-        adapter.onSecondaryClick = { secondary += 1 }
         adapter.render(.asking)
         XCTAssertTrue(adapter.model.isAsking)
         XCTAssertFalse(adapter.model.isMini)
         XCTAssertEqual(adapter.model.pose, .idle)
         adapter.show()
-        let window = try XCTUnwrap(adapter.window)
-        let body = try screenPoint(centre(MascotMotion.hitRect(mini: false)), in: window)
+        let view = try XCTUnwrap(adapter.window?.contentView as? MascotHostingView)
+        let menu = try XCTUnwrap(view.menu(for: try rightClick()))
+        XCTAssertEqual(menu.items.map(\.title), ["Record Meeting", "", "Hide Mascot", "Settings…"])
+        _ = menu.items[0].target?.perform(menu.items[0].action)
+        XCTAssertEqual(chosen, 1)
+        XCTAssertEqual(view.accessibilityLabel(), "Cado mascot: record this meeting?")
+        XCTAssertEqual(view.accessibilityHelp(), "Click to record this meeting.")
+        XCTAssertEqual(view.accessibilityCustomActions()?.map(\.name), ["Record Meeting", "Settings…"])
+        XCTAssertTrue(view.accessibilityPerformPress())
+        XCTAssertEqual(clicks, 1, "a press is a click: on the asking mascot, Record")
 
-        adapter.pointerDown(at: body, secondary: true)
-        adapter.pointerUp(at: body)
-        XCTAssertEqual([clicks, secondary], [0, 1])
-        adapter.pointerDown(at: body)
-        adapter.pointerUp(at: body)
-        XCTAssertEqual([clicks, secondary], [1, 1])
         adapter.render(.meeting)
         XCTAssertFalse(adapter.model.isAsking)
+        item = MascotMeetingItem(title: "Stop Recording", isEnabled: true)
+        XCTAssertEqual(view.accessibilityLabel(), "Cado is recording a meeting")
+        XCTAssertEqual(view.menu(for: try rightClick())?.items.first?.title, "Stop Recording")
+
+        adapter.render(.resting)
+        item = MascotMeetingItem(title: "Record Meeting", isEnabled: false)
+        XCTAssertEqual(view.menu(for: try rightClick())?.items.first?.isEnabled, false)
+        XCTAssertEqual(view.accessibilityCustomActions()?.map(\.name), ["Hide Mascot", "Settings…"],
+                       "a disabled item isn't an action")
+        item = nil
+        XCTAssertEqual(view.menu(for: try rightClick())?.items.map(\.title), ["Hide Mascot", "Settings…"])
+    }
+
+    private func rightClick() throws -> NSEvent {
+        try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [],
+                                         timestamp: 0, windowNumber: 0, context: nil,
+                                         eventNumber: 0, clickCount: 1, pressure: 1))
     }
 
     func testDragMovesTheWindowAndSavesTheSpot() throws {

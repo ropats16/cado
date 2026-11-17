@@ -97,8 +97,9 @@ struct StatusMenuContent: Equatable {
     /// A missing or broken model ranked behind another issue (e.g. Accessibility
     /// denied), so it isn't lost until that one is fixed.
     var modelHint: Row?
-    var microphone: Row
-    var accessibility: Row
+    /// nil (hidden) once granted: nothing to do, so no row.
+    var microphone: Row?
+    var accessibility: Row?
     var hold: String
     var toggle: String
     /// A config error, in plain words; clicking it opens Settings when
@@ -135,12 +136,12 @@ struct StatusMenuContent: Equatable {
         modelHint = modelIssue.flatMap { $0 == status.issue ? nil : Row(title: $0.menuDetail, action: $0.action) }
 
         switch inputs.microphone {
-        case .authorized: microphone = Row(title: "Microphone: Granted", action: nil)
+        case .authorized: microphone = nil
         case .notDetermined: microphone = Row(title: "Microphone: Not granted", action: .requestMicrophone)
         case .denied, .restricted: microphone = Row(title: "Microphone: Not granted", action: .openMicrophoneSettings)
         }
         accessibility = inputs.accessibility == .granted
-            ? Row(title: "Accessibility: Granted", action: nil)
+            ? nil
             : Row(title: "Accessibility: Not granted", action: .openAccessibilitySettings)
 
         self.hold = "\(ConfigValidator.hold): \(hold)"
@@ -150,13 +151,17 @@ struct StatusMenuContent: Equatable {
 
     /// Errors only, all of them hotkey ones (`ConfigValidator`); warnings
     /// are logged, and Settings shows the hotkey ones.
+    /// Each points to the tab with its hotkey (the meeting one is in
+    /// Meetings, #32); several, to every such tab, opening the first's.
     private static func configRow(_ errors: [ConfigIssue]) -> Row? {
         let errors = errors.filter { $0.topic == .hotkeys }
         guard let first = errors.first else { return nil }
+        let tabs = errors.compactMap(\.tabs.first).reduce(into: [SettingsTab]()) { if !$0.contains($1) { $0.append($1) } }
+        let tab = tabs.first ?? .dictation
         let title = errors.count == 1
-            ? "\(first.summary) Fix it in Settings › Hotkeys."
-            : "\(errors.count) hotkey problems. Fix them in Settings › Hotkeys."
-        return Row(title: title, action: .openSettings)
+            ? "\(first.summary) Fix it in Settings › \(tab.title)."
+            : "\(errors.count) hotkey problems. Fix them in Settings › \(tabs.map(\.title).joined(separator: " and "))."
+        return Row(title: title, action: .openSettings(tab))
     }
 }
 
@@ -171,7 +176,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var onOpenLibrary: (() -> Void)?
     /// "Open Last Meeting Note" was clicked (#42).
     var onOpenLastMeetingNote: (() -> Void)?
-    var onOpenAcknowledgements: (() -> Void)?
+    var onOpenAbout: (() -> Void)?
     var onCheckForUpdates: (() -> Void)?
     var onOpenConfig: (() -> Void)?
     /// A Recent Dictations row was clicked: the full text to copy again.
@@ -193,7 +198,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private let configIssues = NSMenuItem()
     private let recents = NSMenuItem(title: "Recent Dictations", action: nil, keyEquivalent: "")
     private let recentsMenu = NSMenu()
-    private let recentsSeparator = NSMenuItem.separator()
+    private let permissionSeparator = NSMenuItem.separator()
+    private let advanced = NSMenuItem(title: "Advanced", action: nil, keyEquivalent: "")
+    private let advancedMenu = NSMenu()
     private let checkForUpdates = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
     private let lastMeetingNote = NSMenuItem(title: LastMeetingNoteRow.title, action: nil, keyEquivalent: "")
     private var shownRecents: [RecentDictations.Row]?
@@ -219,21 +226,28 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         lastMeetingNote.isEnabled = false
         recentsMenu.autoenablesItems = false
         recents.submenu = recentsMenu
-        menu.items = [
-            header, reason, modelHint, .separator(),
-        ] + meeting.items + [
-            microphone, accessibility, .separator(),
-            hold, toggle, recentsSeparator,
-            recents,
-            item("Set Up Cado…", #selector(openOnboarding)),
-            item("Library…", #selector(openLibrary), key: "l"),
-            lastMeetingNote,
-            item("Settings…", #selector(openSettings), key: ","),
-            item("Acknowledgements…", #selector(openAcknowledgements)),
-            checkForUpdates,
+        advancedMenu.autoenablesItems = false
+        advancedMenu.items = [
             item("Open Config File…", #selector(openConfig)),
             item("Open Models Folder…", #selector(openModelsFolder)),
-            configIssues, .separator(),
+        ]
+        advanced.submenu = advancedMenu
+        menu.items = [
+            header, reason, modelHint, configIssues, .separator(),
+        ] + meeting.items + [
+            microphone, accessibility, permissionSeparator,
+            hold, toggle, .separator(),
+            recents,
+            item("Library…", #selector(openLibrary), key: "l"),
+            lastMeetingNote,
+            .separator(),
+            item("Set Up Cado…", #selector(openOnboarding)),
+            item("Settings…", #selector(openSettings), key: ","),
+            advanced,
+            .separator(),
+            checkForUpdates,
+            item("About Cado", #selector(openAbout)),
+            .separator(),
             NSMenuItem(title: "Quit Cado", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
         ]
         statusItem.menu = menu
@@ -251,6 +265,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         set(modelHint, content.modelHint)
         set(microphone, content.microphone)
         set(accessibility, content.accessibility)
+        permissionSeparator.isHidden = content.microphone == nil && content.accessibility == nil
         hold.title = content.hold
         toggle.title = content.toggle
         set(configIssues, content.configIssues)
@@ -301,7 +316,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     /// and only when the rows changed.
     private func renderRecents(_ content: RecentDictations?) {
         recents.isHidden = content == nil
-        recentsSeparator.isHidden = content == nil
         guard let content, content.rows != shownRecents else { return }
         shownRecents = content.rows
         recentsMenu.removeAllItems()
@@ -354,7 +368,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func openSettings() { onOpenSettings?() }
     @objc private func openLibrary() { onOpenLibrary?() }
     @objc private func openLastMeetingNote() { onOpenLastMeetingNote?() }
-    @objc private func openAcknowledgements() { onOpenAcknowledgements?() }
+    @objc private func openAbout() { onOpenAbout?() }
     @objc private func checkForUpdatesClicked() { onCheckForUpdates?() }
     @objc private func openConfig() { onOpenConfig?() }
     @objc private func openModelsFolder() { onAction?(.openModelsFolder) }

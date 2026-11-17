@@ -111,8 +111,9 @@ struct MascotView: View {
             $0.scaleEffect(model.isMini ? MascotMotion.miniScale : 1, anchor: MascotMotion.miniAnchor)
         }
         .frame(width: Self.side, height: Self.side)
-        .accessibilityElement()
-        .accessibilityLabel(Text(accessibilityLabel))
+        // The hosting view is the one VoiceOver element (#45), and speaks
+        // `accessibilityLabel(for:)` itself; this would be a duplicate child.
+        .accessibilityHidden(true)
     }
 
     private var bodyScale: CGSize {
@@ -120,13 +121,13 @@ struct MascotView: View {
             ? MascotMotion.bodyScale(level: model.displayLevel) : CGSize(width: 1, height: 1)
     }
 
-    private var accessibilityLabel: String {
-        if model.isAsking { return "Cado: record this meeting?" }
-        switch model.pose {
-        case .idle: return "Cado"
-        case .listening: return "Cado is listening"
-        case .thinking: return "Cado is transcribing"
-        case .done: return "Cado is done"
+    /// What VoiceOver says for a pose (the hosting view's label).
+    static func accessibilityLabel(for pose: Brand.Pose) -> String {
+        switch pose {
+        case .idle: "Cado"
+        case .listening: "Cado is listening"
+        case .thinking: "Cado is transcribing"
+        case .done: "Cado is done"
         }
     }
 }

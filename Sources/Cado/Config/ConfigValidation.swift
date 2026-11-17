@@ -13,6 +13,9 @@ struct ConfigIssue: Equatable {
     /// For people (Settings, the menu): plain words, one sentence, with the
     /// names Settings shows ("Hold to talk", "Toggle to talk").
     let summary: String
+    /// The Settings tabs whose hotkeys it's about, where it's fixed: first
+    /// the one the menu points to (#32: the meeting hotkey is in Meetings).
+    var tabs: [SettingsTab] = [.dictation]
 }
 
 /// Which issues are new since the last look, so each is logged once when
@@ -125,25 +128,27 @@ enum ConfigValidator {
             issues.append(ConfigIssue(
                 severity: .error, topic: .hotkeys,
                 message: "`meetingHotkey` and `\(key)` are the same binding (\(meeting)); both would trigger on the same key.",
-                summary: "\(Self.meeting) and \(name) use the same keys (\(meeting))."))
+                summary: "\(Self.meeting) and \(name) use the same keys (\(meeting)).",
+                tabs: [.meetings, .dictation]))
         }
         if meeting.isUnmatchable {
             issues.append(ConfigIssue(
                 severity: .error, topic: .hotkeys,
                 message: "`meetingHotkey` binding is empty (keyCode < 0 with no modifiers); it can never match.",
-                summary: "\(Self.meeting) has no keys set."))
+                summary: "\(Self.meeting) has no keys set.", tabs: [.meetings]))
         }
         if meeting.keyCode >= 0, config.cancelKeyCode == meeting.keyCode {
             issues.append(ConfigIssue(
                 severity: .warning, topic: .hotkeys,
                 message: "`cancelKeyCode` (\(config.cancelKeyCode)) collides with the `meetingHotkey` key code.",
-                summary: "\(Self.meeting) uses the cancel key, so pressing it may cancel a dictation too."))
+                summary: "\(Self.meeting) uses the cancel key, so pressing it may cancel a dictation too.",
+                tabs: [.meetings]))
         }
         for name in meeting.unknownModifiers {
             issues.append(ConfigIssue(
                 severity: .warning, topic: .hotkeys,
                 message: "`meetingHotkey` has unknown modifier \"\(name)\"; it will be ignored.",
-                summary: Self.unknownKey(name, in: Self.meeting)))
+                summary: Self.unknownKey(name, in: Self.meeting), tabs: [.meetings]))
         }
         return issues
     }
