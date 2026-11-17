@@ -339,14 +339,14 @@ final class MeetingSession {
             end()
             whenCopiesAreSafe(done)
         case .recording(let meeting):
-            if meeting.spool.isDurable { meeting.spool.record(.appQuit) }
+            if meeting.spool.legacyDurable { meeting.spool.record(.appQuit) }
             meeting.quit = done
             finish(meeting)
         case .finishing(let meeting):
-            if meeting.spool.isDurable { meeting.spool.record(.appQuit) }
+            if meeting.spool.legacyDurable { meeting.spool.record(.appQuit) }
             meeting.quit = done
         case .transcribing(let meeting):
-            if meeting.spool.isDurable { meeting.spool.record(.appQuit) }
+            if meeting.spool.legacyDurable { meeting.spool.record(.appQuit) }
             meeting.quit = done
             leaveForNextLaunch(meeting)
         }
@@ -705,12 +705,12 @@ final class MeetingSession {
             }
             copyAudioThenDiscard(spool, into: folder, title: title, failuresSoFar: 0, quietOnFailure: true) { [feedback] kept in
                 let audio = kept != nil ? "The transcript and audio are in \(folder.path)."
-                    : spool.isDurable ? "The transcript is in \(folder.path); the audio is safe and Cado copies it there "
+                    : spool.legacyDurable ? "The transcript is in \(folder.path); the audio is safe and Cado copies it there "
                         + "the next time it starts."
                     : "The transcript is in \(folder.path); the audio couldn't be kept."
                 feedback.notify(title: "Couldn't save the meeting note", body: "\(reason) \(audio)")
             }
-        } else if spool.isDurable {
+        } else if spool.legacyDurable {
             spool.record(.noteSaveFailed(reason: reason))
             Log.error("Meeting: the note couldn't be saved anywhere; the meeting stays in its spool for the next launch.")
             feedback.notify(title: "Couldn't save the meeting note",
@@ -727,7 +727,7 @@ final class MeetingSession {
     private func leaveForNextLaunch(_ meeting: Meeting) {
         guard let done = meeting.quit else { return }
         endPrewarmIfHeld(meeting)
-        guard !meeting.spool.isDurable else {
+        guard !meeting.spool.legacyDurable else {
             Log.info("Meeting: Cado is quitting; the meeting with \(meeting.appName) is finished next launch.")
             end()
             return whenCopiesAreSafe(done)
@@ -781,7 +781,7 @@ final class MeetingSession {
             return audioNotCopied(spool, NoFolder(), title: title, tell: failuresSoFar == 0 && !quietOnFailure, then: then)
         }
         let audio = spool.audio()
-        let fragile = !spool.isDurable
+        let fragile = !spool.legacyDurable
         if fragile { fragileCopies += 1 }
         var failure: Error?
         let archive = self.archive
@@ -805,13 +805,13 @@ final class MeetingSession {
         Log.error("Couldn't keep the meeting's audio: \(error.localizedDescription)")
         spool.record(.audioKeepFailed(reason: error.localizedDescription))
         if tell {
-            let body = spool.isDurable
+            let body = spool.legacyDurable
                 ? "The audio of “\(title)” couldn't be copied to Cado's Meeting Audio folder yet. It's safe in "
                     + "\(spool.location?.path ?? "Cado's Meetings In Progress folder"); Cado will try again the next time it starts."
                 : "The audio of “\(title)” couldn't be copied to Cado's Meeting Audio folder, so it couldn't be kept."
             feedback.notify(title: "Couldn't keep the meeting's audio", body: body)
         }
-        if !spool.isDurable { spool.discard() }
+        if !spool.legacyDurable { spool.discard() }
         then(nil)
     }
 
@@ -1025,4 +1025,9 @@ final class MeetingSession {
 
 private extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
+private extension MeetingSpoolHandle {
+    /// The old `isDurable`: on disk and nothing failed to write.
+    var legacyDurable: Bool { writeError == nil && hasAllAudioOnDisk }
 }

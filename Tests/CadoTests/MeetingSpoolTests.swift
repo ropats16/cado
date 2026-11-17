@@ -59,6 +59,7 @@ class MeetingSpoolTests: XCTestCase {
         .noteSaved(note: "/n/Meeting.md", keepAudio: true, audioFolder: "/a/M"),
         .noteSaved(note: nil, keepAudio: false, audioFolder: nil),
         .audioKept(folder: "/a/M"), .audioKeepFailed(reason: "full"), .noteSaveFailed(reason: "read-only"),
+        .recoveryGaveUp(reason: "stalled"), .toldUser(.meetingIsSafe), .toldUser(.recordingSetAside),
     ]
 
     func testEventsRoundTripInOrder() throws {
@@ -318,17 +319,103 @@ final class FolderMeetingSpoolSafetyTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: withAudio.path))
     }
 
-    func testDurability() throws {
+    /// #31 N1: what's on disk counts, not whether a write failed.
+    func testOnDiskMeansTheFolderIsThereWhateverFailedToWrite() throws {
         let h = try FolderMeetingSpool(root: root).create(meeting)
-        XCTAssertTrue(h.isDurable)
+        let dir = root.appendingPathComponent(meeting.id.uuidString)
+        XCTAssertTrue(h.hasFolder)
+        XCTAssertTrue(h.hasAllAudioOnDisk)
         XCTAssertEqual(h.location?.lastPathComponent, meeting.id.uuidString)
-        try FileManager.default.removeItem(at: root.appendingPathComponent(meeting.id.uuidString))
         h.append([0.1], for: .me)
-        XCTAssertFalse(h.isDurable)
-        XCTAssertFalse(InMemorySpoolHandle(meeting).isDurable)
-        let fallback = FallbackSpoolHandle(FullDiskSpoolHandle(meeting, room: 1))
+        // A journal append fails (as on a full disk): the folder and its audio are still there.
+        try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: dir.appendingPathComponent("events.jsonl").path)
+        XCTAssertFalse(h.record(.stopped(at: 1, capReached: false)))
+        XCTAssertNotNil(h.writeError)
+        XCTAssertTrue(h.hasFolder, "A failed write doesn't take the folder away")
+        XCTAssertTrue(h.hasAllAudioOnDisk)
+        try FileManager.default.removeItem(at: dir)
+        XCTAssertFalse(h.hasFolder)
+        XCTAssertFalse(InMemorySpoolHandle(meeting).hasFolder)
+        XCTAssertFalse(InMemorySpoolHandle(meeting).hasAllAudioOnDisk)
+        let fallback = FallbackSpoolHandle(FullDiskSpoolHandle(meeting, room: 1, onDisk: true))
         fallback.append([0.1, 0.2], for: .me)
-        XCTAssertFalse(fallback.isDurable)
+        XCTAssertTrue(fallback.hasFolder, "Half on disk: the disk part is there")
+        XCTAssertFalse(fallback.hasAllAudioOnDisk, "…but not all of it")
+    }
+
+    /// #31 N1: `record` says whether the event reached the journal.
+    func testRecordSaysWhetherTheEventReachedTheDisk() throws {
+        let h = try FolderMeetingSpool(root: root).create(meeting)
+        XCTAssertTrue(h.record(.sideStarted(.me, origin: 0)))
+        try FileManager.default.removeItem(at: root.appendingPathComponent(meeting.id.uuidString))
+        XCTAssertFalse(h.record(.stopped(at: 1, capReached: false)), "The folder is gone")
+        XCTAssertTrue(InMemorySpoolHandle(meeting).record(.appQuit))
+        XCTAssertFalse(FallbackSpoolHandle(h).record(.appQuit), "Through the fallback too")
+
+        let other = SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "z", startDate: Date())
+        let unwritable = try FolderMeetingSpool(root: root).create(other)
+        try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath:
+            root.appendingPathComponent(other.id.uuidString).appendingPathComponent("events.jsonl").path)
+        XCTAssertFalse(unwritable.record(.noteSaved(note: "/n.md", keepAudio: false, audioFolder: nil)), "A journal that can't be written")
+    }
+
+    /// #31 N1: a mark is a rename in place; the next launch finds the
+    /// meeting with its mark, deletes one marked written down, and skips a
+    /// name it doesn't know.
+    func testMarkedFoldersAreFoundWithTheirMarkAndWrittenDownOnesAreDeleted() throws {
+        var open: [MeetingSpoolHandle] = []
+        func make(_ date: TimeInterval) throws -> SpooledMeeting {
+            let m = SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "z", startDate: Date(timeIntervalSinceReferenceDate: date))
+            let h = try FolderMeetingSpool(root: root).create(m)
+            h.append([0.1, 0.2], for: .me)
+            XCTAssertTrue(h.record(.sideStarted(.me, origin: 0)))
+            open.append(h)
+            return m
+        }
+        let a = try make(1), b = try make(2), c = try make(3)
+        XCTAssertTrue(open[0].mark(.noteNotSaved))
+        XCTAssertEqual(open[0].location?.lastPathComponent, a.id.uuidString + ".unsaved")
+        XCTAssertTrue(open[1].mark(.noteNotSaved))
+        XCTAssertTrue(open[1].mark(.audioPending), "From one mark to another")
+        XCTAssertTrue(open[2].mark(.writtenDown))
+        XCTAssertTrue(open[0].hasFolder)
+        XCTAssertTrue(open[0].record(.stopped(at: 1, capReached: false)), "Still writes, in its new place")
+        open[0].append([0.3], for: .me)
+        XCTAssertEqual(try open[0].samples(0..<3, of: .me), [0.1, 0.2, 0.3])
+        XCTAssertTrue(FolderMeetingSpool(root: root).leftovers().isEmpty, "Still locked while open")
+        let stranger = root.appendingPathComponent(UUID().uuidString + ".later")
+        try FileManager.default.createDirectory(at: stranger, withIntermediateDirectories: true)
+        try Data([1, 2, 3, 4]).write(to: stranger.appendingPathComponent("me.f32"))
+        open = []   // closed, as at quit
+
+        let left = FolderMeetingSpool(root: root).leftovers()
+        XCTAssertEqual(left.map(\.handle.meeting), [a, b])
+        XCTAssertEqual(left.map(\.mark), [.noteNotSaved, .audioPending])
+        XCTAssertEqual(left[0].events, [.sideStarted(.me, origin: 0), .stopped(at: 1, capReached: false)])
+        XCTAssertEqual(left[0].handle.sampleCount(of: .me), 3)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(c.id.uuidString + ".done").path),
+                       "Written down: deleted")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stranger.path), "A name it doesn't know is left as it is")
+        left[1].handle.discard()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(b.id.uuidString + ".keep-audio").path))
+    }
+
+    /// #31 N3: a meeting recovery gave up on is moved, untouched, elsewhere.
+    func testAFolderCanBeMovedAsItIs() throws {
+        let h = try FolderMeetingSpool(root: root).create(meeting)
+        h.append([0.5], for: .them)
+        h.record(.recoveryGaveUp(reason: "x"))
+        let archive = root.deletingLastPathComponent().appendingPathComponent("archive-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: archive) }
+        try FileManager.default.createDirectory(at: archive, withIntermediateDirectories: true)
+        let moved = try XCTUnwrap(h.moveFolder(into: archive))
+        XCTAssertEqual(moved.path, archive.appendingPathComponent(meeting.id.uuidString).path)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: moved.path).sorted(),
+                       ["events.jsonl", "lock", "me.f32", "meeting.json", "them.f32"])
+        XCTAssertTrue(FolderMeetingSpool(root: root).leftovers().isEmpty, "Out of the spool")
+        XCTAssertNil(h.moveFolder(into: archive.appendingPathComponent("missing")), "Can't: nil, left where it is")
+        XCTAssertNil(InMemorySpoolHandle(meeting).moveFolder(into: archive))
+        XCTAssertFalse(InMemorySpoolHandle(meeting).mark(.writtenDown), "No folder to mark")
     }
 
     /// A failed delete is logged and leaves the folder: a later discard (or
@@ -364,28 +451,50 @@ final class FolderMeetingSpoolSafetyTests: XCTestCase {
 
 /// A spool whose disk fills up: takes `room` samples per side, then refuses
 /// appends and reports `writeError`, like the folder spool on a full disk
-/// (what was written stays readable).
+/// (what was written stays readable). Once full, the journal takes nothing
+/// either, unless `journalKeepsWorking`. `onDisk`: it has a folder (what's
+/// in it outlives the app), as the folder spool.
 final class FullDiskSpoolHandle: MeetingSpoolHandle {
     struct DiskFull: LocalizedError { var errorDescription: String? { "No space left on device" } }
     let inner: InMemorySpoolHandle
     let room: Int
+    let onDisk: Bool
+    var journalKeepsWorking = false
     private(set) var writeError: Error?
-    init(_ meeting: SpooledMeeting, room: Int) { inner = InMemorySpoolHandle(meeting); self.room = room }
+    private(set) var marks: [SpoolFolderMark] = []
+    init(_ meeting: SpooledMeeting, room: Int, onDisk: Bool = false) {
+        inner = InMemorySpoolHandle(meeting); self.room = room; self.onDisk = onDisk
+    }
     var meeting: SpooledMeeting { inner.meeting }
+    var events: [SpoolEvent] { inner.events }
     func append(_ samples: [Float], for speaker: MeetingSpeaker) {
         let free = max(0, room - inner.sampleCount(of: speaker))
         guard writeError == nil, free >= samples.count else { writeError = writeError ?? DiskFull(); return }
         inner.append(samples, for: speaker)
     }
-    func record(_ event: SpoolEvent) { if writeError == nil { inner.record(event) } }
+    func record(_ event: SpoolEvent) -> Bool {
+        guard writeError == nil || journalKeepsWorking else { return false }
+        return inner.record(event)
+    }
     func sampleCount(of speaker: MeetingSpeaker) -> Int { inner.sampleCount(of: speaker) }
     func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] { try inner.samples(range, of: speaker) }
     func isSilent(_ speaker: MeetingSpeaker) -> Bool { inner.isSilent(speaker) }
     func audio() -> SpoolAudio { inner.audio() }
-    /// Stands in for a disk spool: durable until it's full.
-    var isDurable: Bool { writeError == nil }
-    var location: URL? { nil }
+    var hasFolder: Bool { onDisk && !inner.isDiscarded }
+    var hasAllAudioOnDisk: Bool { hasFolder }
+    var location: URL? { onDisk ? URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)") : nil }
+    func mark(_ mark: SpoolFolderMark) -> Bool {
+        guard hasFolder else { return false }
+        marks.append(mark)
+        return true
+    }
+    func moveFolder(into folder: URL) -> URL? { nil }
     func discard() { inner.discard() }
+    /// What the next launch finds of it: its folder, unless gone or marked written down.
+    var leftover: LeftoverMeeting? {
+        guard hasFolder, marks.last != .writtenDown else { return nil }
+        return LeftoverMeeting(handle: self, events: events, mark: marks.last)
+    }
 }
 
 /// `FallbackSpoolHandle`: after the disk spool stops taking audio, the rest

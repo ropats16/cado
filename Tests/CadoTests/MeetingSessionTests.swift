@@ -128,8 +128,11 @@ final class MeetingSessionTests: XCTestCase {
         var synthetic = false
         /// Spools whose audio can't be read back.
         var unreadable = false
-        /// Spools that count as on disk (`isDurable`), as the folder spool.
+        /// Spools that count as on disk (`hasFolder`), as the folder spool;
+        /// with `room`, half on disk once full.
         var durable = false
+        /// Durable spools' journals refuse from the first event this picks.
+        var refuses: (SpoolEvent) -> Bool = { _ in false }
         var left: [LeftoverMeeting] = []
         private(set) var handles: [MeetingSpoolHandle] = []
         private(set) var listed = 0
@@ -137,8 +140,9 @@ final class MeetingSessionTests: XCTestCase {
             if let failCreate { throw failCreate }
             let handle: MeetingSpoolHandle = synthetic ? ToneSpoolHandle(meeting)
                 : unreadable ? UnreadableSpoolHandle(InMemorySpoolHandle(meeting))
-                : durable ? DurableSpoolHandle(InMemorySpoolHandle(meeting))
-                : room.map { FullDiskSpoolHandle(meeting, room: $0) } ?? InMemorySpoolHandle(meeting)
+                : room.map { FullDiskSpoolHandle(meeting, room: $0, onDisk: durable) as MeetingSpoolHandle }
+                    ?? (durable ? DurableSpoolHandle(InMemorySpoolHandle(meeting), refuses: refuses) as MeetingSpoolHandle
+                        : InMemorySpoolHandle(meeting))
             handles.append(handle)
             return handle
         }
@@ -1039,13 +1043,16 @@ final class UnreadableSpoolHandle: MeetingSpoolHandle {
     var meeting: SpooledMeeting { inner.meeting }
     var writeError: Error? { nil }
     func append(_ samples: [Float], for speaker: MeetingSpeaker) { inner.append(samples, for: speaker) }
-    func record(_ event: SpoolEvent) { inner.record(event) }
+    func record(_ event: SpoolEvent) -> Bool { inner.record(event) }
     func sampleCount(of speaker: MeetingSpeaker) -> Int { inner.sampleCount(of: speaker) }
     func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] { throw Unreadable() }
     func isSilent(_ speaker: MeetingSpeaker) -> Bool { false }
     func audio() -> SpoolAudio { SpoolAudio(counts: inner.audio().counts) { _, _ in throw Unreadable() } }
-    var isDurable: Bool { true }
+    var hasFolder: Bool { !inner.isDiscarded }
+    var hasAllAudioOnDisk: Bool { hasFolder }
     var location: URL? { URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)") }
+    func mark(_ mark: SpoolFolderMark) -> Bool { false }
+    func moveFolder(into folder: URL) -> URL? { nil }
     func discard() { inner.discard() }
 }
 
@@ -1061,7 +1068,7 @@ final class ToneSpoolHandle: MeetingSpoolHandle {
         counts[speaker, default: 0] += samples.count
         if !heard.contains(speaker), samples.contains(where: { $0 != 0 }) { heard.insert(speaker) }
     }
-    func record(_ event: SpoolEvent) {}
+    func record(_ event: SpoolEvent) -> Bool { true }
     func sampleCount(of speaker: MeetingSpeaker) -> Int { counts[speaker] ?? 0 }
     func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] {
         [Float](repeating: speaker == .me ? 0.2 : 0.3, count: max(0, min(range.upperBound, sampleCount(of: speaker)) - range.lowerBound))
@@ -1070,8 +1077,11 @@ final class ToneSpoolHandle: MeetingSpoolHandle {
     func audio() -> SpoolAudio {
         SpoolAudio(counts: counts) { speaker, r in [Float](repeating: speaker == .me ? 0.2 : 0.3, count: r.count) }
     }
-    var isDurable: Bool { true }
+    var hasFolder: Bool { true }
+    var hasAllAudioOnDisk: Bool { true }
     var location: URL? { nil }
+    func mark(_ mark: SpoolFolderMark) -> Bool { true }
+    func moveFolder(into folder: URL) -> URL? { nil }
     func discard() { counts = [:] }
 }
 
@@ -1086,23 +1096,61 @@ extension MeetingSessionTests {
     }
 }
 
-/// An in-memory spool that counts as on disk (`isDurable`), like the folder
-/// spool: what the session leaves for the next launch stays in it.
+/// An in-memory spool that counts as on disk (`hasFolder`), like the folder
+/// spool: what the session leaves for the next launch stays in it. From the
+/// first event `refuses` picks, its journal takes nothing more (the folder
+/// spool after a failed write: a full disk); `reopen()` (the next launch)
+/// lets it write again. Marks and moves are remembered.
 final class DurableSpoolHandle: MeetingSpoolHandle {
     let inner: InMemorySpoolHandle
-    init(_ inner: InMemorySpoolHandle) { self.inner = inner }
+    var refuses: (SpoolEvent) -> Bool = { _ in false }
+    var canMark = true, canMove = true
+    private(set) var journalFailed = false
+    private(set) var marks: [SpoolFolderMark] = []
+    private(set) var movedTo: URL?
+    init(_ inner: InMemorySpoolHandle, refuses: @escaping (SpoolEvent) -> Bool = { _ in false }) {
+        self.inner = inner
+        self.refuses = refuses
+    }
     var meeting: SpooledMeeting { inner.meeting }
-    var writeError: Error? { nil }
+    var writeError: Error? { journalFailed ? FullDiskSpoolHandle.DiskFull() : nil }
     var events: [SpoolEvent] { inner.events }
     func append(_ samples: [Float], for speaker: MeetingSpeaker) { inner.append(samples, for: speaker) }
-    func record(_ event: SpoolEvent) { inner.record(event) }
+    func record(_ event: SpoolEvent) -> Bool {
+        if !journalFailed, refuses(event) { journalFailed = true }
+        return journalFailed ? false : inner.record(event)
+    }
     func sampleCount(of speaker: MeetingSpeaker) -> Int { inner.sampleCount(of: speaker) }
     func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] { try inner.samples(range, of: speaker) }
     func isSilent(_ speaker: MeetingSpeaker) -> Bool { inner.isSilent(speaker) }
     func audio() -> SpoolAudio { inner.audio() }
-    var isDurable: Bool { true }
-    var location: URL? { URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)") }
+    var hasFolder: Bool { !inner.isDiscarded && movedTo == nil }
+    var hasAllAudioOnDisk: Bool { hasFolder }
+    var location: URL? {
+        movedTo ?? URL(fileURLWithPath: "/spool/\(meeting.id.uuidString)" + (marks.last.map { "." + $0.rawValue } ?? ""))
+    }
+    func mark(_ mark: SpoolFolderMark) -> Bool {
+        guard hasFolder, canMark else { return false }
+        marks.append(mark)
+        return true
+    }
+    func moveFolder(into folder: URL) -> URL? {
+        guard hasFolder, canMove else { return nil }
+        movedTo = folder.appendingPathComponent(meeting.id.uuidString)
+        return movedTo
+    }
     func discard() { inner.discard() }
+    /// The next launch: the journal takes events again (the disk has room).
+    func reopen(refusing: @escaping (SpoolEvent) -> Bool = { _ in false }) {
+        journalFailed = false
+        refuses = refusing
+    }
+    /// What the next launch finds of it: its folder, unless gone, moved or
+    /// marked written down.
+    var leftover: LeftoverMeeting? {
+        guard hasFolder, marks.last != .writtenDown else { return nil }
+        return LeftoverMeeting(handle: self, events: events, mark: marks.last)
+    }
 }
 
 /// #31 review: the spool is the last copy of the meeting.

@@ -124,6 +124,7 @@ struct RecoveryPlan: Equatable {
                 concluded?.keepFailures += 1
             case .noteSaveFailed:
                 saveFailed = true
+            case .recoveryGaveUp, .toldUser: break   // `MeetingSession` reads these itself
             }
         }
         closeAttempt()
