@@ -2,6 +2,19 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
+## Unreleased
+
+### Added
+- "Record this meeting?": when a meeting app (Zoom, Teams, Slack, Webex, Discord, FaceTime, or a browser for Meet and other web calls) starts using the microphone, Cado asks, with Record and Not Now. It asks in a notification, in the menu (the menu bar shows "Record?") and with the mascot, so it works with notifications off too. Cado never records by itself. Needs macOS 14.4 or later; turn it off in Settings › Meetings.
+- "Stop recording?": when the recorded app stops using the microphone, Cado asks whether to stop. It never stops by itself.
+- Meeting hotkey: ⌃⌥M starts and stops a meeting recording. Change it in Settings › Hotkeys › Record meeting.
+- The mascot and meetings: right-click it to start or stop a meeting; click it while a meeting records to stop; click it when it asks to record.
+- A one-time reminder before your first meeting recording that getting everyone's consent to be recorded is up to you.
+- Settings › Meetings › Max meeting length: 30 minutes to 4 hours (default 2 hours, as before) or Off. A meeting that reaches it stops with a notification, and its note is saved as usual.
+
+### Changed
+- Settings shows letter keys in hotkeys by name ("⇧⌘R" instead of a key number).
+
 ## 0.3.0 - 2026-11-17
 
 ### Added
