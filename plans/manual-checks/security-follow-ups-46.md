@@ -5,8 +5,7 @@ Operational checks and remaining owner acceptance steps. Status updated on
 
 ## Verified for #49
 - [x] Downloaded the public latest v0.2.0 `appcast.xml` and ran the public-key
-      `--feed` verifier: it is unsigned and correctly rejected. Signed-feed
-      enforcement remains blocked until the next signed feed is published.
+      `--feed` verifier: it was unsigned and correctly rejected before publishing 0.4.0.
 - [x] Enabled immutable releases, Dependabot alerts/security updates, and the
       active `Protect main` ruleset (27473892): PRs required, zero approvals,
       review threads resolved, deletions/force pushes blocked, no bypass.
@@ -15,9 +14,12 @@ Operational checks and remaining owner acceptance steps. Status updated on
       signature verification. No app was installed and no TCC grants reset.
 - [ ] Confirm Microphone/Accessibility grants and a short dictation after the
       migration. Computer-use access was unavailable; owner confirmation is pending.
-- [ ] Publish the prepared 0.4.0 release with its signed feed, download that
-      published feed and verify it. Then enable both `SURequireSignedFeed` and
-      `SUVerifyUpdateBeforeExtraction` for 0.4.1 and check the update path.
+- [x] Published 0.4.0 and verified the downloaded public latest feed with the
+      checked-in public key. Its SHA-256 matches the staged artifact:
+      `0a8d4ae49334faeaff5644a84e3b82d44b2376c52004a5560f34c252084b27a1`.
+- [x] Enabled both `SURequireSignedFeed` and `SUVerifyUpdateBeforeExtraction`
+      in source for 0.4.1.
+- [ ] Publish 0.4.1 and check the 0.4.0 to 0.4.1 update path.
 - [ ] From the 0.4.1 app itself, accept a valid signed feed, reject unsigned and
       tampered feeds, and reject a tampered archive before extraction. The
       0.4.0 to 0.4.1 upgrade alone does not test the new flags.
