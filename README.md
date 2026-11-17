@@ -340,10 +340,22 @@ and says why).
   being saved to disk" and recording goes on. From then on the audio is held in
   memory until the note is written at the end. If Cado quits unexpectedly
   before the note is saved, the part held in memory can't be recovered; only
-  the part already on disk can. Without headphones the mic also hears the other
-  side, so their words can appear under "Me" too. Notes saved before this
-  label changed say "Them"; they still open and show "Others" (the files
-  aren't changed).
+  the part already on disk can. Notes saved before this label changed say
+  "Them"; they still open and show "Others" (the files aren't changed).
+- **Laptop speakers:** without headphones the mic also hears the other side.
+  When a meeting shows that (their sentences turning up under "Me" as they
+  say them), Cado leaves those repeats out of "Me", so their words aren't in
+  the note twice. Your own words stay: replies that reuse some of their
+  words, "yeah" or a sentence of yours over them, and lines they repeat
+  after you. What it can't tell apart on speakers: saying the same words as
+  them at the same moment (both saying "Thank you very much.") or repeating
+  their words straight after them, in step; those are left out of "Me". And
+  some of theirs still gets through: garbled bits, and all of it in a call
+  too short to show the bleed. With headphones there's no bleed, so Cado
+  normally leaves nothing out. It can only if the cases above happen twice
+  or more in one call, or your own voice comes straight back in their audio
+  (their echo cancelling failing): then it stays in the note, under
+  "Others".
 - **Summaries:** see [Summaries](#summaries) below.
 - **Safari:** Safari plays web audio through WebKit's shared media process,
   which every WebKit-based app uses (Mail, and apps with web views) and which
@@ -707,6 +719,16 @@ make build
 
 See [`plans/benchmark.md`](plans/benchmark.md) for options, what each number
 means, the JSON schema, fixture licenses, and how to add an engine.
+
+**Speaker bleed (meetings on laptop speakers).** `python3
+scripts/make_bleed_fixtures.py` builds two short meetings from the bench
+clips and a conversation spoken by macOS `say`, with Others mixed into Me
+as laptop speakers would. Then
+`scripts/bleed_bench.sh` runs them through `Cado --meeting-test` and prints
+each side's WER (bleed shows as Me insertions). `Cado --echo-test --wav
+<file>` measures how much of the speakers the mic hears, with and without
+Apple's voice processing. Results and the reasoning are in
+[`plans/speaker-bleed-36.md`](plans/speaker-bleed-36.md).
 
 ---
 

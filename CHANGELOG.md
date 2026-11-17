@@ -21,6 +21,9 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - Settings › Meetings › Summarize meetings: on by default; where summaries can't run, it says why.
 - Summaries: very short meetings (under about 40 words) aren't summarized automatically (Summarize still works); a note you edit while it's being summarized is left as you edited it; while Apple Intelligence is still getting ready, the Library still offers Summarize and says why.
 
+### Fixed
+- Meetings on laptop speakers: what the other side says no longer shows up a second time under "Me" (a few garbled words can still slip through). Your replies stay, also ones that reuse their words, and "yeah"s over them. Saying the same words as them at the same moment, like both saying "thank you", is left out of "Me" on speakers. With headphones Cado normally leaves nothing out.
+
 ## 0.3.0 - 2026-11-17
 
 ### Added

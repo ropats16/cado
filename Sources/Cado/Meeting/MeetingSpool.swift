@@ -39,7 +39,12 @@ struct SpooledMeeting: Codable, Equatable {
 }
 
 /// One transcribed sentence-ish segment, relative to its chunk's start.
-struct SpoolSegment: Codable, Equatable { let start: TimeInterval; let text: String }
+/// `end` is missing from journals written before #36.
+struct SpoolSegment: Codable, Equatable {
+    let start: TimeInterval
+    let text: String
+    var end: TimeInterval? = nil
+}
 
 /// Everything worth remembering about a meeting in progress, appended in order.
 enum SpoolEvent: Codable, Equatable {

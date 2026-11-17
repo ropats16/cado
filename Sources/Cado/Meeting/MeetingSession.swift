@@ -633,10 +633,12 @@ final class MeetingSession {
         case .success(let transcript):
             let segments = NonSpeechFilter.filter(transcript.segments)
             for segment in segments {
-                meeting.pieces.append(.init(speaker: job.speaker, start: job.offset + segment.start, text: segment.text))
+                meeting.pieces.append(.init(speaker: job.speaker, start: job.offset + segment.start, text: segment.text,
+                                            end: job.offset + segment.end))
             }
-            meeting.spool.record(.transcribed(job.speaker, range: job.range, offset: job.offset,
-                                              segments: segments.map { SpoolSegment(start: $0.start, text: $0.text) }))
+            meeting.spool.record(.transcribed(job.speaker, range: job.range, offset: job.offset, segments: segments.map {
+                SpoolSegment(start: $0.start, text: $0.text, end: $0.end)
+            }))
         case .failure(let error):
             Log.error("Meeting: a passage failed to transcribe: \(error.localizedDescription)")
             meeting.failures.append(error.localizedDescription)
