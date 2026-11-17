@@ -126,16 +126,23 @@ struct MeetingDetector {
     }
 
     /// The user answered `prompt` (yes = Record / Stop Recording). An answer
-    /// to a call that's over, or a question no longer open, does nothing.
+    /// to a call that's over or already settled (an earlier answer), a
+    /// question no longer open, or another app's question (call ids restart
+    /// each launch) does nothing.
     mutating func answer(_ prompt: Prompt, yes: Bool, context: Context, now: TimeInterval) -> Effect? {
         defer { decide(context, now: now) }
+        func sameApp(_ call: Call) -> Bool {
+            call.app.bundleID.caseInsensitiveCompare(prompt.app.bundleID) == .orderedSame
+        }
         switch prompt {
         case .record(_, let id):
-            guard let key = calls.first(where: { $0.value.id == id })?.key, let call = calls[key] else { return nil }
+            guard let key = calls.first(where: { $0.value.id == id })?.key, let call = calls[key], sameApp(call),
+                  !call.settled
+            else { return nil }
             calls[key]?.settled = true
             return yes && context.recording == nil ? .start(call.app) : nil
         case .stop(_, let id):
-            guard endedCall?.id == id else { return nil }
+            guard let call = endedCall, call.id == id, sameApp(call) else { return nil }
             endedCall = nil
             return yes && context.recording != nil ? .stop : nil
         }

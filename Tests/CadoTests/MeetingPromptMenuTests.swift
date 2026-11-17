@@ -30,6 +30,25 @@ final class MeetingPromptMenuTests: XCTestCase {
         XCTAssertTrue(menu.isRecording)
     }
 
+    /// Asking doesn't hide what the menu says otherwise: a system-audio
+    /// problem (and its Settings row), or a side that stopped recording.
+    func testAQuestionKeepsTheMenusOtherDetail() {
+        let record = MeetingMenuContent(status: .idle, choice: .several([]), now: 0, systemAudio: .heardOnlySilence,
+                                        prompt: .record(zoom, call: 1))
+        XCTAssertEqual(record.detail, "Zoom is using the microphone.")
+        XCTAssertEqual(record.note, SystemAudioIssue.heardOnlySilence.menuLine)
+        XCTAssertEqual(record.systemAudioSettings, MeetingMenuContent.systemAudioSettingsTitle)
+
+        let stop = MeetingMenuContent(status: .recording(app: "Zoom", startedAt: 0, lost: [.them]), choice: .nothing,
+                                      now: 5, prompt: .stop(zoom, call: 1))
+        XCTAssertEqual(stop.detail, "Zoom stopped using the microphone, so the call may have ended.")
+        XCTAssertEqual(stop.note, "Zoom's audio stopped — recording your microphone only")
+        let plain = MeetingMenuContent(status: .recording(app: "Zoom", startedAt: 0, lost: []), choice: .nothing, now: 5,
+                                       prompt: .stop(zoom, call: 1))
+        XCTAssertNil(plain.note, "nothing stopped: the question says enough")
+        XCTAssertNil(MeetingMenuContent(status: .idle, choice: .several([]), now: 0, prompt: .record(zoom, call: 1)).note)
+    }
+
     func testWithoutAQuestionTheMenuIsAsBefore() {
         let recording = MeetingMenuContent(status: .recording(app: "Zoom", startedAt: 0, lost: []), choice: .nothing, now: 5)
         XCTAssertEqual(recording.barTitle, "0:05")

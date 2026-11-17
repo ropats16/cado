@@ -11,8 +11,15 @@ final class MeetingToggleTests: XCTestCase {
                                             audioProcessCount: 1)
 
     private func decide(_ status: MeetingStatus = .idle, prompt: MeetingDetector.Prompt? = nil,
-                        usingMic: [MeetingApp] = [], choice: MeetingAppChoice = .nothing) -> MeetingToggle {
-        MeetingToggle.decide(status: status, prompt: prompt, usingMic: usingMic, choice: choice)
+                        usingMic: [MeetingApp] = [], choice: MeetingAppChoice = .nothing,
+                        dictating: Bool = false) -> MeetingToggle {
+        MeetingToggle.decide(status: status, prompt: prompt, usingMic: usingMic, choice: choice, dictating: dictating)
+    }
+
+    func testDoesntStartWhileDictating() {
+        XCTAssertEqual(decide(prompt: .record(zoom, call: 1), usingMic: [zoom], choice: .one(zoomRunning), dictating: true),
+                       .explain(title: "Meeting not started", body: "Finish dictating first."))
+        UserFacingCopy.assertPlain(MeetingToggle.finishDictating)
     }
 
     func testStopsARecording() {
@@ -81,6 +88,19 @@ final class MeetingToggleTests: XCTestCase {
         XCTAssertFalse(shown)
         consent.confirm { started += 1 }
         XCTAssertEqual(asks.count, 2)
+    }
+
+    /// An alert's modal loop still runs a second hotkey press or a
+    /// notification button: that start is dropped, not a second alert.
+    func testASecondStartWhileTheReminderIsOpenIsDropped() {
+        let consent = self.consent
+        var started: [String] = []
+        consent.confirm { started.append("A") }
+        consent.confirm { started.append("B") }
+        XCTAssertEqual(asks.count, 1, "one alert")
+        asks[0](true)
+        XCTAssertEqual(started, ["A"])
+        XCTAssertFalse(consent.isAsking)
     }
 
     func testTheReminderIsPlain() {

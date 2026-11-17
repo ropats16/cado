@@ -7,10 +7,12 @@ import XCTest
 final class MeetingAssistantTests: XCTestCase {
     final class FakeFeed: MicUseFeed {
         var apps: [MeetingApp] = []
+        /// Reads fail (a Core Audio error).
+        var failing = false
         private(set) var reads = 0
-        func meetingAppsUsingMic(_ done: @escaping ([MeetingApp]) -> Void) {
+        func meetingAppsUsingMic(_ done: @escaping ([MeetingApp]?) -> Void) {
             reads += 1
-            done(apps)
+            done(failing ? nil : apps)
         }
     }
 
@@ -136,6 +138,47 @@ final class MeetingAssistantTests: XCTestCase {
         XCTAssertTrue(notices.shown.isEmpty)
     }
 
+    /// Off (or a Mac that can't tell): no timer at all, not a poll that
+    /// does nothing; switched on in Settings, polling resumes.
+    func testDetectionOffSchedulesNoPollsUntilSwitchedOn() {
+        enabled = false
+        wait(MeetingAssistant.pollInterval * 2)
+        XCTAssertTrue(clock.live.isEmpty)
+        assistant.refresh()
+        XCTAssertTrue(clock.live.isEmpty, "still off")
+        enabled = true
+        let reads = feed.reads
+        assistant.refresh()
+        XCTAssertEqual(feed.reads, reads + 1)
+        XCTAssertEqual(clock.live.count, 1)
+        assistant.refresh()
+        XCTAssertEqual(clock.live.count, 1, "one poll at a time")
+        zoomCallStarts()
+        XCTAssertEqual(notices.shown.count, 1)
+    }
+
+    func testPollsWithLeeway() {
+        wait(MeetingAssistant.pollInterval * 3)
+        XCTAssertFalse(clock.tolerances.isEmpty)
+        XCTAssertTrue(clock.tolerances.allSatisfy { $0 == MeetingAssistant.pollTolerance })
+        XCTAssertEqual(MeetingAssistant.pollTolerance, 1)
+    }
+
+    /// A failed read isn't "nobody on the mic": it doesn't end the call nor
+    /// ask to stop.
+    func testAFailedReadIsSkipped() {
+        zoomCallStarts()
+        assistant.answer(.record(zoom, call: 1), yes: true)
+        assistant.refresh()
+        feed.failing = true
+        wait(60)
+        XCTAssertNil(meetings.prompt, "no Stop recording? for 60 s of errors")
+        feed.failing = false
+        feed.apps = []
+        wait(30)
+        XCTAssertEqual(meetings.prompt, .stop(zoom, call: 1), "a real read still does")
+    }
+
     func testDictatingHoldsTheQuestion() {
         dictating = true
         zoomCallStarts()
@@ -143,6 +186,62 @@ final class MeetingAssistantTests: XCTestCase {
         dictating = false
         assistant.refresh()
         XCTAssertEqual(notices.shown.count, 1)
+    }
+
+    /// A dictation while "Record?" is up takes it off the menu and mascot
+    /// but leaves the notification, so it doesn't pop up again after.
+    func testADictationDoesntPostTheQuestionAgain() {
+        zoomCallStarts()
+        dictating = true
+        assistant.refresh()
+        XCTAssertNil(meetings.prompt)
+        XCTAssertEqual(asking, [true, false])
+        XCTAssertEqual(notices.withdrawn, [])
+        dictating = false
+        assistant.refresh()
+        XCTAssertEqual(meetings.prompt, .record(zoom, call: 1))
+        XCTAssertEqual(notices.shown, [.record(zoom, call: 1)], "posted once")
+    }
+
+    func testAHeldQuestionGoesOnceTheCallEnds() {
+        zoomCallStarts()
+        dictating = true
+        assistant.refresh()
+        feed.apps = []
+        wait(30)
+        XCTAssertEqual(notices.withdrawn, [], "still held")
+        dictating = false
+        assistant.refresh()
+        XCTAssertEqual(notices.withdrawn, [.record(zoom, call: 1)])
+    }
+
+    func testRecordOnAHeldNotificationWhileDictatingSaysWhy() {
+        zoomCallStarts()
+        dictating = true
+        assistant.refresh()
+        assistant.answer(.record(zoom, call: 1), yes: true)
+        XCTAssertEqual(meetings.actions, [])
+        XCTAssertEqual(explained, ["Finish dictating first."])
+        dictating = false
+        assistant.refresh()
+        XCTAssertEqual(notices.shown, [.record(zoom, call: 1), .record(zoom, call: 1)],
+                       "its notification was used up: asked again")
+    }
+
+    func testAStaleOrRepeatedAnswerRecordsNothing() {
+        zoomCallStarts()
+        assistant.answer(.record(zoom, call: 1), yes: false)
+        assistant.answer(.record(zoom, call: 1), yes: true)
+        XCTAssertEqual(meetings.actions, [], "Not Now settled it")
+        let chrome = MeetingApp(name: "Google Chrome", bundleID: "com.google.Chrome",
+                                target: .app(bundleID: "com.google.Chrome", pid: 7))
+        feed.apps = [chrome]
+        wait(30)
+        let asked = meetings.prompt
+        XCTAssertEqual(asked?.app, chrome)
+        assistant.answer(.record(zoom, call: asked!.call), yes: true)
+        XCTAssertEqual(meetings.actions, [], "another app's question")
+        XCTAssertEqual(meetings.prompt, asked)
     }
 
     // MARK: - Hotkey
@@ -162,6 +261,15 @@ final class MeetingAssistantTests: XCTestCase {
                                              audioProcessCount: 0))
         assistant.toggle()
         XCTAssertEqual(meetings.actions, [.start(zoom)])
+    }
+
+    func testTheHotkeyDoesntStartAMeetingMidDictation() {
+        zoomCallStarts()
+        dictating = true
+        assistant.toggle()
+        XCTAssertEqual(meetings.actions, [])
+        XCTAssertEqual(explained, ["Finish dictating first."])
+        XCTAssertFalse(assistant.canToggle)
     }
 
     func testTheHotkeyOpensTheMenuOrSaysWhy() {
@@ -210,6 +318,35 @@ final class MeetingAssistantTests: XCTestCase {
         XCTAssertNil(MeetingPromptAnswer(action: MeetingPromptAnswer.yesAction, userInfo: NotificationRoute.openNote(id: "a.md").userInfo))
         XCTAssertNotEqual(MeetingPromptAnswer.identifier(for: prompt),
                           MeetingPromptAnswer.identifier(for: .record(zoom, call: 7)))
+    }
+
+    /// Call ids restart each launch: a button on a notification an earlier
+    /// launch left behind answers nothing.
+    func testANotificationFromAnEarlierLaunchAnswersNothing() {
+        let prompt = MeetingDetector.Prompt.record(zoom, call: 1)
+        let old = MeetingPromptAnswer.userInfo(for: prompt, launch: "earlier")
+        XCTAssertNil(MeetingPromptAnswer(action: MeetingPromptAnswer.yesAction, userInfo: old))
+        XCTAssertNotNil(MeetingPromptAnswer(action: MeetingPromptAnswer.yesAction, userInfo: old, launch: "earlier"))
+        var untagged = MeetingPromptAnswer.userInfo(for: prompt)
+        untagged["cadoMeetingLaunch"] = nil
+        XCTAssertNil(MeetingPromptAnswer(action: MeetingPromptAnswer.yesAction, userInfo: untagged))
+        XCTAssertNotEqual(MeetingPromptAnswer.identifier(for: prompt, launch: "earlier"),
+                          MeetingPromptAnswer.identifier(for: prompt))
+    }
+
+    /// At launch and on quit every prompt notification goes, any launch's;
+    /// other notices stay.
+    func testLeftoverPromptNotificationsAreFound() {
+        let prompt = MeetingDetector.Prompt.stop(zoom, call: 3)
+        let ids = [MeetingPromptAnswer.identifier(for: prompt, launch: "earlier"),
+                   MeetingPromptAnswer.identifier(for: prompt), "6F1C-saved-note"]
+        XCTAssertEqual(MeetingPromptAnswer.prompts(among: ids), Array(ids.prefix(2)))
+    }
+
+    func testQuittingWithdrawsTheQuestion() {
+        zoomCallStarts()
+        assistant.withdrawAll()
+        XCTAssertEqual(notices.withdrawn, [.record(zoom, call: 1)])
     }
 
     func testThePromptsArePlain() {

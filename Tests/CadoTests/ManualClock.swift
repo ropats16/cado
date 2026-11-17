@@ -25,6 +25,14 @@ final class ManualClock: Clock {
         return timer
     }
 
+    /// The tolerance each `schedule(after:tolerance:_:)` asked for, in order.
+    private(set) var tolerances: [TimeInterval] = []
+
+    func schedule(after seconds: TimeInterval, tolerance: TimeInterval, _ action: @escaping () -> Void) -> ClockTimer {
+        tolerances.append(tolerance)
+        return schedule(after: seconds, action)
+    }
+
     /// Moves time on, firing every live timer that comes due.
     func advance(by seconds: TimeInterval) {
         now += seconds

@@ -15,18 +15,22 @@ final class MeetingMenuItems: NSObject {
     private let detail = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     /// "Not Now" / "Keep Recording" while Cado asks (#32).
     private let promptRow = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    /// A second detail line while Cado asks (#32).
+    private let note = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let settings = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let separator = NSMenuItem.separator()
     private var shownChoices: [MeetingMenuContent.Row]?
 
     /// In menu order.
-    var items: [NSMenuItem] { [main, detail, promptRow, settings, separator] }
+    var items: [NSMenuItem] { [main, detail, promptRow, note, settings, separator] }
 
     override init() {
         super.init()
         main.target = self
         detail.isEnabled = false
         detail.isHidden = true
+        note.isEnabled = false
+        note.isHidden = true
         settings.target = self
         settings.action = #selector(openSettings)
         settings.isHidden = true
@@ -43,6 +47,8 @@ final class MeetingMenuItems: NSObject {
         main.isEnabled = content.isEnabled
         detail.title = content.detail ?? ""
         detail.isHidden = content.detail == nil
+        note.title = content.note ?? ""
+        note.isHidden = content.note == nil
         settings.title = content.systemAudioSettings ?? ""
         settings.isHidden = content.systemAudioSettings == nil
         promptRow.title = content.promptRow?.title ?? ""

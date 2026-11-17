@@ -129,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notificationClicks.onMeetingAnswer = { [weak self] in self?.meetingAssistant.answer($0.prompt, yes: $0.yes) }
         Notifier.handleClicks(with: notificationClicks)
         NotificationMeetingPrompts.registerCategories()
+        NotificationMeetingPrompts.removeAll()   // left by an earlier launch: their calls are gone
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -180,6 +181,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         monitor.stop()
         hotkeys?.stop()
+        meetingAssistant.withdrawAll()
+        NotificationMeetingPrompts.removeAll()
     }
 
     // MARK: - Status menu

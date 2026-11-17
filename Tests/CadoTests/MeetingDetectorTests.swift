@@ -129,6 +129,38 @@ final class MeetingDetectorTests: XCTestCase {
         XCTAssertNil(detector.answer(asked, yes: true, context: context, now: now))
     }
 
+    /// Call ids restart each launch: a "Record this meeting? Zoom" left over
+    /// from an earlier one must not record Chrome's call with the same id.
+    func testAnAnswerForAnotherAppDoesNothing() {
+        feed([chrome], for: 10)
+        XCTAssertEqual(detector.prompt, .record(chrome, call: 1))
+        XCTAssertNil(detector.answer(.record(zoom, call: 1), yes: true, context: context, now: now))
+        XCTAssertEqual(detector.prompt, .record(chrome, call: 1), "still asked: the stale answer settles nothing")
+        let shouting = MeetingApp(name: "Chrome", bundleID: "COM.GOOGLE.CHROME", target: chrome.target)
+        XCTAssertEqual(detector.answer(.record(shouting, call: 1), yes: true, context: context, now: now),
+                       .start(chrome), "bundle IDs match ignoring case")
+    }
+
+    func testAStopAnswerForAnotherAppDoesNothing() {
+        recordZoom()
+        feed([], for: timing.endDelay)
+        XCTAssertEqual(detector.prompt, .stop(zoom, call: 1))
+        XCTAssertNil(detector.answer(.stop(chrome, call: 1), yes: true, context: context, now: now))
+        XCTAssertEqual(detector.prompt, .stop(zoom, call: 1))
+    }
+
+    /// A second Record (another notification click, the menu) for a call an
+    /// earlier answer already settled starts nothing.
+    func testASecondAnswerForTheSameCallDoesNothing() {
+        feed([zoom], for: 10)
+        let asked = detector.prompt!
+        XCTAssertEqual(detector.answer(asked, yes: true, context: context, now: now), .start(zoom))
+        XCTAssertNil(detector.answer(asked, yes: true, context: context, now: now))
+        feed([zoom], for: 10)
+        XCTAssertNil(detector.prompt)
+        XCTAssertNil(detector.answer(asked, yes: true, context: context, now: now), "nor after a Not Now")
+    }
+
     // MARK: - Stop?
 
     private func recordZoom() {

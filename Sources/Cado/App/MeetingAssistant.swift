@@ -22,14 +22,22 @@ protocol MeetingPromptNotices: AnyObject {
 
 /// Meeting detection, the meeting hotkey and the mascot's meeting clicks
 /// (#32), wired to the meeting controller: polls which meeting apps use the
-/// mic every `pollInterval` while detection is on, feeds `MeetingDetector`,
-/// and shows what it asks everywhere at once (a notification, the menu and
-/// menu bar, the asking mascot), so it works with notifications off too. An
-/// answer from any of them is the answer. Nothing here records by itself.
+/// mic every `pollInterval` while detection is on (not at all while it's
+/// off), feeds `MeetingDetector`, and shows what it asks everywhere at once
+/// (a notification, the menu and menu bar, the asking mascot), so it works
+/// with notifications off too. An answer from any of them is the answer.
+/// Nothing here records by itself.
+///
+/// While a dictation holds a "Record?" (`MeetingDetector.Context.busy`) the
+/// menu and mascot stop asking but the notification stays up, so it doesn't
+/// pop again once the dictation is done; a Record on it meanwhile says to
+/// finish dictating first.
 ///
 /// Main-thread only.
 final class MeetingAssistant {
     static let pollInterval: TimeInterval = 3
+    /// How late a poll may run, so macOS can group wake-ups.
+    static let pollTolerance: TimeInterval = 1
 
     /// The asking mascot shows (or not).
     var onAskingChanged: ((Bool) -> Void)?
@@ -47,12 +55,16 @@ final class MeetingAssistant {
     private let notices: MeetingPromptNotices
     private var detector: MeetingDetector
     private var usingMic: [MeetingApp] = []
+    /// What the menu and mascot ask.
     private var shown: MeetingDetector.Prompt?
+    /// What the notification asks (`shown`, or a held "Record?").
+    private var posted: MeetingDetector.Prompt?
     private var poll: ClockTimer?
     private var polling = false
+    private var started = false
 
     /// `enabled`: Settings › Meetings › Ask to record meetings (and a Mac
-    /// that can tell), read on every poll.
+    /// that can tell), read on every poll and `refresh`.
     init(meetings: MeetingRecording, feed: MicUseFeed, notices: MeetingPromptNotices, clock: Clock = SystemClock(),
          timing: MeetingDetector.Timing = .init(), enabled: @escaping () -> Bool, dictating: @escaping () -> Bool) {
         self.meetings = meetings
@@ -64,16 +76,25 @@ final class MeetingAssistant {
         detector = MeetingDetector(timing: timing)
     }
 
-    /// Starts polling; once.
+    /// Starts polling (while detection is on); once.
     func start() {
-        guard poll == nil, !polling else { return }
+        guard !started else { return }
+        started = true
         tick()
     }
 
     /// Something the detector reads changed (a meeting's status, a
-    /// dictation, the setting): re-decide now, not at the next poll.
+    /// dictation, the setting): re-decide now, not at the next poll; and
+    /// polls again if detection was just switched on.
     func refresh() {
         decide()
+        if started, poll == nil, !polling, enabled() { tick() }
+    }
+
+    /// The app is quitting: no question outlives it.
+    func withdrawAll() {
+        if let posted { notices.withdraw(posted) }
+        posted = nil
     }
 
     /// The meeting hotkey, or the mascot's Record Meeting / Stop Recording.
@@ -101,7 +122,8 @@ final class MeetingAssistant {
 
     private var decision: MeetingToggle {
         MeetingToggle.decide(status: meetings.status, prompt: detector.prompt, usingMic: usingMic,
-                             choice: meetings.status == .idle ? meetings.currentChoice() : .nothing)
+                             choice: meetings.status == .idle ? meetings.currentChoice() : .nothing,
+                             dictating: dictating())
     }
 
     /// A click on the asking mascot: Record.
@@ -112,7 +134,21 @@ final class MeetingAssistant {
 
     /// An answer from the menu, a notification or the mascot.
     func answer(_ prompt: MeetingDetector.Prompt, yes: Bool) {
+        let wasOpen = detector.prompt == prompt || posted == prompt
+        if posted == prompt {   // answered: its notification is used up
+            notices.withdraw(prompt)
+            posted = nil
+        }
+        if yes, prompt.isRecord, meetings.status == .idle, dictating() {
+            Log.info("Meeting not started (\(prompt.app.name)): a dictation is under way.")
+            onExplain?(MeetingToggle.notStarted, MeetingToggle.finishDictating)
+            return show(detector.prompt)
+        }
         let effect = detector.answer(prompt, yes: yes, context: context, now: clock.now)
+        if !wasOpen {
+            Log.info("Meeting answer ignored (\(prompt.app.name)): that question is no longer open; its call is over "
+                + "or was already answered.")
+        }
         show(detector.prompt)
         switch effect {
         case .start(let app)?: meetings.perform(.start(app))
@@ -136,35 +172,40 @@ final class MeetingAssistant {
         poll = nil
         guard enabled() else {
             usingMic = []
-            decide()
-            return schedule()
+            return decide()   // no more polls until `refresh` sees it on
         }
         polling = true
         feed.meetingAppsUsingMic { [weak self] apps in
             guard let self else { return }
             polling = false
-            usingMic = apps
-            decide()
-            schedule()
+            // nil: unread (a Core Audio error), not "nobody": skip this poll.
+            if let apps {
+                usingMic = apps
+                decide()
+            }
+            poll = clock.schedule(after: Self.pollInterval, tolerance: Self.pollTolerance) { [weak self] in self?.tick() }
         }
     }
 
-    private func schedule() {
-        poll = clock.schedule(after: Self.pollInterval) { [weak self] in self?.tick() }
-    }
-
     private func decide() {
+        let context = self.context
         detector.update(usingMic: usingMic, context: context, now: clock.now)
-        show(detector.prompt)
+        show(detector.prompt, held: context.enabled && context.busy)
     }
 
     /// Shows what's asked now everywhere; withdraws what isn't any more.
-    private func show(_ prompt: MeetingDetector.Prompt?) {
+    /// `held`: a dictation (or another meeting's transcription) holds the
+    /// question, so a posted "Record?" stays up.
+    private func show(_ prompt: MeetingDetector.Prompt?, held: Bool = false) {
+        let notice = prompt ?? (held && posted?.isRecord == true ? posted : nil)
+        if notice != posted {
+            if let posted { notices.withdraw(posted) }
+            if let notice { notices.show(notice) }
+            posted = notice
+        }
         guard prompt != shown else { return }
-        if let shown { notices.withdraw(shown) }
         if let prompt {
             Log.info("Meeting detection: \(prompt.app.name) — " + (prompt.isRecord ? "asking to record." : "asking to stop."))
-            notices.show(prompt)
         }
         let wasAsking = shown?.isRecord == true
         shown = prompt
