@@ -95,6 +95,11 @@ final class FolderMeetingArchive: MeetingArchive {
         try audio.exportWAVs(to: folder) { $0.rawValue }
     }
 
+    func writeReadableAudio(_ audio: SpoolAudio, into folder: URL) throws -> [MeetingSpeaker: Int] {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return try audio.exportReadableWAVs(to: folder) { $0.rawValue }
+    }
+
     /// Directly under `root`, a folder, holding nothing (Finder's
     /// `.DS_Store` aside).
     func isFreeFolder(_ folder: URL) -> Bool {

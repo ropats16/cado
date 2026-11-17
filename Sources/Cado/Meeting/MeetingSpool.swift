@@ -375,6 +375,20 @@ struct SpoolAudio {
                                to: folder.appendingPathComponent("\(fileName(speaker)).wav")) { try samples($0, of: speaker) }
         }
     }
+
+    /// `exportWAVs`, each side as far as it can be read (`SpoolWAV.writeReadable`):
+    /// for a spool file shorter than its journal says. How many samples of
+    /// each non-empty side are in its WAV (0: none could be read, no file).
+    func exportReadableWAVs(to folder: URL, fileName: (MeetingSpeaker) -> String) throws -> [MeetingSpeaker: Int] {
+        var written: [MeetingSpeaker: Int] = [:]
+        for speaker in MeetingSpeaker.allCases where count(of: speaker) > 0 {
+            written[speaker] = try SpoolWAV.writeReadable(upTo: count(of: speaker),
+                                                          to: folder.appendingPathComponent("\(fileName(speaker)).wav")) {
+                try samples($0, of: speaker)
+            }
+        }
+        return written
+    }
 }
 
 /// A spool reopened after the app quit without finishing it.
@@ -442,28 +456,49 @@ enum SpoolWAV {
     /// its folder flushed (`Durable`). On any failure the partial file is
     /// removed, so a WAV that's there is a complete one.
     static func write(count: Int, to url: URL, read: (Range<Int>) throws -> [Float]) throws {
+        _ = try write(count: count, to: url, read: read, readable: false)
+    }
+
+    /// As many of `count` samples as can be read (#48: a spool file that is
+    /// shorter than its journal says, for good): streamed until `read` comes
+    /// back short, then checked and flushed as `write` does, for that many.
+    /// Returns how many are in the file; 0: nothing could be read, no file.
+    /// A read that throws still throws.
+    static func writeReadable(upTo count: Int, to url: URL, read: (Range<Int>) throws -> [Float]) throws -> Int {
+        try write(count: count, to: url, read: read, readable: true)
+    }
+
+    private static func write(count: Int, to url: URL, read: (Range<Int>) throws -> [Float], readable: Bool) throws -> Int {
         try? FileManager.default.removeItem(at: url)
         do {
             // In pools, so neither file outlives its use (an autoreleased
             // writer would finish its header only later).
-            try autoreleasepool { try writeSamples(count: count, to: url, read: read) }
+            let samples = try autoreleasepool { try writeSamples(count: count, to: url, read: read, toTheEnd: readable) }
+            if readable, samples == 0 {
+                try? FileManager.default.removeItem(at: url)
+                return 0
+            }
             // Closed now: what a reader sees is what reached the file.
             let written = try autoreleasepool { try AVAudioFile(forReading: url).length }
-            guard written == AVAudioFramePosition(count) else {
-                throw SpoolWAVError.incomplete(expected: count, got: Int(written))
+            guard written == AVAudioFramePosition(samples) else {
+                throw SpoolWAVError.incomplete(expected: samples, got: Int(written))
             }
             do { try Durable.sync(all: [url, url.deletingLastPathComponent()]) }
             catch let error as POSIXError where Durable.isUnsupported(error) {
                 Log.info("The audio folder can't be flushed to disk (\(error.localizedDescription)); kept without")
             }
+            return samples
         } catch {
             try? FileManager.default.removeItem(at: url)
             throw error
         }
     }
 
-    /// The writing part of `write`; the file is closed when it returns.
-    private static func writeSamples(count: Int, to url: URL, read: (Range<Int>) throws -> [Float]) throws {
+    /// The writing part of `write`; the file is closed when it returns. How
+    /// many samples were written: `count`, or with `toTheEnd`, what could be
+    /// read (else a short read throws `shortRead`).
+    private static func writeSamples(count: Int, to url: URL, read: (Range<Int>) throws -> [Float],
+                                     toTheEnd: Bool) throws -> Int {
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: AudioCapture.sampleRate,
             AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
@@ -476,7 +511,9 @@ enum SpoolWAV {
         while offset < count {
             let want = min(chunk, count - offset)
             let slice = try read(offset..<(offset + want))
-            guard !slice.isEmpty, slice.count <= want else {
+            guard slice.count <= want else { throw SpoolWAVError.shortRead(expected: count, got: offset) }
+            guard !slice.isEmpty else {
+                if toTheEnd { break }
                 throw SpoolWAVError.shortRead(expected: count, got: offset)
             }
             guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
@@ -488,6 +525,7 @@ enum SpoolWAV {
             try file.write(from: buffer)
             offset += slice.count
         }
+        return offset
     }
 }
 

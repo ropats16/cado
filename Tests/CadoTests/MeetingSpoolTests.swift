@@ -610,6 +610,29 @@ final class MeetingSpoolWAVTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: url.path))
     }
 
+    /// #48: a source cut short for good: what can be read, whole and checked.
+    func testAShortSourceCanBeKeptAsFarAsItCanBeRead() throws {
+        let samples = source(SpoolWAV.chunk + 500)
+        let url = dir.appendingPathComponent("Me.wav")
+        let n = try SpoolWAV.writeReadable(upTo: samples.count + 10_000, to: url) { r in
+            Array(samples[r.clamped(toCount: samples.count)])
+        }
+        XCTAssertEqual(n, samples.count)
+        XCTAssertEqual(try AVAudioFile(forReading: url).length, AVAudioFramePosition(samples.count))
+        XCTAssertEqual(try SpoolWAV.writeReadable(upTo: 100, to: url) { _ in [] }, 0)
+        XCTAssertFalse(fm.fileExists(atPath: url.path), "Nothing readable: no file")
+        struct Boom: Error {}
+        XCTAssertThrowsError(try SpoolWAV.writeReadable(upTo: 100, to: url) { _ in throw Boom() }) { XCTAssertTrue($0 is Boom) }
+    }
+
+    func testAReadableExportSaysHowMuchOfEachSideItKept() throws {
+        let audio = SpoolAudio(counts: [.me: 1_000, .them: 2_000]) { speaker, r in
+            [Float](repeating: 0.2, count: speaker == .me ? r.count : max(0, min(r.upperBound, 1_500) - r.lowerBound))
+        }
+        XCTAssertEqual(try audio.exportReadableWAVs(to: dir) { $0.spoolKey }, [.me: 1_000, .them: 1_500])
+        XCTAssertEqual(try AVAudioFile(forReading: dir.appendingPathComponent("them.wav")).length, 1_500)
+    }
+
     /// The export loop stops at the first side that can't be copied, with its error.
     func testAnExportOfAShortSideThrows() throws {
         let audio = SpoolAudio(counts: [.me: 1_000, .them: 2_000]) { speaker, r in

@@ -939,21 +939,54 @@ final class MeetingSession {
         let fragile = !spool.hasAllAudioOnDisk
         if fragile { fragileCopies += 1 }
         var failure: Error?
+        var missing: TimeInterval = 0
         let archive = self.archive
         background({
-            do { try archive.writeAudio(audio, into: folder) } catch { failure = error }
-        }, { [weak self] in
+            do { missing = try Self.keep(audio, in: folder, archive) } catch { failure = error }
+        }, { [weak self, feedback] in
             if let failure {
                 self?.audioNotCopied(spool, failure, title: title, tell: failuresSoFar == 0 && !quietOnFailure, then: then)
             } else {
                 // Copied: if the journal can't say so, the name does, so a failed delete isn't copied again.
                 if !spool.record(.audioKept(folder: folder.path)), spool.hasFolder { spool.mark(.writtenDown) }
-                spool.discard()   // saved and copied
+                spool.discard()   // saved and copied (as much as there is)
                 Log.info("Meeting audio kept in \(folder.path)")
+                if missing > 0 {
+                    feedback.notify(title: "Part of a meeting's audio is missing",
+                                    body: "The end of the recording of “\(title)” couldn't be read, so "
+                                        + "\(Self.roughly(missing)) at the end of its audio is missing from \(folder.path).")
+                }
                 then(folder)
             }
             if fragile { self?.copyFinished() }
         })
+    }
+
+    /// Keeps `audio` as WAVs in `folder` (`writeAudio`). A spool file
+    /// shorter than its journal says (`SpoolWAVError.shortRead`) is so for
+    /// good: every copy would come out short, on every launch (#48). Then
+    /// what can be read is kept instead (`writeReadableAudio`, each WAV whole
+    /// for its length) and the copy is done: how much is missing at the end
+    /// (0: none). Off main.
+    private static func keep(_ audio: SpoolAudio, in folder: URL, _ archive: MeetingArchive) throws -> TimeInterval {
+        do {
+            try archive.writeAudio(audio, into: folder)
+            return 0
+        } catch let error as SpoolWAVError {
+            guard case .shortRead = error else { throw error }
+            Log.error("Meeting audio: the recording is shorter than its journal says (\(error.localizedDescription)); "
+                      + "keeping what can be read.")
+            let kept = try archive.writeReadableAudio(audio, into: folder)
+            let missing = MeetingSpeaker.allCases.map { audio.count(of: $0) - (kept[$0] ?? audio.count(of: $0)) }.max() ?? 0
+            return Double(max(missing, 0)) / AudioCapture.sampleRate
+        }
+    }
+
+    /// "about 12 seconds", "about 3 minutes".
+    static func roughly(_ seconds: TimeInterval) -> String {
+        let s = max(1, Int(seconds.rounded()))
+        if s < 90 { return "about \(s) second\(s == 1 ? "" : "s")" }
+        return "about \(Int((seconds / 60).rounded())) minutes"
     }
 
     private func audioNotCopied(_ spool: MeetingSpoolHandle, _ error: Error, title: String, tell: Bool,
@@ -1362,10 +1395,11 @@ final class MeetingSession {
                                       locale: locale, timeZone: timeZone)
         Log.error("Meeting recovery: a recording without its details was found; keeping its audio as “\(title)”.")
         let found = "Cado found a meeting recording without its details (which app, and when), so it can't write its note."
+        var short = ""   // the end of its recording couldn't be read
         let leaveIt = { [feedback] (wavs: URL?) in
             guard handle.hasFolder else { return }
             handle.setMarks(handle.folderMarks.union([.unidentified]))   // if this fails, said again next launch
-            let also = wavs.map { " A copy of its audio is in \($0.path)." } ?? ""
+            let also = wavs.map { " A copy of its audio is in \($0.path).\(short)" } ?? ""
             feedback.notify(title: "Couldn't finish a meeting",
                             body: "\(found) Its recording is kept, unchanged, in "
                                 + "\(handle.location?.path ?? "Cado's Meetings In Progress folder").\(also)")
@@ -1375,17 +1409,21 @@ final class MeetingSession {
         guard !audio.isEmpty, let folder = newArchiveFolder(title) else { return leaveIt(nil) }
         let archive = self.archive
         var failure: Error?
+        var missing: TimeInterval = 0
         background({
-            do { try archive.writeAudio(audio, into: folder) } catch { failure = error }
+            do { missing = try Self.keep(audio, in: folder, archive) } catch { failure = error }
         }, { [feedback] in
             if let failure {
                 Log.error("Couldn't keep the meeting's audio: \(failure.localizedDescription)")
                 return leaveIt(nil)
             }
+            if missing > 0 {
+                short = " The end of the recording couldn't be read, so \(Self.roughly(missing)) at the end of its audio is missing."
+            }
             guard handle.moveFolder(into: folder) != nil else { return leaveIt(folder) }
             Log.info("Meeting recovery: the recording without its details is kept in \(folder.path)")
             feedback.notify(title: "Couldn't finish a meeting",
-                            body: "\(found) Its audio is kept in \(folder.path), with what was transcribed of it so far.")
+                            body: "\(found) Its audio is kept in \(folder.path), with what was transcribed of it so far.\(short)")
         })
     }
 

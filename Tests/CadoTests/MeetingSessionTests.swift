@@ -142,14 +142,30 @@ final class MeetingSessionTests: XCTestCase {
         }
         /// Folders something else was put into (not empty).
         var filled: Set<URL> = []
+        /// As `SpoolWAV.write`: a side that reads back short throws `shortRead`.
         func writeAudio(_ audio: SpoolAudio, into folder: URL) throws {
             if let audioError { throw audioError }
             var sides: [MeetingSpeaker: Int] = [:]
             for speaker in MeetingSpeaker.allCases where audio.count(of: speaker) > 0 {
-                _ = try audio.samples(0..<audio.count(of: speaker), of: speaker)
-                sides[speaker] = audio.count(of: speaker)
+                let got = try audio.samples(0..<audio.count(of: speaker), of: speaker).count
+                guard got == audio.count(of: speaker) else {
+                    throw SpoolWAVError.shortRead(expected: audio.count(of: speaker), got: got)
+                }
+                sides[speaker] = got
             }
             kept.append(Kept(sides: sides, note: nil, name: folder.lastPathComponent, into: folder))
+        }
+        /// What can be read of each side.
+        private(set) var readableWrites = 0
+        func writeReadableAudio(_ audio: SpoolAudio, into folder: URL) throws -> [MeetingSpeaker: Int] {
+            if let audioError { throw audioError }
+            readableWrites += 1
+            var sides: [MeetingSpeaker: Int] = [:]
+            for speaker in MeetingSpeaker.allCases where audio.count(of: speaker) > 0 {
+                sides[speaker] = try audio.samples(0..<audio.count(of: speaker), of: speaker).count
+            }
+            kept.append(Kept(sides: sides.filter { $0.value > 0 }, note: nil, name: folder.lastPathComponent, into: folder))
+            return sides
         }
     }
 
@@ -1326,6 +1342,9 @@ final class DurableSpoolHandle: MeetingSpoolHandle {
     private(set) var movedTo: URL?
     /// Events recorded with their flush left to the background.
     private(set) var flushedLater: [SpoolEvent] = []
+    /// Per side, how much of its file is really there (a file cut short):
+    /// reads stop there, whatever the count says.
+    var readable: [MeetingSpeaker: Int] = [:]
     init(_ inner: InMemorySpoolHandle, refuses: @escaping (SpoolEvent) -> Bool = { _ in false },
          marks: Set<SpoolFolderMark> = []) {
         self.inner = inner
@@ -1350,7 +1369,12 @@ final class DurableSpoolHandle: MeetingSpoolHandle {
     func sampleCount(of speaker: MeetingSpeaker) -> Int { inner.sampleCount(of: speaker) }
     func samples(_ range: Range<Int>, of speaker: MeetingSpeaker) throws -> [Float] { try inner.samples(range, of: speaker) }
     func isSilent(_ speaker: MeetingSpeaker) -> Bool { inner.isSilent(speaker) }
-    func audio() -> SpoolAudio { inner.audio() }
+    func audio() -> SpoolAudio {
+        let all = inner.audio(), readable = readable
+        return SpoolAudio(counts: all.counts) { speaker, r in
+            try all.samples(r.clamped(toCount: readable[speaker] ?? all.count(of: speaker)), of: speaker)
+        }
+    }
     var hasFolder: Bool { !inner.isDiscarded && movedTo == nil }
     var hasAllAudioOnDisk: Bool { hasFolder }
     var location: URL? {
@@ -2643,5 +2667,50 @@ extension MeetingSessionTests {
                 + "A copy of its audio is in \(folder).",
         ])
         UserFacingCopy.assertPlain(feedback.notices[0].body)
+    }
+}
+
+/// #48: a spool file permanently shorter than its journal says can't make
+/// every audio copy fail on every launch: what can be read is kept, the
+/// user is told the end is missing, and the meeting is done.
+extension MeetingSessionTests {
+    func testAShortRecordingKeepsWhatCanBeReadAndSaysTheEndIsMissing() throws {
+        let inner = InMemorySpoolHandle(SpooledMeeting(id: UUID(), appName: "Zoom", appBundleID: "us.zoom.xos",
+                                                       startDate: crashDate))
+        inner.append(audio(10, [(1, 2, 0.2)]), for: .me)
+        inner.append(audio(10, [(3, 5, 0.3)]), for: .them)
+        let h = DurableSpoolHandle(inner)
+        h.readable = [.them: 80_000]              // the last 5 s of Others' file is gone
+        let folder = "/archive/kept"
+        spool.left = [LeftoverMeeting(handle: h, events: [.noteSaved(note: "/notes/1.md", keepAudio: true, audioFolder: folder)])]
+        session.recoverLeftovers()
+        XCTAssertEqual(archive.audioKept.last?.sides, [.me: 160_000, .them: 80_000], "What can be read")
+        XCTAssertEqual(archive.audioKept.last?.into.path, folder)
+        XCTAssertTrue(inner.isDiscarded, "Done: not copied short again on every launch")
+        XCTAssertEqual(feedback.titles, ["Part of a meeting's audio is missing"])
+        XCTAssertEqual(feedback.notices[0].body, "The end of the recording of “Meeting with Zoom — 16 Nov 2026 at 14:32” "
+                       + "couldn't be read, so about 5 seconds at the end of its audio is missing from \(folder).")
+        UserFacingCopy.assertPlain(feedback.notices[0].body)
+    }
+
+    /// A recording without its details, cut short: what can be read is kept, and said.
+    func testAShortRecordingWithoutItsDetailsKeepsWhatCanBeRead() {
+        let inner = InMemorySpoolHandle(SpooledMeeting(id: UUID(), appName: "", appBundleID: "", startDate: crashDate))
+        inner.append(audio(10, [(1, 2, 0.2)]), for: .me)
+        let h = DurableSpoolHandle(inner)
+        h.readable = [.me: 16_000 * 7]
+        spool.left = [LeftoverMeeting(handle: h, events: [], isUnidentified: true)]
+        session.recoverLeftovers()
+        XCTAssertEqual(archive.audioKept.map(\.sides), [[.me: 112_000]])
+        XCTAssertNotNil(h.movedTo)
+        XCTAssertTrue(feedback.notices[0].body.hasSuffix(
+            "The end of the recording couldn't be read, so about 3 seconds at the end of its audio is missing."),
+                      feedback.notices[0].body)
+    }
+
+    func testRoughDurationsReadPlainly() {
+        XCTAssertEqual(MeetingSession.roughly(0.2), "about 1 second")
+        XCTAssertEqual(MeetingSession.roughly(5), "about 5 seconds")
+        XCTAssertEqual(MeetingSession.roughly(600), "about 10 minutes")
     }
 }

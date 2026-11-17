@@ -74,6 +74,11 @@ protocol MeetingArchive: AnyObject {
     /// gone), streamed, never loaded whole. Slow: called OFF the main
     /// thread, so it must be thread-safe.
     func writeAudio(_ audio: SpoolAudio, into folder: URL) throws
+    /// `writeAudio`, each side as far as it can be read, for a spool whose
+    /// file is shorter than it says (`writeAudio` threw
+    /// `SpoolWAVError.shortRead`, #48): how many samples of each side are
+    /// in its WAV, each one whole and flushed. Off main, thread-safe.
+    func writeReadableAudio(_ audio: SpoolAudio, into folder: URL) throws -> [MeetingSpeaker: Int]
     /// `folder` is one of this archive's, there and empty: audio can go
     /// into it without overwriting anything (#48: the folder an adopted note
     /// names). Off main, thread-safe.
