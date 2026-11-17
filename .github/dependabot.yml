@@ -1,0 +1,25 @@
+# Weekly, grouped, capped: one PR per ecosystem at most per week.
+# Security alerts/updates are a repo setting (docs/RELEASING.md, "Repo settings").
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: swift
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      swift-packages:
+        patterns: ["*"]
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 1

@@ -257,6 +257,13 @@ stage_appcast() {
     --url "$url" --length "$len" --signature "$sig" \
     --notes-url "https://github.com/$REPO/releases/tag/v$VERSION"
   xmllint --noout "$APPCAST"
+  # Sign the whole feed (#46): sign_update embeds a trailing signature comment, so
+  # a client that sets SURequireSignedFeed rejects a feed edited after this point.
+  # Keychain step like the DMG one. Must be the LAST change to the file.
+  "$SPARKLE_BIN/sign_update" --account "$SPARKLE_ACCOUNT" "$APPCAST" >/dev/null || die "sign_update failed on the appcast"
+  swift "$ROOT/scripts/verify_update_signature.swift" --feed \
+    "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$APP/Contents/Info.plist")" "$APPCAST"
+  xmllint --noout "$APPCAST"
   # The item must match the bundle it describes.
   [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")" == "$BUILD" ]] \
     || die "app CFBundleVersion != $BUILD"
