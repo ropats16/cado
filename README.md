@@ -379,8 +379,14 @@ calendar** (or the optional Calendar step in onboarding).
   date time" as always.
 - **Recovered meetings** keep the name: it's decided when the recording starts
   and saved with the recording.
-- **Private:** your calendar is read on this Mac only. Titles and names aren't
-  sent anywhere, and aren't given to the summary.
+- **Only your own events:** events from shared or subscribed calendars aren't
+  used, and rooms and resources aren't listed as people.
+- **Never slows recording:** if the calendar is slow to answer, recording starts
+  anyway and the note falls back to the app and time.
+- **Private:** your calendar is read on this Mac only, and Cado sends nothing
+  anywhere. But the event's title and the invitees' names are saved in the
+  note, so they go wherever your notes folder syncs (iCloud, Obsidian Sync...).
+  They aren't given to the summary.
 
 ### Summaries
 
@@ -628,7 +634,8 @@ model: the transcript never leaves your Mac.
 [Calendar meeting titles](#calendar-meeting-titles) are off until you switch them
 on. Then Cado reads your calendar on this Mac to find the event a meeting
 belongs to, and keeps only its title and the invitees' names in that meeting's
-note. Nothing from your calendar is sent anywhere.
+note. Cado sends nothing from your calendar anywhere, but that note lives in
+your notes folder and goes wherever that folder syncs.
 
 ---
 

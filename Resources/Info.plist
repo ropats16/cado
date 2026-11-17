@@ -57,6 +57,6 @@
     <!-- Calendar read access (macOS 14+) for "Name meetings from my calendar" (#38). Asked
          only when the user switches that on; without this key macOS kills the app on the request. -->
     <key>NSCalendarsFullAccessUsageDescription</key>
-    <string>Cado reads your calendar to name a meeting note after the event you're in, and to list who was invited. Your calendar is only read on this Mac and never leaves it.</string>
+    <string>Cado reads your calendar to name a meeting note after the event you're in, and to list who was invited. macOS only offers full access, but Cado only reads events and never changes them. Your calendar is read on this Mac and isn't sent anywhere; the event's title and the names of the people invited are saved in the note, so they go wherever your notes folder syncs.</string>
 </dict>
 </plist>

@@ -56,6 +56,28 @@ to do yourself (Privacy & Security › Calendars, remove Cado).
     appears when a calendar-named meeting starts; summaries (if on) get the
     transcript only, not the event title or names.
 
+11. **Allow, then record without relaunching:** with the switch off and access never
+    asked, switch on and Allow; without quitting Cado, record a meeting during an
+    event. The note is named after it.
+12. **Revoke and re-allow while open:** keep Settings (and, separately, onboarding)
+    open; in System Settings › Privacy & Security › Calendars turn Cado off, return:
+    the switch is off and the note explains how to allow it. Turn Cado back on,
+    return: the switch stays off until you switch it on (no prompt); then it
+    names meetings again. Onboarding's Calendar step follows the same changes.
+13. **Start latency, big calendar:** with a large calendar (thousands of events,
+    several accounts), the first Record Meeting after launch starts recording at
+    once (the lookup never delays it). A late answer may leave the note named
+    after the app and time; that is fine.
+14. **Shared / subscribed calendar:** an event at the same time on a shared or
+    subscribed calendar (e.g. a colleague's, holidays) must not name the note;
+    your own event does.
+15. **Odd titles in Obsidian:** an event titled with emoji, right-to-left text
+    (e.g. Hebrew or Arabic) and a control character (paste one from a text
+    editor); record, then open the note in Obsidian: Properties still show
+    title, event and attendees; nothing is dropped and the text isn't reordered.
+16. **Copy:** the prompt text, Settings note and README say the title and invitees'
+    names are saved in the note and go wherever the notes folder syncs.
+
 Not decided for you (conservative defaults used): attendee **names are
 written to the note** (no emails); the user is left out; max 20 names;
 matching happens when the meeting starts, not when the note is written.

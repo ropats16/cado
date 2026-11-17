@@ -93,10 +93,25 @@ struct NoteFrontMatter {
         return v
     }
 
+    /// A YAML double-quoted scalar on one line. Never emits a raw control
+    /// character (YAML forbids them, and one makes tools drop the whole
+    /// block): line breaks and Unicode line/paragraph separators become a
+    /// space, a tab is written as `\t`, any other control character is dropped.
+    /// `unquote` reads back exactly what this writes.
     static func quote(_ s: String) -> String {
-        let flat = s.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
-        let escaped = flat.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-        return "\"\(escaped)\""
+        var out = ""
+        for scalar in s.unicodeScalars {
+            switch scalar {
+            case "\\": out += "\\\\"
+            case "\"": out += "\\\""
+            case "\t": out += "\\t"
+            case "\n", "\r", "\u{2028}", "\u{2029}": out += " "
+            default:
+                if scalar.properties.generalCategory == .control { continue }
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return "\"\(out)\""
     }
 
     // MARK: Dates

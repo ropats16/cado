@@ -16,7 +16,7 @@ struct MatchedEvent: Equatable, Codable {
 /// declined and cancelled events and ones without a title are ignored.
 /// Best first by: has a signal of being a meeting (a video link, or other
 /// attendees), then closest start to the meeting's start, then shorter, then
-/// earlier, then title: the same input always gives the same answer.
+/// earlier, then more other people invited, then title: the same input always gives the same answer.
 enum CalendarMatcher {
     /// How far after the meeting's start an event may begin.
     static let lookahead: TimeInterval = 5 * 60
@@ -44,6 +44,8 @@ enum CalendarMatcher {
         let (la, lb) = (a.end.timeIntervalSince(a.start), b.end.timeIntervalSince(b.start))
         if la != lb { return la < lb }
         if a.start != b.start { return a.start < b.start }
+        let (pa, pb) = (a.attendees.filter { !$0.isCurrentUser }.count, b.attendees.filter { !$0.isCurrentUser }.count)
+        if pa != pb { return pa > pb }
         return a.title < b.title
     }
 
@@ -53,10 +55,23 @@ enum CalendarMatcher {
     }
 
     /// One line, trimmed, at most `titleLimit` characters; nil if nothing is left.
+    /// Control characters (invite titles are untrusted; YAML forbids them raw)
+    /// and bidi override/isolate characters (they can reorder what's shown) are
+    /// dropped; tabs and line breaks become spaces.
     static func cleanTitle(_ raw: String) -> String? {
-        let flat = raw.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).joined(separator: " ")
+        var kept = String.UnicodeScalarView()
+        for scalar in raw.unicodeScalars {
+            if scalar.properties.isWhitespace { kept.append(" "); continue }
+            if scalar.properties.generalCategory == .control || isBidiControl(scalar) { continue }
+            kept.append(scalar)
+        }
+        let flat = String(kept).split(separator: " ").joined(separator: " ")
         let cut = String(flat.prefix(titleLimit)).trimmingCharacters(in: .whitespaces)
         return cut.isEmpty ? nil : cut
+    }
+
+    private static func isBidiControl(_ s: Unicode.Scalar) -> Bool {
+        (0x202A...0x202E).contains(s.value) || (0x2066...0x2069).contains(s.value)
     }
 
     /// Display names of the other people, in order, without the user, blanks,
@@ -74,12 +89,38 @@ enum CalendarMatcher {
 }
 
 /// Spots a video-call link in free text (an event's URL, location, notes). Pure.
+/// Matches the host of each link (the host or a subdomain of a known one), so
+/// `zoom.us.example.com` doesn't count.
 enum VideoLink {
-    private static let hosts = ["zoom.us", "meet.google.com", "teams.microsoft.com", "teams.live.com",
-                                "webex.com", "whereby.com", "gotomeeting.com", "facetime.apple.com"]
+    private static let hosts = ["zoom.us", "zoom.com", "meet.google.com", "teams.microsoft.com", "teams.microsoft.us",
+                                "teams.live.com", "webex.com", "whereby.com", "gotomeeting.com",
+                                "facetime.apple.com", "chime.aws", "around.co"]
+    /// Slack huddle links: app.slack.com/huddle/... or <team>.slack.com/huddle/...
+    private static let slackHost = "slack.com"
 
     static func isIn(_ text: String?) -> Bool {
-        guard let text = text?.lowercased(), !text.isEmpty else { return false }
-        return hosts.contains { text.contains($0) }
+        guard let text, !text.isEmpty else { return false }
+        for token in text.split(whereSeparator: { $0.isWhitespace || "<>()\"'[]".contains($0) }) {
+            guard let (host, path) = hostAndPath(String(token)) else { continue }
+            if hosts.contains(where: { matches(host, $0) }) { return true }
+            if matches(host, slackHost), path.lowercased().hasPrefix("/huddle") { return true }
+        }
+        return false
+    }
+
+    private static func matches(_ host: String, _ known: String) -> Bool {
+        host == known || host.hasSuffix("." + known)
+    }
+
+    private static func hostAndPath(_ token: String) -> (String, String)? {
+        let lower = token.lowercased()
+        guard let range = lower.range(of: "://") else { return nil }
+        let rest = lower[range.upperBound...]
+        let end = rest.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) ?? rest.endIndex
+        var host = String(rest[..<end])
+        if let at = host.lastIndex(of: "@") { host = String(host[host.index(after: at)...]) }
+        if let colon = host.firstIndex(of: ":") { host = String(host[..<colon]) }
+        guard !host.isEmpty else { return nil }
+        return (host, String(rest[end...]))
     }
 }

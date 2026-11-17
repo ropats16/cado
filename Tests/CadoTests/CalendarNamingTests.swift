@@ -335,13 +335,29 @@ final class SettingsCalendarTests: XCTestCase {
         XCTAssertEqual(calendar.settingsOpened, 1)
     }
 
-    func testRevokedAccessShowsOffButKeepsTheChoice() {
+    func testRevokedAccessShowsOffUntilRefreshedThenClearsTheChoice() {
         let calendar = CalendarNamingTests.FakeCalendar(access: .granted)
         let vm = makeVM(calendar)
         vm.setNameMeetingsFromCalendar(true)
         XCTAssertTrue(vm.nameMeetingsFromCalendar)
         calendar.access = .denied
         XCTAssertFalse(vm.nameMeetingsFromCalendar)
-        XCTAssertTrue(store.config.nameMeetingsFromCalendar)
+        vm.refreshCalendarAccess()
+        XCTAssertFalse(store.config.nameMeetingsFromCalendar, "no silent resume when access comes back")
+        calendar.access = .granted
+        XCTAssertFalse(vm.nameMeetingsFromCalendar)
+    }
+
+    func testSwitchingOffOrOnWhileNotAllowedSavesOff() {
+        let calendar = CalendarNamingTests.FakeCalendar(access: .granted)
+        let vm = makeVM(calendar)
+        vm.setNameMeetingsFromCalendar(true)
+        calendar.access = .denied
+        vm.setNameMeetingsFromCalendar(false)
+        XCTAssertFalse(store.config.nameMeetingsFromCalendar)
+        store.update { $0.nameMeetingsFromCalendar = true }
+        vm.setNameMeetingsFromCalendar(true)   // denied: stays off, and the stale choice is cleared
+        XCTAssertFalse(store.config.nameMeetingsFromCalendar)
+        XCTAssertEqual(calendar.requests, 0)
     }
 }

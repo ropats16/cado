@@ -168,6 +168,9 @@ final class UserFacingCopyTests: XCTestCase {
         for access in [CalendarAccess.notDetermined, .granted, .denied, .restricted, .unavailable] {
             UserFacingCopy.assertPlain(CalendarSettingsCopy.note(access))
         }
+        XCTAssertTrue(CalendarSettingsCopy.note(.granted).contains("wherever your notes folder syncs"),
+                      "Says the title and names are saved in the note")
+        XCTAssertFalse(CalendarSettingsCopy.note(.granted).contains("anywhere"))
     }
 
     /// One name for the usage-count setting, in onboarding and Settings.
