@@ -201,6 +201,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     private var readinessGlyph: StatusGlyph = .ready
     /// While a meeting records: the menu-bar title ("12:34").
     private var meetingElapsed: String?
+    /// By the avocado: the elapsed time, "Record?" (#32).
+    private var meetingBarTitle: String?
 
     override init() {
         super.init()
@@ -237,6 +239,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         statusItem.menu = menu
     }
 
+    /// Opens the menu, as a click on the avocado does (the meeting hotkey
+    /// with several apps to choose from, #32).
+    func open() {
+        statusItem.button?.performClick(nil)
+    }
+
     func render(_ content: StatusMenuContent) {
         header.title = content.header
         set(reason, content.reason)
@@ -261,6 +269,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     func renderMeeting(_ content: MeetingMenuContent) {
         meeting.render(content)
         meetingElapsed = content.elapsed
+        meetingBarTitle = content.barTitle
         renderGlyph()
     }
 
@@ -280,7 +289,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             button.imagePosition = .imageLeading
             button.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         }
-        let title = meetingElapsed.map { " " + $0 } ?? ""
+        let title = meetingBarTitle.map { " " + $0 } ?? ""
         if button.title != title { button.title = title }
     }
 

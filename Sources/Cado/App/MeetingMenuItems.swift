@@ -13,12 +13,14 @@ final class MeetingMenuItems: NSObject {
     private let main = NSMenuItem(title: "Record Meeting", action: nil, keyEquivalent: "")
     private let submenu = NSMenu()
     private let detail = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    /// "Not Now" / "Keep Recording" while Cado asks (#32).
+    private let promptRow = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let settings = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let separator = NSMenuItem.separator()
     private var shownChoices: [MeetingMenuContent.Row]?
 
     /// In menu order.
-    var items: [NSMenuItem] { [main, detail, settings, separator] }
+    var items: [NSMenuItem] { [main, detail, promptRow, settings, separator] }
 
     override init() {
         super.init()
@@ -28,6 +30,9 @@ final class MeetingMenuItems: NSObject {
         settings.target = self
         settings.action = #selector(openSettings)
         settings.isHidden = true
+        promptRow.target = self
+        promptRow.action = #selector(clicked(_:))
+        promptRow.isHidden = true
         submenu.autoenablesItems = false
     }
 
@@ -40,6 +45,9 @@ final class MeetingMenuItems: NSObject {
         detail.isHidden = content.detail == nil
         settings.title = content.systemAudioSettings ?? ""
         settings.isHidden = content.systemAudioSettings == nil
+        promptRow.title = content.promptRow?.title ?? ""
+        promptRow.representedObject = content.promptRow?.action.map(Box.init)
+        promptRow.isHidden = content.promptRow == nil
         renderChoices(content.choices)
     }
 
