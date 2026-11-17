@@ -92,8 +92,8 @@ final class LibraryRenderHarness: XCTestCase {
             ## Summary
             Agreed to ship the **Library window** next week. Budget is *unchanged*.
 
-            - Rohit: finish the list view
-            - Sam: review the [spec](https://example.com)
+            - Design: finish the list view
+            - Eng: review the [spec](https://example.com)
               - check empty states
 
             1. Ship
@@ -116,7 +116,7 @@ final class LibraryRenderHarness: XCTestCase {
 
     private func seedMany(_ library: NotesLibrary) throws {
         let now = Date()
-        for (i, title) in ["Standup", "1:1 with Sam", "Vendor call", "Retro", "Offsite plan", "Hiring sync"].enumerated() {
+        for (i, title) in ["Standup", "1:1 check-in", "Vendor call", "Retro", "Offsite plan", "Hiring sync"].enumerated() {
             try library.create(NoteDraft(title: title, date: now.addingTimeInterval(-86_400 * Double(12 + i * 20)),
                                          kind: "meeting", duration: 900 + Double(i) * 300,
                                          body: "**Me:** Hello.\n\n**Them:** Hi, shall we start?"))
