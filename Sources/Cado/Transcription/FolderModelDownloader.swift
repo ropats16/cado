@@ -41,6 +41,8 @@ enum ModelDownloadError: LocalizedError, Equatable {
     case incomplete(path: String, bytes: Int64, expected: Int64)
     case checksumMismatch(path: String)
     case unsafePath(String)
+    /// The server sent past the pinned size; stopped there.
+    case oversized(bytes: Int64)
 
     var errorDescription: String? {
         switch self {
@@ -52,6 +54,8 @@ enum ModelDownloadError: LocalizedError, Equatable {
             return "\(path) doesn't match its pinned checksum (discarded). Try again."
         case .unsafePath(let path):
             return "The pinned path \"\(path)\" leaves the model folder."
+        case .oversized(let bytes):
+            return "The server sent more than the expected \(bytes) bytes, so the download was stopped. Try again."
         }
     }
 }
@@ -64,8 +68,11 @@ protocol DownloadTransport: Sendable {
     /// missing), reporting how many bytes `file` holds as they arrive. A
     /// server that ignores the range restarts the file from zero. Throws on
     /// an HTTP error or a dropped connection, `CancellationError` when the
-    /// task is cancelled; whatever arrived stays in `file`.
-    func fetch(_ url: URL, from offset: Int64, appendingTo file: URL,
+    /// task is cancelled; whatever arrived stays in `file`. `file` never
+    /// grows past `limit` bytes (the pinned size): a body that would make it
+    /// is stopped with `ModelDownloadError.oversized`, so a bad server can't
+    /// fill the disk.
+    func fetch(_ url: URL, from offset: Int64, upTo limit: Int64, appendingTo file: URL,
                progress: @escaping @Sendable (Int64) -> Void) async throws
 }
 
@@ -185,7 +192,8 @@ struct FolderModelDownloader: Sendable {
         if size == file.bytes, try ModelVerifier.sha256(of: out) == file.sha256 { return }
         if size >= file.bytes { try fm.removeItem(at: out); size = 0 }
 
-        try await transport.fetch(baseURL.appendingPathComponent(file.source), from: size, appendingTo: out) {
+        try await transport.fetch(baseURL.appendingPathComponent(file.source), from: size, upTo: file.bytes,
+                                  appendingTo: out) {
             progress(before + min($0, file.bytes))
         }
         size = Self.size(of: out)
