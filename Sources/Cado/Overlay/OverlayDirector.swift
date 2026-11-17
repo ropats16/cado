@@ -135,8 +135,18 @@ final class OverlayDirector {
 
     /// "Record this meeting?" is open (#32). Settable live.
     var asking = false {
-        didSet { if asking != oldValue { update() } }
+        didSet {
+            guard asking != oldValue else { return }
+            if !asking { askingEndedAt = clock.now }
+            update()
+        }
     }
+
+    /// When the question was last withdrawn; a click just after it was aimed
+    /// at the question, not at dictation.
+    private var askingEndedAt: TimeInterval?
+    /// How long after the question goes away a dictation click is ignored.
+    static let askingGrace: TimeInterval = 1
 
     /// Called by `clicked` when a click means start/stop dictation; the owner
     /// sends the session a toggle.
@@ -180,6 +190,7 @@ final class OverlayDirector {
     /// A click (mouse-up without a drag) on the mascot's body.
     func clicked() {
         switch visual {
+        case .resting where askingEndedAt.map({ clock.now - $0 < Self.askingGrace }) == true: break
         case .resting, .listening: onToggleDictation?()
         case .asking: onRecordMeeting?()
         case .meeting: onToggleMeeting?()
