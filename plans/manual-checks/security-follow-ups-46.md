@@ -15,12 +15,12 @@ Operational checks and remaining owner acceptance steps. Status updated on
       signature verification. No app was installed and no TCC grants reset.
 - [ ] Confirm Microphone/Accessibility grants and a short dictation after the
       migration. Computer-use access was unavailable; owner confirmation is pending.
-- [ ] Publish the prepared 0.3.0 release with its signed feed, download that
+- [ ] Publish the prepared 0.4.0 release with its signed feed, download that
       published feed and verify it. Then enable both `SURequireSignedFeed` and
-      `SUVerifyUpdateBeforeExtraction` for 0.3.1 and check the update path.
-- [ ] From the 0.3.1 app itself, accept a valid signed feed, reject unsigned and
+      `SUVerifyUpdateBeforeExtraction` for 0.4.1 and check the update path.
+- [ ] From the 0.4.1 app itself, accept a valid signed feed, reject unsigned and
       tampered feeds, and reject a tampered archive before extraction. The
-      0.3.0 to 0.3.1 upgrade alone does not test the new flags.
+      0.4.0 to 0.4.1 upgrade alone does not test the new flags.
 
 
 ## Before/after a release
