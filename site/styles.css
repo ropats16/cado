@@ -799,6 +799,7 @@ section[id] {
 }
 .stage {
   margin-top: 64px;
+  padding-bottom: 20px;
 }
 .btn {
   min-height: 54px;
@@ -1086,7 +1087,7 @@ section[id] {
   margin-top: 12px;
 }
 .stage:before {
-  bottom: 12px;
+  bottom: 0;
 }
 .perm-heading {
   margin-top: 56px;
@@ -1142,7 +1143,7 @@ section[id] {
     font-size: clamp(2.4rem, 10vw, 3rem);
   }
   .stage:before {
-    inset: 24px -8px 12px;
+    inset: 24px -8px 0;
   }
   .facts div {
     padding: 20px 14px;
