@@ -261,7 +261,7 @@ final class RecoveryPlanTests: XCTestCase {
         XCTAssertEqual(NoteFrontMatter.parse(note).value(for: "title"), "Weekly sync: \"Q3\"\tplan notes")
         XCTAssertEqual(NoteFrontMatter.parse(note).value(for: "id"), "X")
         XCTAssertTrue(plan.isWholeNote(note))
-        let summary = SummarySection.markdown(SummaryOutcome(summary: MeetingSummary(keyPoints: ["They said: Hi."])),
+        let summary = SummarySection.markdown(SummaryOutcome(summary: MeetingSummary(discussion: ["They said: Hi."])),
                                               provider: .onDevice)
         let summarized = NoteText.replacingBody(of: note) { SummarySection.applying(summary, to: $0) }
         XCTAssertTrue(summarized.contains(SummarySection.startMarker))

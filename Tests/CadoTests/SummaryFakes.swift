@@ -2,7 +2,7 @@ import Foundation
 @testable import Cado
 
 /// A `MeetingSummarizer` that answers from closures and records each call.
-/// Its default summary of a passage is one key point per line ("Me: hi" →
+/// Its default summary of a passage is one discussion item per line ("Me: hi" →
 /// "hi"), and a merge is `MeetingSummary.combined`, so outcomes are easy
 /// to predict.
 final class FakeSummarizer: MeetingSummarizer, @unchecked Sendable {
@@ -27,7 +27,7 @@ final class FakeSummarizer: MeetingSummarizer, @unchecked Sendable {
     }
 
     static func echo(_ passage: String) -> MeetingSummary {
-        MeetingSummary(keyPoints: passage.components(separatedBy: "\n").map {
+        MeetingSummary(discussion: passage.components(separatedBy: "\n").map {
             $0.split(separator: ":", maxSplits: 1).last.map { $0.trimmingCharacters(in: .whitespaces) } ?? $0
         })
     }

@@ -166,9 +166,9 @@ final class LibraryRenderHarness: XCTestCase {
         var draft = note.draft()
         draft.title = "Launch planning"
         let outcome = SummaryOutcome(summary: MeetingSummary(
-            keyPoints: ["Onboarding design needs one more week", "Finance approved $15k of the $20k beta budget"],
             decisions: ["Launch moves to March 10th; press briefing stays on the 12th", "Drop the paid survey tool"],
-            actionItems: ["Priya: confirm the new date with marketing", "Sam: cancel the survey tool trial by Friday"]))
+            actionItems: ["Priya: confirm the new date with marketing", "Sam: cancel the survey tool trial by Friday"],
+            discussion: ["Onboarding design needs one more week", "Finance approved $15k of the $20k beta budget"]))
         draft.body = SummarySection.applying(SummarySection.markdown(outcome, provider: .onDevice), to: draft.body)
         try library.create(draft)
         try seedHero(library)
@@ -184,10 +184,10 @@ final class LibraryRenderHarness: XCTestCase {
         var draft = note.draft()
         draft.title = "Launch sync"
         let outcome = SummaryOutcome(summary: MeetingSummary(
-            keyPoints: ["Launch moves to the 14th; beta feedback is mostly about onboarding.",
-                        "Pricing page copy needs one more pass before it goes out."],
             decisions: ["Ship the beta to the waitlist on Monday."],
-            actionItems: ["Me: send the revised copy to design", "Others: confirm the support rota"]))
+            actionItems: ["Me: send the revised copy to design", "Others: confirm the support rota"],
+            discussion: ["Launch moves to the 14th; beta feedback is mostly about onboarding.",
+                         "Pricing page copy needs one more pass before it goes out."]))
         draft.body = SummarySection.applying(SummarySection.markdown(outcome, provider: .onDevice), to: draft.body)
         try library.create(draft)
         for (index, title) in ["Design review", "1:1", "Customer call", "Roadmap"].enumerated() {

@@ -46,7 +46,7 @@ final class OnDeviceSummaryLiveTests: XCTestCase {
         print("--- on-device summary (\(String(format: "%.1f", Date().timeIntervalSince(started))) s, "
             + "\(outcome.passages) passage(s), \(outcome.skippedPassages) left out)\n"
             + SummarySection.markdown(outcome, provider: .onDevice))
-        XCTAssertFalse(outcome.summary.keyPoints.isEmpty)
+        XCTAssertFalse(outcome.summary.discussion.isEmpty)
         XCTAssertFalse(outcome.summary.actionItems.isEmpty)
     }
 
