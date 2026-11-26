@@ -274,6 +274,7 @@ final class MeetingSessionTests: XCTestCase {
                        date: { Date(timeIntervalSince1970: 1_794_839_520) },
                        systemAudioPermission: { [unowned self] in permission },
                        keepAudio: { [unowned self] in keepAudio },
+                       removeHesitations: { true },
                        maxSeconds: { maxSeconds }, locale: Locale(identifier: "en_GB"),
                        timeZone: TimeZone(identifier: "UTC")!, calendarNaming: calendarNaming,
                        later: later, background: background)
@@ -427,7 +428,7 @@ final class MeetingSessionTests: XCTestCase {
         var limit: TimeInterval? = 3600
         session = MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
                                  feedback: feedback, activity: feedback, clock: clock,
-                                 systemAudioPermission: { .unconfirmed }, maxSeconds: { limit },
+                                 systemAudioPermission: { .unconfirmed }, removeHesitations: { true }, maxSeconds: { limit },
                                  later: { $0() }, background: { $0(); $1() })
         startBoth()
         limit = 60   // a change mid-meeting applies to the next one
@@ -447,7 +448,7 @@ final class MeetingSessionTests: XCTestCase {
     func testOffStillStopsADayLongMeeting() {
         session = MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
                                  feedback: feedback, activity: feedback, clock: clock,
-                                 systemAudioPermission: { .unconfirmed }, maxSeconds: { nil },
+                                 systemAudioPermission: { .unconfirmed }, removeHesitations: { true }, maxSeconds: { nil },
                                  later: { $0() }, background: { $0(); $1() })
         startBoth()
         XCTAssertEqual(recorder.requests.last?.1, MeetingLimit.backstopSeconds)
@@ -1719,7 +1720,8 @@ extension MeetingSessionTests {
         session = MeetingSession(recorder: recorder, engine: engine, notes: notes, archive: archive, spool: spool,
                                  feedback: feedback, activity: feedback, clock: clock,
                                  date: { Date(timeIntervalSince1970: 1_794_839_520) },
-                                 systemAudioPermission: { .unconfirmed }, keepAudio: { true }, maxSeconds: { 600 },
+                                 systemAudioPermission: { .unconfirmed }, keepAudio: { true },
+                                 removeHesitations: { true }, maxSeconds: { 600 },
                                  locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!,
                                  later: { $0() }, background: { queued.append(($0, $1)) })
         record()

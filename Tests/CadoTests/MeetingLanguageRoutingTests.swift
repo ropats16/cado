@@ -51,6 +51,7 @@ final class MeetingLanguageSessionTests: XCTestCase {
                                  feedback: feedback, activity: feedback, clock: clock,
                                  systemAudioPermission: { .unconfirmed },
                                  meetingLanguage: { [unowned self] in language },
+                                 removeHesitations: { true },
                                  later: { $0() }, background: { $0(); $1() })
     }
 
@@ -158,6 +159,7 @@ final class MeetingPassageLanguageTests: XCTestCase {
                                  feedback: feedback, activity: feedback, clock: clock,
                                  systemAudioPermission: { .unconfirmed },
                                  meetingLanguage: { [unowned self] in language },
+                                 removeHesitations: { true },
                                  later: { $0() }, background: { $0(); $1() })
     }
 

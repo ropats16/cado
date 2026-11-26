@@ -41,6 +41,7 @@ final class MeetingControllerTests: XCTestCase {
             MeetingSession(recorder: recorder, engine: Fakes.FakeEngine(), notes: Fakes.FakeNotes(),
                            archive: Fakes.FakeArchive(), spool: spool, feedback: feedback,
                            activity: controller, clock: clock, systemAudioPermission: { .unconfirmed },
+                           removeHesitations: { true },
                            later: { $0() }, background: { $0(); $1() })
         }
         assistant = MeetingAssistant(meetings: controller, feed: feed, notices: MeetingAssistantTests.FakeNotices(),

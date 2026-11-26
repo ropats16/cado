@@ -131,7 +131,7 @@ final class MeetingReplayTests: XCTestCase {
             archive: FolderMeetingArchive(root: archiveDir),
             spool: spooling ?? FolderMeetingSpool(root: spoolDir), feedback: notices, activity: notices, clock: clock,
             date: { start },
-            systemAudioPermission: { permission }, keepAudio: { keepAudio },
+            systemAudioPermission: { permission }, keepAudio: { keepAudio }, removeHesitations: { true },
             locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!, background: background)
         return Run(session: session, recorder: recorder, notices: notices, clock: clock, engine: engine)
     }

@@ -59,7 +59,7 @@ final class DictationSessionTests: XCTestCase {
         private(set) var received: [String] = []
         /// The texts that reached the user.
         private(set) var delivered: [String] = []
-        func deliver(_ transcript: String, trailingSpace: Bool) -> DeliveryReport {
+        func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport {
             received.append(transcript)
             guard let method else { return .droppedEmpty }
             let text = trailingSpace ? transcript + " " : transcript
@@ -124,7 +124,8 @@ final class DictationSessionTests: XCTestCase {
         feedback = FakeFeedback()
         history = FakeHistory()
         settings = DictationSettings(minSeconds: 0.3, maxSeconds: 600,
-                                     ceilingSeconds: AudioCapture.ceilingSeconds, trailingSpace: false)
+                                     ceilingSeconds: AudioCapture.ceilingSeconds, trailingSpace: false,
+                                     removeHesitations: true)
         status = .ready
         session = DictationSession(
             capture: capture, engine: engine, delivery: delivery, feedback: feedback,
@@ -338,7 +339,7 @@ final class DictationSessionTests: XCTestCase {
         final class OrderingDelivery: DictationDelivery {
             var feedback: FakeFeedback!
             var eventsAtDelivery: [FakeFeedback.Event] = []
-            func deliver(_ transcript: String, trailingSpace: Bool) -> DeliveryReport {
+            func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport {
                 eventsAtDelivery = feedback.events
                 return .pasted(transcript)
             }
@@ -508,7 +509,7 @@ final class DictationSessionTests: XCTestCase {
         final class ReentrantDelivery: DictationDelivery {
             weak var session: DictationSession?
             var phaseSeen: DictationSession.Phase?
-            func deliver(_ transcript: String, trailingSpace: Bool) -> DeliveryReport {
+            func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport {
                 phaseSeen = session?.phase
                 session?.handle(.toggle)
                 return .pasted(transcript)
@@ -721,5 +722,55 @@ final class DictationSessionTests: XCTestCase {
         dictate("two")
         XCTAssertEqual(delivery.delivered, ["one", "two "])
         XCTAssertEqual(history.entries.map(\.text), ["one", "two "])
+    }
+
+    func testHesitationSettingAndLanguageFlowThroughDictationToDelivery() {
+        let pasteboard = FakePasteboard(ClipboardSnapshot(items: []))
+        let keys = FakeKeyPoster()
+        let probe = FakeFocusProbe()
+        let realDelivery = TextDelivery(paster: ClipboardPaster(clipboard: pasteboard, keyPoster: keys, clock: clock),
+                                        probe: probe)
+        final class LangEngine: DictationEngine {
+            var nextLanguage: String? = "en"
+            private var completions: [(Result<DictationResult, Error>) -> Void] = []
+            func prewarm() {}
+            func endPrewarm() {}
+            func transcribe(_ samples: [Float], completion: @escaping (Result<String, Error>) -> Void) {
+                XCTFail("session calls transcribeResult")
+            }
+            func transcribeResult(_ samples: [Float], completion: @escaping (Result<DictationResult, Error>) -> Void) {
+                completions.append(completion)
+            }
+            func finish(_ text: String) {
+                completions.removeLast()(.success(DictationResult(text: text, language: nextLanguage)))
+            }
+        }
+        let langEngine = LangEngine()
+        session = DictationSession(
+            capture: capture, engine: langEngine, delivery: realDelivery, feedback: feedback,
+            activity: feedback, history: history, clock: clock, settings: { [unowned self] in settings },
+            readiness: { [unowned self] in status }, busy: { [unowned self] in busy }
+        )
+        func run(_ raw: String, lang: String?) {
+            langEngine.nextLanguage = lang
+            session.handle(.holdDown)
+            clock.advance(by: 2)
+            session.handle(.holdUp)
+            capture.finishEnd()
+            langEngine.finish(raw)
+        }
+
+        // Default on: cleans English hesitations, drops hesitation-only, keeps German "um".
+        XCTAssertTrue(settings.removeHesitations)
+        run(" Um, ship it, uh, Friday.", lang: "en")
+        run(" Um, uh.", lang: "en")
+        run(" Wir treffen uns um 14 Uhr.", lang: "de")
+        XCTAssertEqual(history.entries.map(\.text), ["Ship it Friday.", "Wir treffen uns um 14 Uhr."])
+        XCTAssertEqual(feedback.landings, 2, "Hesitation-only dictation was dropped without landing")
+
+        // Switch off: verbatim byte-for-byte.
+        settings.removeHesitations = false
+        run(" Um, ship it, uh, Friday.", lang: "en")
+        XCTAssertEqual(history.entries.last?.text, "Um, ship it, uh, Friday.")
     }
 }

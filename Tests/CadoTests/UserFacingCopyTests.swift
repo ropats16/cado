@@ -178,6 +178,12 @@ final class UserFacingCopyTests: XCTestCase {
         XCTAssertEqual(UsagePingCopy.title, "Send anonymous usage count")
     }
 
+    /// The hesitation-removal switch (#62): plain words.
+    func testTheHesitationSwitchIsPlain() {
+        UserFacingCopy.assertPlain(HesitationSettingsCopy.title)
+        UserFacingCopy.assertPlain(HesitationSettingsCopy.note)
+    }
+
     /// The menu's lines, including a config problem.
     func testTheMenuIsPlain() {
         var config = Config.defaults

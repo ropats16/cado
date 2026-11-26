@@ -162,6 +162,22 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(restarted.frame(forMouse: CGPoint(x: -100, y: 0), size: size), settled)
     }
 
+    // MARK: - Hesitation removal (#62)
+
+    func testRemoveHesitationsDefaultsOnAndOldConfigsDecode() throws {
+        XCTAssertTrue(Config.defaults.removeHesitations)
+        XCTAssertTrue(try decode("{}").removeHesitations)
+        XCTAssertTrue(try decode(#"{"trailingSpace": true, "soundCues": false}"#).removeHesitations)
+    }
+
+    func testRemoveHesitationsRoundTrips() throws {
+        let off = try decode(#"{"removeHesitations": false}"#)
+        XCTAssertFalse(off.removeHesitations)
+        let data = try JSONEncoder().encode(off)
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains(#""removeHesitations":false"#))
+        XCTAssertFalse(try JSONDecoder().decode(Config.self, from: data).removeHesitations)
+    }
+
     // MARK: - Support folder override
 
     func testSupportFolderOverrideIsSharedWithTheScripts() {

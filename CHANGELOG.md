@@ -9,6 +9,11 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - An English-only Whisper model is no longer used for Auto-detect or another language when a multilingual model is installed.
 - Meeting summaries now lead with a short overview followed by Decisions, Action items, Discussion, and Open questions (omitting empty sections). Existing summaries are unchanged until you choose Regenerate Summary in the Library.
 
+### Added
+- Spoken hesitation sounds ("um", "uh", …) are removed by default from dictated text and meeting transcripts on every speech engine, with punctuation, spacing and sentence-start capitalization tidied up and hesitation-only passages dropped. Real words in every language Cado transcribes (such as German and Portuguese "um") and meaningful expressions ("uh-huh", "mm-hmm", "like", "you know") stay untouched.
+- Settings › Speech Model › **Remove hesitation sounds** (and `removeHesitations` in `config.json`, on by default): turn it off to keep dictated text and meeting transcripts verbatim.
+- Meeting summaries always strip hesitation sounds before summarizing, including when summarizing or regenerating summaries for notes recorded before this change, without rewriting the saved transcript.
+
 ## 0.6.0 - 2026-11-18
 
 ### Changed

@@ -7,10 +7,10 @@ import AVFoundation
 // meeting the app didn't get to finish.
 //
 // On disk: `<root>/<uuid>/` holding
-//   meeting.json   {"version":1,"id","appName","appBundleID","startDate","language"?,"event"?},
-//                  written once ("language" since #47; absent in older spools. A new
-//                  meeting's calendar event comes later, in the journal:
-//                  `SpoolEvent.calendarEvent`)
+//   meeting.json   {"version":1,"id","appName","appBundleID","startDate","language"?,"event"?,"removeHesitations"?},
+//                  written once ("language" since #47, "removeHesitations" since #62;
+//                  absent in older spools. A new meeting's calendar event comes later,
+//                  in the journal: `SpoolEvent.calendarEvent`)
 //   me.f32         raw little-endian Float32, 16 kHz mono, append-only
 //   them.f32       same, for the meeting app's audio
 //   events.jsonl   one JSON object per line ("type" says which), append-only
@@ -61,6 +61,11 @@ struct SpooledMeeting: Codable, Equatable {
     /// recorded by an early build of #38 have it here; it now arrives after
     /// the start and is journaled (`SpoolEvent.calendarEvent`), which wins.
     var event: MatchedEvent? = nil
+    /// Whether spoken hesitations are removed from this meeting's passages
+    /// (`Config.removeHesitations` when it started, #62), so a recovery
+    /// produces the same text a live meeting would. nil: a spool from before
+    /// #62 (kept verbatim, as then).
+    var removeHesitations: Bool? = nil
 }
 
 /// One transcribed sentence-ish segment, relative to its chunk's start.
@@ -913,14 +918,16 @@ final class FolderSpoolHandle: MeetingSpoolHandle {
         let language: String?
         /// Optional (#38): older files lack it and open as before.
         let event: MatchedEvent?
+        /// Optional (#62): older files lack it and recover verbatim, as then.
+        let removeHesitations: Bool?
         init(version: Int, meeting: SpooledMeeting) {
             self.version = version; id = meeting.id; appName = meeting.appName
             appBundleID = meeting.appBundleID; startDate = meeting.startDate; language = meeting.language
-            event = meeting.event
+            event = meeting.event; removeHesitations = meeting.removeHesitations
         }
         var meeting: SpooledMeeting {
             SpooledMeeting(id: id, appName: appName, appBundleID: appBundleID, startDate: startDate,
-                           language: language, event: event)
+                           language: language, event: event, removeHesitations: removeHesitations)
         }
     }
 

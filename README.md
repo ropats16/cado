@@ -647,6 +647,20 @@ without a dictation and reloaded as soon as you start the next recording (it is
 never unloaded mid-recording). Settings offers Automatic / Keep loaded /
 Unload when idle.
 
+**Remove hesitation sounds.** On by default (**Settings › Speech Model ›
+Transcript › Remove hesitation sounds**, `"removeHesitations": true`). Strips
+spoken hesitation sounds ("um", "uh", …) from dictated text and meeting
+transcripts on every engine while keeping real words (including German/Portuguese
+"um", German/Dutch/Nordic "er") and meaningful replies ("uh-huh", "mm-hmm",
+"like", "you know") intact. Language-specific fillers such as "um" are removed
+only when the text's detected language agrees with (or does not contradict) the
+selected language, so German or Portuguese sentences stay intact even when
+Language is left on English (though a one- or two-word non-English utterance
+with Language set to English can still lose "um"). Turn it off to keep dictated
+text and meeting transcripts verbatim. Summaries always filter hesitations out
+of the text sent to the summary model, including for older notes (without
+rewriting their saved transcripts).
+
 > Curious what the app would auto-pick for this Mac? Run
 > `scripts/detect_hardware.sh` — it reports the detected arch, RAM, and the
 > model (diagnostic only; it changes nothing). The app logs its pick at launch.
@@ -707,6 +721,7 @@ opens the Settings tab with that hotkey (Dictation, or Meetings for `meetingHotk
 | `cancelKeyCode`       | Key that cancels a recording (default 53 = Esc).    |
 | `maxRecordingSeconds` | Auto-stop after this many seconds (default 600; `0` = no limit, capped at 30 min). |
 | `trailingSpace`       | Add a space after each dictation (default off).     |
+| `removeHesitations`   | Remove spoken hesitation sounds ("um", "uh", …) from dictated text and meeting transcripts on every engine (default `true`; set `false` to keep speech verbatim). Summaries still filter hesitations from what the summary model sees without rewriting saved notes. |
 | `language`            | `en` (default), another code like `de`, or `auto`. English-only models always use `en`. |
 | `threads`             | CPU threads; `0` = auto (performance cores, max 8). |
 | `keepMicWarm`         | Keep the mic on from launch (default off: it stays on 30 s after each dictation). |

@@ -1,8 +1,17 @@
 import SwiftUI
 
+/// Plain-word copy for the hesitation-removal switch (#62), shared by Settings
+/// and `UserFacingCopyTests`.
+enum HesitationSettingsCopy {
+    static let title = "Remove hesitation sounds"
+    static let note = "Removes “um” and “uh” from dictated text and meeting transcripts. Turn off to keep speech verbatim."
+}
+
 extension SettingsView {
-    /// Speech Model tab: engine, model, language, how long it stays loaded.
+    /// Speech Model tab: engine, model, language, how long it stays loaded,
+    /// and transcript cleanup shared by dictation and meetings.
     var modelTab: some View {
+        VStack(alignment: .leading, spacing: 20) {
         SettingsCard {
             SettingsRow("Engine") {
                 Picker("Engine",
@@ -120,6 +129,13 @@ extension SettingsView {
             if let hint = viewModel.modelStatusHint {
                 let pending = [.loading, .verifying].contains(viewModel.modelStatus)
                 StatusLine(text: hint, tone: pending ? .note : .problem).padding(.bottom, 8)
+            }
+        }
+            SettingsSection(title: "Transcript", systemImage: "text.quote") {
+                toggleRow(HesitationSettingsCopy.title, isOn: viewModel.removeHesitations) {
+                    viewModel.setRemoveHesitations($0)
+                }
+                StatusLine(text: HesitationSettingsCopy.note).padding(.bottom, 8)
             }
         }
         .task(id: "\(viewModel.engine.rawValue)|\(viewModel.language)") {

@@ -52,7 +52,10 @@ struct SummaryPipeline {
     static let maxSplits = 2
 
     func run(_ turns: [(speaker: MeetingSpeaker, text: String)]) async throws -> SummaryOutcome {
-        let passages = TranscriptChunker.passages(TranscriptChunker.lines(turns),
+        // Summaries never see hesitations, including for notes recorded before #62
+        // (whose saved transcripts are never rewritten).
+        let cleaned = HesitationFilter.cleanTurns(turns)
+        let passages = TranscriptChunker.passages(TranscriptChunker.lines(cleaned),
                                                   maxTokens: summarizer.limits.passageTokens)
         guard !passages.isEmpty else { throw SummaryPipelineError.nothingToSummarize }
 

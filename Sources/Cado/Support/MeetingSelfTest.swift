@@ -81,7 +81,8 @@ enum MeetingSelfTest {
             notes: NotesLibrary(folder: { notesDir }),
             archive: FolderMeetingArchive(root: notesDir.appendingPathComponent("archive")),
             spool: FolderMeetingSpool(root: notesDir.appendingPathComponent("spool")), feedback: console, activity: console, clock: clock,
-            systemAudioPermission: { .unconfirmed }, meetingLanguage: { meetingLanguage })
+            systemAudioPermission: { .unconfirmed }, meetingLanguage: { meetingLanguage },
+            removeHesitations: { config.removeHesitations })
         let app = MeetingApp(name: appName, bundleID: "test.\(appName)", target: .app(bundleID: "test", pid: 0))
 
         let started = Date()
