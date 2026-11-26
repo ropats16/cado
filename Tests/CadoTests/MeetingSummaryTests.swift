@@ -259,7 +259,7 @@ final class MeetingSummaryTests: XCTestCase {
         let text = """
             Unresolved questions:
             - Is the 15 MB timeout client-side or storage API?
-            Notes:
+            Discussion points:
             - Timeout affects 3% of accounts
             TL;DR:
             - Timeout root cause is still open.
@@ -275,6 +275,86 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertEqual(inline.summary.overview, "")
         XCTAssertTrue(inline.hasOverview)
         XCTAssertEqual(inline.summary.openQuestions, ["One blocker"])
+    }
+
+    func testProseBeforeFirstHeadingBecomesOverviewWhenNoOverviewHeadingSuppliesOne() {
+        let text = """
+            The team agreed to ship CSV export first.
+
+            Decisions:
+            - Ship CSV export first
+            Action items:
+            - None
+            Open questions:
+            - None
+            Discussion:
+            - None
+            """
+        let reading = SummaryText.read(text)
+        XCTAssertEqual(reading.summary.overview, "The team agreed to ship CSV export first.")
+        XCTAssertEqual(reading.summary.decisions, ["Ship CSV export first"])
+
+        let withExplicitOverview = """
+            Here are the notes.
+
+            Decisions:
+            - Ship CSV export first
+
+            Overview:
+            CSV export ships first.
+            """
+        XCTAssertEqual(SummaryText.read(withExplicitOverview).summary.overview, "CSV export ships first.")
+
+        let bulletBeforeHeading = """
+            - Stray bullet
+            1. Stray numbered item
+
+            Decisions:
+            - Ship CSV export first
+            """
+        let bulletReading = SummaryText.read(bulletBeforeHeading)
+        XCTAssertEqual(bulletReading.summary.overview, "")
+        XCTAssertEqual(bulletReading.summary.decisions, ["Ship CSV export first"])
+    }
+
+    func testSummaryHeadingTreatsProseAsOverviewAndBulletsAsDiscussion() {
+        let proseSummary = """
+            Summary:
+            The launch moves to March 10.
+            Decisions:
+            - Launch on March 10
+            """
+        let proseReading = SummaryText.read(proseSummary)
+        XCTAssertEqual(proseReading.summary.overview, "The launch moves to March 10.")
+        XCTAssertEqual(proseReading.summary.discussion, [])
+        XCTAssertEqual(proseReading.summary.decisions, ["Launch on March 10"])
+        XCTAssertEqual(proseReading.sections, [.decisions])
+
+        let bulletSummary = """
+            Summary:
+            - Budget is fifteen thousand
+            Decisions:
+            - None
+            """
+        let bulletReading = SummaryText.read(bulletSummary)
+        XCTAssertEqual(bulletReading.summary.discussion, ["Budget is fifteen thousand"])
+        XCTAssertEqual(bulletReading.summary.overview, "")
+        XCTAssertEqual(bulletReading.sections, [.discussion, .decisions])
+    }
+
+    func testNotesAndQuestionsAreNotHeadingSynonyms() {
+        let text = """
+            Discussion:
+            Questions: who owns the rollout?
+            Notes: follow up after beta
+            """
+        let reading = SummaryText.read(text)
+        XCTAssertEqual(reading.summary.discussion, [
+            "Questions: who owns the rollout?",
+            "Notes: follow up after beta",
+        ])
+        XCTAssertEqual(reading.summary.openQuestions, [])
+        XCTAssertEqual(reading.sections, [.discussion])
     }
 
     func testRenderAndReadRoundTripsAllFiveFields() {

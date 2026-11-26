@@ -57,6 +57,8 @@ enum SummaryText {
     static func read(_ text: String) -> Reading {
         var reading = Reading()
         var field: Heading?
+        var leadingOverviewLines: [String] = []
+        var summaryOverviewLines: [String] = []
         var overviewLines: [String] = []
         for raw in text.components(separatedBy: .newlines) {
             var line = raw.trimmingCharacters(in: .whitespaces)
@@ -70,14 +72,30 @@ enum SummaryText {
                 field = heading
                 record(heading, in: &reading)
                 line = rest
+                guard !line.isEmpty else { continue }
             }
-            guard let field, let item = item(line) else { continue }
+            guard let field else {
+                if !isListItem(line), let item = item(line) { leadingOverviewLines.append(item) }
+                continue
+            }
             switch field {
-            case .section(let section): reading.summary[section].append(item)
-            case .overview: overviewLines.append(item)
+            case .section(let section):
+                if let item = item(line) { reading.summary[section].append(item) }
+            case .overview:
+                if let item = item(line) { overviewLines.append(item) }
+            case .summary:
+                if isListItem(line) {
+                    reading.sections.insert(.discussion)
+                    if let item = item(line) { reading.summary[.discussion].append(item) }
+                } else if let item = item(line) {
+                    summaryOverviewLines.append(item)
+                }
             }
         }
-        reading.summary.overview = clippedOverview(overviewLines.joined(separator: " "))
+        let chosenOverview = !overviewLines.isEmpty
+            ? overviewLines
+            : (!summaryOverviewLines.isEmpty ? summaryOverviewLines : leadingOverviewLines)
+        reading.summary.overview = clippedOverview(chosenOverview.joined(separator: " "))
         return reading
     }
 
@@ -111,12 +129,14 @@ enum SummaryText {
     private enum Heading {
         case section(Section)
         case overview
+        case summary
     }
 
     private static func record(_ heading: Heading, in reading: inout Reading) {
         switch heading {
         case .section(let section): reading.sections.insert(section)
         case .overview: reading.hasOverview = true
+        case .summary: break
         }
     }
 
@@ -137,14 +157,32 @@ enum SummaryText {
         switch name {
         case "decisions", "decisions made", "decision": return .section(.decisions)
         case "action items", "action item", "actions", "next steps", "to do", "to-do", "todo": return .section(.actionItems)
-        case "open questions", "open question", "open issues", "unresolved", "unresolved questions", "questions":
+        case "open questions", "open question", "open issues", "unresolved", "unresolved questions":
             return .section(.openQuestions)
-        case "discussion", "discussion points", "notes",
-             "key points", "key point", "summary", "main points", "highlights":
+        case "discussion", "discussion points",
+             "key points", "key point", "main points", "highlights":
             return .section(.discussion)
+        case "summary": return .summary
         case "overview", "bottom line", "tl;dr", "tldr": return .overview
         default: return nil
         }
+    }
+
+    /// True when `line` starts with a bullet or numbered list marker (#64).
+    private static func isListItem(_ line: String) -> Bool {
+        let s = Substring(line)
+        if let first = s.first {
+            if first == "•" { return true }
+            if "-*+".contains(first) { return s.dropFirst().first?.isWhitespace ?? true }
+        }
+        let digits = s.prefix { $0.isNumber }
+        if !digits.isEmpty {
+            let afterDigits = s.dropFirst(digits.count)
+            if let punct = afterDigits.first, punct == "." || punct == ")" {
+                return afterDigits.dropFirst().first?.isWhitespace ?? true
+            }
+        }
+        return false
     }
 
     /// A list line's text without its marker; nil for "None" and the like.
