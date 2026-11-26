@@ -82,6 +82,7 @@ extension SettingsViewModel {
               descriptor.inAppDownload(of: key.id, in: modelsDir) != nil else { return false }
         var context = modelContext(for: key.engine)
         context.customPath = ""   // a hand-set file would stand in for every named model
+        context.language = "en"   // check the named file itself, not the #61 non-English override
         return !descriptor.isPresent(descriptor.resolve(.named(key.id), in: context))
     }
 

@@ -25,6 +25,14 @@ extension SettingsView {
                         case .engine(let kind): Text(kind.displayName).tag(choice)
                         }
                     }
+                    let unavailable = viewModel.unavailableEngines
+                    if !unavailable.isEmpty {
+                        Section(viewModel.unavailableEnginesHeading) {
+                            ForEach(unavailable, id: \.self) { kind in
+                                Text(kind.displayName).tag(EngineChoice.engine(kind)).disabled(true)
+                            }
+                        }
+                    }
                 }
                 .pickerWidth()
             }
@@ -81,7 +89,7 @@ extension SettingsView {
             SettingsRow("Language") {
                 Picker("Language",
                        selection: Binding(
-                           get: { viewModel.isLanguageSelectable ? viewModel.language : "en" },
+                           get: { viewModel.language },
                            set: { viewModel.setLanguage($0) }
                        )) {
                     ForEach(viewModel.languageOptions, id: \.code) { option in
@@ -89,7 +97,6 @@ extension SettingsView {
                     }
                 }
                 .pickerWidth()
-                .disabled(!viewModel.isLanguageSelectable)
             }
             if let warning = viewModel.dictationLanguageWarning {   // #47
                 StatusLine(text: warning, tone: .problem).padding(.bottom, 8)

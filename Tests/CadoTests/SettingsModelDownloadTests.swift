@@ -136,7 +136,8 @@ final class SettingsModelDownloadTests: XCTestCase {
         super.tearDown()
     }
 
-    private func makeVM(engine: EngineKind = .whisperKit, model: ModelChoice = .automatic) -> SettingsViewModel {
+    private func makeVM(engine: EngineKind = .whisperKit, model: ModelChoice = .automatic,
+                        presentFilenames: Set<String> = []) -> SettingsViewModel {
         configStore.update {
             $0.engine = engine.rawValue
             $0.language = "en"
@@ -146,7 +147,7 @@ final class SettingsModelDownloadTests: XCTestCase {
             configStore: configStore,
             loginItem: LoginItem(service: NoLoginItem()),
             availableMics: { [] },
-            presentModelFilenames: { [] },
+            presentModelFilenames: { presentFilenames },
             onNeedsMenuRefresh: {},
             pauseHotkeys: {},
             reloadHotkeys: {},
@@ -195,6 +196,17 @@ final class SettingsModelDownloadTests: XCTestCase {
         XCTAssertFalse(vm.canDownloadModel(whisperKey("tiny.en")))
         XCTAssertTrue(vm.canDownloadModel(whisperKey("base.en")))
         XCTAssertFalse(vm.canDownloadModel(whisperKey("large-v1")), "not in the catalog")
+    }
+
+    func testAnEnglishOnlyWhisperModelRemainsDownloadableUnderAutoDetect() throws {
+        try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+        try Data([1]).write(to: modelsDir.appendingPathComponent("ggml-small-q5_1.bin"))
+        let vm = makeVM(engine: .whisper, presentFilenames: ["ggml-small-q5_1.bin"])
+        vm.setLanguage(ModelSpec.autoDetect)
+        // With a multilingual model on disk, resolve(.named(".en")) overrides to multilingual
+        // for transcription, but canDownloadModel must still check the named file itself.
+        XCTAssertTrue(vm.canDownloadModel(whisperKey("small.en-q5_1")))
+        XCTAssertFalse(vm.canDownloadModel(whisperKey("small-q5_1")))
     }
 
     /// A hand-set `modelPath` stands in for whisper's pick, not for each

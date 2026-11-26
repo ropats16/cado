@@ -128,6 +128,20 @@ extension SettingsViewModel {
         return [.automatic] + kinds.map(EngineChoice.engine)
     }
 
+    /// Engines runnable on this Mac that don't support the current language
+    /// (shown disabled in the Engine menu with `unavailableEnginesHeading` so
+    /// an engine like Turbo doesn't vanish without a recovery path, #55).
+    var unavailableEngines: [EngineKind] {
+        let selectable = Set(engines.available(in: environment, language: language))
+        return engines.available(in: environment).filter { $0 != engine && !selectable.contains($0) }
+    }
+
+    /// The heading over `unavailableEngines` in the Engine menu, naming the
+    /// control that brings them back (#55).
+    var unavailableEnginesHeading: String {
+        "Unavailable for \(LanguageFitCopy.languageLabel(ModelSpec.language(language))) — change Language to use"
+    }
+
     /// The Automatic row: the engine it runs, and why it isn't Turbo when it
     /// isn't, e.g. "Automatic (Whisper — Turbo isn't downloaded)".
     var automaticEngineLabel: String {
@@ -139,10 +153,16 @@ extension SettingsViewModel {
     }
 
     /// "Using Whisper (whisper.cpp) because …" while the configured engine
-    /// can't run, else nil (also under Automatic: its row says why).
+    /// can't run, else nil (also under Automatic: its row says why). Adds the
+    /// recovery hint when the fallback is only because of Language (#55).
     var engineNote: String? {
-        let selected = selection(configStore.config)
-        return selected.isAutomatic ? nil : selected.note
+        let config = configStore.config
+        let selected = selection(config)
+        guard !selected.isAutomatic, let note = selected.note else { return nil }
+        if engines.availability(ofID: config.engine, in: environment) == .available {
+            return "\(note) Change Language to switch back."
+        }
+        return note
     }
 
     /// The selected engine's descriptor.
@@ -192,11 +212,9 @@ extension SettingsViewModel {
         modelRow == .custom ? URL(fileURLWithPath: currentModel().path).lastPathComponent : nil
     }
 
-    /// False for whisper's English-only models, which always decode English.
-    var isLanguageSelectable: Bool {
-        let model = currentModel()
-        return model.engine != .whisper || !ModelCatalog.isEnglishOnly(model.path)
-    }
+    /// Always true: Language decides the model family (#55, #61), so an
+    /// English-only model never disables the picker or hides the saved request.
+    var isLanguageSelectable: Bool { true }
 
     /// The languages offered for multilingual models, plus a hand-set code from
     /// `config.json` so the picker always shows the truth.
