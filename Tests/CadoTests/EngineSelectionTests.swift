@@ -132,6 +132,144 @@ final class EngineSelectionTests: XCTestCase {
                        .file("/models/ggml-small-q5_1.bin", language: "hi"))
     }
 
+    // MARK: - Multilingual tier fallback ceiling (#61)
+
+    func testNonEnglishAutomaticFallbackKeepsLegacyCeilingAndPicksFullTier() {
+        let mac8 = HardwareProfile(isAppleSilicon: true, memoryBytes: 8 << 30)
+        let mac16 = HardwareProfile(isAppleSilicon: true, memoryBytes: 16 << 30)
+        let mac32 = HardwareProfile(isAppleSilicon: true, memoryBytes: 32 << 30)
+
+        // (a) 32 GiB keeps installed medium-q8_0 (823 MB, pre-#61 pick) over small-q5_1 when large-v3-turbo-q5_0 isn't installed.
+        let keepLegacy = ModelSelection.resolve(
+            model: .automatic, modelPath: "", language: ModelSpec.autoDetect,
+            hardware: mac32, modelsDir: modelsDir,
+            presentFilenames: ["ggml-medium-q8_0.bin", "ggml-small-q5_1.bin"]
+        )
+        XCTAssertEqual(keepLegacy.path, "/models/ggml-medium-q8_0.bin")
+        XCTAssertEqual(keepLegacy.language, "auto")
+
+        // (b) 16 GiB falls back to small-q5_1 when large-v3-turbo-q5_0 isn't installed.
+        let fallback16 = ModelSelection.resolve(
+            model: .automatic, modelPath: "", language: ModelSpec.autoDetect,
+            hardware: mac16, modelsDir: modelsDir,
+            presentFilenames: ["ggml-small-q5_1.bin", "ggml-base-q5_1.bin"]
+        )
+        XCTAssertEqual(fallback16.path, "/models/ggml-small-q5_1.bin")
+        XCTAssertEqual(fallback16.language, "auto")
+
+        // (c) 16 GiB picks large-v3-turbo-q5_0 when installed.
+        let full16 = ModelSelection.resolve(
+            model: .automatic, modelPath: "", language: ModelSpec.autoDetect,
+            hardware: mac16, modelsDir: modelsDir,
+            presentFilenames: ["ggml-large-v3-turbo-q5_0.bin", "ggml-small-q5_1.bin"]
+        )
+        XCTAssertEqual(full16.path, "/models/ggml-large-v3-turbo-q5_0.bin")
+        XCTAssertEqual(full16.language, "auto")
+
+        // (d) 16 GiB with nothing installed names large-v3-turbo-q5_0 (reported missing).
+        let missing16 = ModelSelection.resolve(
+            model: .automatic, modelPath: "", language: ModelSpec.autoDetect,
+            hardware: mac16, modelsDir: modelsDir, presentFilenames: []
+        )
+        XCTAssertEqual(missing16.path, "/models/ggml-large-v3-turbo-q5_0.bin")
+        XCTAssertEqual(missing16.language, "auto")
+
+        // (e) 8 GiB with Hindi picks small-q5_1.
+        let basic8 = ModelSelection.resolve(
+            model: .automatic, modelPath: "", language: "hi",
+            hardware: mac8, modelsDir: modelsDir,
+            presentFilenames: ["ggml-small-q5_1.bin"]
+        )
+        XCTAssertEqual(basic8.path, "/models/ggml-small-q5_1.bin")
+        XCTAssertEqual(basic8.language, "hi")
+
+        // (f) English on 16 GiB and 32 GiB is unchanged.
+        XCTAssertEqual(
+            ModelSelection.resolve(
+                model: .automatic, modelPath: "", language: "en", hardware: mac16,
+                modelsDir: modelsDir, presentFilenames: ["ggml-medium.en-q5_0.bin", "ggml-medium.en-q8_0.bin"]
+            ).path,
+            "/models/ggml-medium.en-q5_0.bin"
+        )
+        XCTAssertEqual(
+            ModelSelection.resolve(
+                model: .automatic, modelPath: "", language: "en", hardware: mac32,
+                modelsDir: modelsDir, presentFilenames: ["ggml-medium.en-q8_0.bin", "ggml-small.en-q5_1.bin"]
+            ).path,
+            "/models/ggml-medium.en-q8_0.bin"
+        )
+    }
+
+    // MARK: - English-only override (#61)
+
+    func testNonEnglishOverridesExplicitEnglishOnlyModelPathWhenMultilingualInstalled() {
+        let mac48 = HardwareProfile(isAppleSilicon: true, memoryBytes: 48 << 30)
+        let installed: Set<String> = ["ggml-medium.en.bin", "ggml-small-q5_1.bin", "ggml-base-q5_1.bin"]
+
+        // (a) Auto-detect overrides an explicit `.en` modelPath with the multilingual Automatic pick.
+        let auto = ModelSelection.resolve(
+            model: .automatic, modelPath: "/models/ggml-medium.en.bin", language: ModelSpec.autoDetect,
+            hardware: mac48, modelsDir: modelsDir, presentFilenames: installed
+        )
+        XCTAssertEqual(auto.path, "/models/ggml-small-q5_1.bin")
+        XCTAssertEqual(auto.language, "auto")
+
+        // (b) English keeps the explicit `.en` modelPath unchanged.
+        let english = ModelSelection.resolve(
+            model: .automatic, modelPath: "/models/ggml-medium.en.bin", language: "en",
+            hardware: mac48, modelsDir: modelsDir, presentFilenames: installed
+        )
+        XCTAssertEqual(english.path, "/models/ggml-medium.en.bin")
+        XCTAssertEqual(english.language, "en")
+
+        // (c) Without any installed multilingual catalog model, the explicit `.en` path stays.
+        let onlyEnglish = ModelSelection.resolve(
+            model: .automatic, modelPath: "/models/ggml-medium.en.bin", language: ModelSpec.autoDetect,
+            hardware: mac48, modelsDir: modelsDir,
+            presentFilenames: ["ggml-medium.en.bin", "ggml-small.en-q5_1.bin"]
+        )
+        XCTAssertEqual(onlyEnglish.path, "/models/ggml-medium.en.bin")
+        XCTAssertEqual(onlyEnglish.language, "en")
+    }
+
+    func testNonEnglishOverridesNamedEnglishOnlyModelAndKeepsCustomMultilingualPath() {
+        let mac16 = HardwareProfile(isAppleSilicon: true, memoryBytes: 16 << 30)
+
+        // (d) Named English-only model is overridden when a multilingual catalog model is installed.
+        let named = ModelSelection.resolve(
+            model: .named("small.en-q5_1"), modelPath: "", language: "hi",
+            hardware: mac16, modelsDir: modelsDir,
+            presentFilenames: ["ggml-small.en-q5_1.bin", "ggml-small-q5_1.bin"]
+        )
+        XCTAssertEqual(named.path, "/models/ggml-small-q5_1.bin")
+        XCTAssertEqual(named.language, "hi")
+
+        // (e) A custom non-catalog multilingual path is kept unchanged under auto-detect.
+        let custom = ModelSelection.resolve(
+            model: .automatic, modelPath: "/tmp/my-model.bin", language: ModelSpec.autoDetect,
+            hardware: mac16, modelsDir: modelsDir,
+            presentFilenames: ["ggml-small-q5_1.bin"]
+        )
+        XCTAssertEqual(custom.path, "/tmp/my-model.bin")
+        XCTAssertEqual(custom.language, "auto")
+    }
+
+    func testParakeetWithAutoDetectAndEnglishOnlyModelPathSelectsMultilingualWhisper() {
+        // (f) End-to-end through `ModelSelection.select`.
+        var config = Config.defaults
+        config.engine = "parakeet"
+        config.language = ModelSpec.autoDetect
+        config.modelPath = "/models/ggml-medium.en.bin"
+        let selected = select(
+            config,
+            on: .mac(15, gib: 48),
+            present: ["ggml-medium.en.bin", "ggml-small-q5_1.bin", "ggml-base-q5_1.bin"]
+        )
+        XCTAssertEqual(selected.spec.engine, .whisper)
+        XCTAssertEqual(selected.spec.path, "/models/ggml-small-q5_1.bin")
+        XCTAssertEqual(selected.spec.language, "auto")
+    }
+
     // MARK: - Automatic (`EnginePolicy`)
 
     /// Turbo (fake parakeet) and Apple Speech (fake, macOS 26) beside whisper;

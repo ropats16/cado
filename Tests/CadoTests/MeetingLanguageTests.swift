@@ -124,8 +124,15 @@ final class MeetingLanguageTests: XCTestCase {
     func testAutoDetectMeetingsGetAMultilingualWhisperModel() {
         let choice = choose("auto", dictation: turbo, whisperFiles: ["small.en-q5_1", "small-q5_1", "base-q5_1"])
         XCTAssertEqual(choice, .own(whisper("small-q5_1", "auto"), installed: true),
-                       "The largest downloaded multilingual model no bigger than the pick (medium-q5_0 here)")
+                       "The largest downloaded multilingual model no bigger than the pick (large-v3-turbo-q5_0 here)")
         XCTAssertEqual(choice.ownSpec?.language, "auto", "Detected per passage")
+    }
+
+    func testAutoDetectMeetingsOn16GBChooseFullTierModelWhenInstalled() {
+        let choice = choose("auto", dictation: turbo,
+                            whisperFiles: ["large-v3-turbo-q5_0", "small-q5_1"],
+                            on: .mac(26, gib: 16))
+        XCTAssertEqual(choice, .own(whisper("large-v3-turbo-q5_0", "auto"), installed: true))
     }
 
     func testAHindiMeetingGetsAMultilingualModelDecodingHindi() {
@@ -136,7 +143,7 @@ final class MeetingLanguageTests: XCTestCase {
     func testWithNoMultilingualModelTheMeetingModelIsMissing() {
         // Only English-only files: the pick is the recommended multilingual one, not downloaded.
         let choice = choose("auto", dictation: turbo, whisperFiles: ["small.en-q5_1", "medium.en"])
-        XCTAssertEqual(choice, .own(whisper("medium-q5_0", "auto"), installed: false))
+        XCTAssertEqual(choice, .own(whisper("large-v3-turbo-q5_0", "auto"), installed: false))
         XCTAssertNil(choice.ownSpec, "Not downloaded: the dictation model runs it meanwhile")
         let eightGB = choose("auto", dictation: turbo, whisperFiles: [], on: .mac(26, gib: 8))
         XCTAssertEqual(eightGB, .own(whisper("small-q5_1", "auto"), installed: false))

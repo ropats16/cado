@@ -57,7 +57,7 @@ final class OnboardingModelsTests: XCTestCase {
     func testAutoDetectRecommendsAMultilingualWhisper() {
         let spec = recommended(config(language: ModelSpec.autoDetect), on: .mac(15, gib: 16))
         XCTAssertEqual(spec.engine, .whisper)
-        XCTAssertEqual(spec.path, whisperFile("medium-q5_0"))
+        XCTAssertEqual(spec.path, whisperFile("large-v3-turbo-q5_0"))
     }
 
     func testAFailedTurboFallsBack() {

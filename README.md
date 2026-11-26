@@ -80,19 +80,20 @@ off (see [Privacy](#privacy)).
 that one) — no input needed. You can still pick another in **Settings** (it
 switches instantly, no restart) or with `make setup MODEL=…`. What it picks:
 
-| Your Mac      | RAM      | Auto-picked model | Download |
-|---------------|----------|-------------------|----------|
-| Apple Silicon | ≥ 32 GB  | `medium.en-q8_0`  | 823 MB   |
-| Apple Silicon | 16–31 GB | `medium.en-q5_0`  | 539 MB   |
-| Apple Silicon | 8–15 GB  | `small.en-q5_1`   | 190 MB   |
-| Apple Silicon | < 8 GB   | `base.en-q5_1`    | 60 MB    |
-| Intel         | ≥ 16 GB  | `small.en-q5_1`   | 190 MB   |
-| Intel         | 8–15 GB  | `base.en-q5_1`    | 60 MB    |
-| Intel         | < 8 GB   | `tiny.en-q5_1`    | 32 MB    |
+| Your Mac      | RAM      | English (`en`)   | Download | Other languages / Auto-detect | Download |
+|---------------|----------|------------------|----------|-------------------------------|----------|
+| Apple Silicon | ≥ 32 GB  | `medium.en-q8_0` | 823 MB   | `large-v3-turbo-q5_0`         | 574 MB   |
+| Apple Silicon | 16–31 GB | `medium.en-q5_0` | 539 MB   | `large-v3-turbo-q5_0`         | 574 MB   |
+| Apple Silicon | 8–15 GB  | `small.en-q5_1`  | 190 MB   | `small-q5_1`                  | 190 MB   |
+| Apple Silicon | < 8 GB   | `base.en-q5_1`   | 60 MB    | `base-q5_1`                   | 60 MB    |
+| Intel         | ≥ 16 GB  | `small.en-q5_1`  | 190 MB   | `small-q5_1`                  | 190 MB   |
+| Intel         | 8–15 GB  | `base.en-q5_1`   | 60 MB    | `base-q5_1`                   | 60 MB    |
+| Intel         | < 8 GB   | `tiny.en-q5_1`   | 32 MB    | `tiny-q5_1`                   | 32 MB    |
 
-If you set a non-English `language`, it picks the multilingual model of the
-same size (e.g. `small-q5_1`). If the picked model isn't downloaded, the app
-uses the best one you do have.
+If you set a non-English `language` or `auto`, Apple Silicon Macs with 16 GB or
+more pick `large-v3-turbo-q5_0` (574 MB), Apple Silicon 8–15 GB and Intel 16 GB+
+pick `small-q5_1`, and smaller Macs keep their existing multilingual model. If
+the picked model isn't downloaded, the app uses the best one you do have.
 
 <details>
 <summary>All models (you can change the model later)</summary>

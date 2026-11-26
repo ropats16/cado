@@ -69,16 +69,30 @@ final class ModelCatalogTests: XCTestCase {
         XCTAssertEqual(ModelCatalog.recommended(for: intel(64)).id, "small.en-q5_1")
     }
 
-    func testNonEnglishLanguagePicksTheMultilingualSibling() {
+    func testNonEnglishLanguagePicksTheMultilingualTierModel() {
+        // Apple Silicon: Full (>= 16 GiB) -> large-v3-turbo-q5_0, Basic (8-15) -> small-q5_1, Limited (< 8) -> base-q5_1.
+        XCTAssertEqual(ModelCatalog.recommended(for: appleSilicon(4), language: "auto").id, "base-q5_1")
+        XCTAssertEqual(ModelCatalog.recommended(for: appleSilicon(7), language: "hi").id, "base-q5_1")
         XCTAssertEqual(ModelCatalog.recommended(for: appleSilicon(8), language: "de").id, "small-q5_1")
-        XCTAssertEqual(ModelCatalog.recommended(for: appleSilicon(16), language: "auto").id, "medium-q5_0")
+        XCTAssertEqual(ModelCatalog.recommended(for: appleSilicon(15), language: "auto").id, "small-q5_1")
+        XCTAssertEqual(ModelCatalog.recommended(for: appleSilicon(16), language: "auto").id, "large-v3-turbo-q5_0")
+        XCTAssertEqual(ModelCatalog.recommended(for: appleSilicon(24), language: "hi").id, "large-v3-turbo-q5_0")
+        XCTAssertEqual(ModelCatalog.recommended(for: appleSilicon(32), language: "auto").id, "large-v3-turbo-q5_0")
         XCTAssertEqual(ModelCatalog.recommended(for: appleSilicon(16), language: "en").id, "medium.en-q5_0")
+
+        // Intel: Basic (>= 16 GiB) -> small-q5_1, Limited (8-15) -> base-q5_1, Limited (< 8) -> tiny-q5_1.
+        XCTAssertEqual(ModelCatalog.recommended(for: intel(4), language: "auto").id, "tiny-q5_1")
+        XCTAssertEqual(ModelCatalog.recommended(for: intel(7), language: "hi").id, "tiny-q5_1")
+        XCTAssertEqual(ModelCatalog.recommended(for: intel(8), language: "auto").id, "base-q5_1")
+        XCTAssertEqual(ModelCatalog.recommended(for: intel(15), language: "hi").id, "base-q5_1")
+        XCTAssertEqual(ModelCatalog.recommended(for: intel(16), language: "auto").id, "small-q5_1")
+        XCTAssertEqual(ModelCatalog.recommended(for: intel(32), language: "hi").id, "small-q5_1")
     }
 
     func testEveryAutoPickIsInTheCatalog() {
         for gib: UInt64 in [1, 4, 7, 8, 12, 15, 16, 18, 24, 31, 32, 36, 48, 64, 96, 128, 192] {
             for hw in [appleSilicon(gib), intel(gib)] {
-                for lang in ["en", "fr"] {
+                for lang in ["en", "fr", "auto"] {
                     XCTAssertNotNil(ModelCatalog.model(id: ModelCatalog.recommended(for: hw, language: lang).id))
                 }
             }
