@@ -27,13 +27,13 @@ enum SummaryQualityFilter {
             if try await classify(item) { accepted.insert(item) }
         }
         try Task.checkCancellation()
-        var out = MeetingSummary(decisions: summary.decisions.filter { accepted.contains($0) },
-                                 actionItems: summary.actionItems.filter { accepted.contains($0) },
-                                 discussion: summary.discussion.filter { accepted.contains($0) },
-                                 openQuestions: summary.openQuestions.filter { accepted.contains($0) })
+        let kept = MeetingSummary(overview: summary.overview,
+                                  decisions: summary.decisions.filter { accepted.contains($0) },
+                                  actionItems: summary.actionItems.filter { accepted.contains($0) },
+                                  discussion: summary.discussion.filter { accepted.contains($0) },
+                                  openQuestions: summary.openQuestions.filter { accepted.contains($0) })
         // The overview is not sent to `classify`; keep it only when at least one item survived (#64).
-        if !out.isEmpty { out.overview = summary.overview }
-        return out
+        return kept.normalized()
     }
 
     static func relevance(from answer: String) throws -> Bool {

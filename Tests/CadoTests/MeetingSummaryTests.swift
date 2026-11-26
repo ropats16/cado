@@ -204,6 +204,22 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertFalse(MeetingSummary(discussion: ["Export cap is 200 receipts"]).isEmpty)
     }
 
+    func testNormalizedClearsOverviewWhenSummaryHasNoItems() {
+        let overviewOnly = MeetingSummary(overview: "They chatted about the weather.")
+        XCTAssertEqual(overviewOnly.normalized(), MeetingSummary())
+    }
+
+    func testNormalizedClipsAndCleansOverviewWhenSummaryHasItems() {
+        let messy = MeetingSummary(
+            overview: "## Dr. Rao approved the budget. The launch moves to March 10. Marketing will follow up.",
+            decisions: ["Approve budget"]
+        )
+        XCTAssertEqual(messy.normalized(), MeetingSummary(
+            overview: "Dr. Rao approved the budget. The launch moves to March 10.",
+            decisions: ["Approve budget"]
+        ))
+    }
+
     func testReadsNewFivePartShapeAndOldThreeListShape() {
         let newText = """
             Decisions:
@@ -230,7 +246,6 @@ final class MeetingSummaryTests: XCTestCase {
             openQuestions: ["Should exports over 200 receipts warn or split?"]
         ))
         XCTAssertEqual(newReading.sections, [.decisions, .actionItems, .openQuestions, .discussion])
-        XCTAssertTrue(newReading.hasOverview)
 
         let oldText = """
             Key points:
@@ -252,7 +267,6 @@ final class MeetingSummaryTests: XCTestCase {
             openQuestions: []
         ))
         XCTAssertEqual(oldReading.sections, [.discussion, .decisions, .actionItems])
-        XCTAssertFalse(oldReading.hasOverview)
     }
 
     func testReadsAliasesForNewHeadingsAndInlineOverview() {
@@ -269,11 +283,9 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertEqual(reading.summary.openQuestions, ["Is the 15 MB timeout client-side or storage API?"])
         XCTAssertEqual(reading.summary.discussion, ["Timeout affects 3% of accounts"])
         XCTAssertEqual(reading.summary.overview, "Timeout root cause is still open. Checking logs before Friday.")
-        XCTAssertTrue(reading.hasOverview)
 
         let inline = SummaryText.read("Bottom line: None\nOpen issues: One blocker")
         XCTAssertEqual(inline.summary.overview, "")
-        XCTAssertTrue(inline.hasOverview)
         XCTAssertEqual(inline.summary.openQuestions, ["One blocker"])
     }
 
@@ -384,7 +396,6 @@ final class MeetingSummaryTests: XCTestCase {
             """)
         let reading = SummaryText.read(rendered)
         XCTAssertEqual(reading.summary, full)
-        XCTAssertTrue(reading.hasOverview)
     }
 
     func testClippedOverviewLimitsSentencesAndWordCount() {

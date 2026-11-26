@@ -1,12 +1,13 @@
 import Foundation
 
-/// The plain-text shape summaries take between Cado and a model (#64): four
-/// headed lists followed by an overview. Models are asked to answer in it
-/// (`render` shows them the shape, and partial summaries go back in it for
-/// merging); `read` reads an answer leniently (any heading case, `#`/`**`
-/// decoration, an item on the heading's own line, `-`/`*`/`•`/`1.` bullets,
-/// "None" lines dropped, old "Key points" headings read as discussion) and
-/// says which headings it found. Pure.
+/// The plain-text shape summaries take between Cado and a model (#64). Models
+/// are asked for decisions, action items, open questions, discussion, then the
+/// overview last (`render` shows them the shape and sends partial summaries
+/// back in it for merging). `read` reads an answer leniently (any heading case,
+/// `#`/`**` decoration, an item on the heading's own line, `-`/`*`/`•`/`1.`
+/// bullets, "None" lines dropped, prose before the first heading or under
+/// "Summary" as overview, old "Key points" headings as discussion) and says
+/// which list headings it found. Pure.
 enum SummaryText {
     static let decisions = "Decisions"
     static let actionItems = "Action items"
@@ -27,19 +28,17 @@ enum SummaryText {
         }
     }
 
-    /// The order models are asked to answer in (#64): short lists first so a
-    /// cut-off answer loses discussion rather than action items; the overview
-    /// comes last after these lists because small models write it best after
-    /// extracting the details.
+    /// The four lists in answer order (before the overview): short lists first
+    /// so a cut-off answer loses discussion rather than action items, and small
+    /// models write the overview best after the details.
     static let answerOrder: [Section] = [.decisions, .actionItems, .openQuestions, .discussion]
 
-    /// An answer as read: the summary and which headings it had (a heading
+    /// An answer as read: the summary and which list headings it had (a heading
     /// with only "None" under it counts, an answer with none of them is not
     /// a summary at all).
     struct Reading: Equatable, Sendable {
         var summary = MeetingSummary()
         var sections: Set<Section> = []
-        var hasOverview = false
     }
 
     static func render(_ summary: MeetingSummary) -> String {
@@ -151,11 +150,7 @@ enum SummaryText {
     }
 
     private static func record(_ heading: Heading, in reading: inout Reading) {
-        switch heading {
-        case .section(let section): reading.sections.insert(section)
-        case .overview: reading.hasOverview = true
-        case .summary: break
-        }
+        if case .section(let section) = heading { reading.sections.insert(section) }
     }
 
     /// "Discussion: Budget is unchanged" / "**Decisions:** None" /

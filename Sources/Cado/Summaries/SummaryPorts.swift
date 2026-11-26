@@ -16,6 +16,13 @@ struct MeetingSummary: Equatable, Sendable {
 
     /// An overview with no items is not a summary (#64).
     var isEmpty: Bool { decisions.isEmpty && actionItems.isEmpty && discussion.isEmpty && openQuestions.isEmpty }
+
+    /// A summary with no items has no overview (#64).
+    func normalized() -> MeetingSummary {
+        var copy = self
+        copy.overview = isEmpty ? "" : SummaryText.clippedOverview(overview)
+        return copy
+    }
 }
 
 /// How much text one call may take, in estimated tokens (`TokenEstimate`).
