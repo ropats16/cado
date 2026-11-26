@@ -24,7 +24,7 @@ Already verified without a human:
   flipping the switch.
 - `MeetingSummaryTests` / `MeetingSummariesTests`: summaries never see
   hesitations (including older notes whose saved transcripts stay untouched on
-  disk), and the automatic-summary word floor ignores hesitations.
+  disk), while keeping the automatic-summary word floor on raw turns.
 
 ## Setup
 
@@ -59,6 +59,8 @@ open dist/Cado.app
    um minuto."*).
    Expected: `"um"` is preserved verbatim; German `"ähm"` (if spoken) is
    removed.
+   - Dictate a German or Portuguese sentence containing `"um"` with Language =
+     English on Turbo; `"um"` must stay.
 7. **Meeting transcript & crash recovery.** Record a short English meeting with
    deliberate *"um"* / *"uh"* fillers and one hesitation-only turn.
    - Live meeting: the saved Markdown note has cleaned turns and drops the

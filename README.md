@@ -652,10 +652,14 @@ Transcript › Remove hesitation sounds**, `"removeHesitations": true`). Strips
 spoken hesitation sounds ("um", "uh", …) from dictated text and meeting
 transcripts on every engine while keeping real words (including German/Portuguese
 "um", German/Dutch/Nordic "er") and meaningful replies ("uh-huh", "mm-hmm",
-"like", "you know") intact. Turn it off to keep dictated text and meeting
-transcripts verbatim. Summaries always filter hesitations out of the text sent
-to the summary model, including for older notes (without rewriting their saved
-transcripts).
+"like", "you know") intact. Language-specific fillers such as "um" are removed
+only when the text's detected language agrees with (or does not contradict) the
+selected language, so German or Portuguese sentences stay intact even when
+Language is left on English (though a one- or two-word non-English utterance
+with Language set to English can still lose "um"). Turn it off to keep dictated
+text and meeting transcripts verbatim. Summaries always filter hesitations out
+of the text sent to the summary model, including for older notes (without
+rewriting their saved transcripts).
 
 > Curious what the app would auto-pick for this Mac? Run
 > `scripts/detect_hardware.sh` — it reports the detected arch, RAM, and the
