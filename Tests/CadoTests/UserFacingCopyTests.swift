@@ -184,6 +184,36 @@ final class UserFacingCopyTests: XCTestCase {
         UserFacingCopy.assertPlain(HesitationSettingsCopy.note)
     }
 
+    /// Speech Model Language guidance per tier (#61) and engine fallback copy (#55).
+    func testLanguageGuidanceCopyIsPlain() {
+        for language in ["auto", "hi", "ja"] {
+            UserFacingCopy.assertPlain(LanguageFitCopy.unavailableEnginesHeading(language: language))
+        }
+        XCTAssertEqual(LanguageFitCopy.unavailableEnginesHeading(language: "hi"), "Unavailable for Hindi — change Language to use")
+        UserFacingCopy.assertPlain(LanguageFitCopy.changeLanguageHint)
+        let specs: [ModelSpec] = [
+            .file("/models/ggml-large-v3-turbo-q5_0.bin", language: "auto"),
+            .file("/models/ggml-small-q5_1.bin", language: "auto"),
+            .file("/models/ggml-base-q5_1.bin", language: "auto"),
+            .file("/models/ggml-medium.en.bin", language: "en"),
+        ]
+        for spec in specs {
+            for installed in [true, false] {
+                for tier in [MultilingualTier.full, .basic, .limited] {
+                    for language in ["auto", "hi"] {
+                        let note = LanguageFitCopy.dictationNote(
+                            selected: spec, installed: installed, language: language, tier: tier,
+                            overriddenEnglishOnly: installed && !spec.isEnglishOnly ? "Whisper medium.en" : nil,
+                            downloadModelName: "Whisper large-v3-turbo-q5_0"
+                        )
+                        UserFacingCopy.assertPlain(note?.text)
+                        UserFacingCopy.assertNoClick(note?.text)
+                    }
+                }
+            }
+        }
+    }
+
     /// The menu's lines, including a config problem.
     func testTheMenuIsPlain() {
         var config = Config.defaults

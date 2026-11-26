@@ -82,16 +82,8 @@ extension SettingsViewModel {
         return DownloadableModel(key: ModelDownloadKey(engine: spec.engine, id: id), label: label)
     }
 
-    // MARK: - Dictation
-
-    /// Under the Speech Model tab's Language row: the model in use only
-    /// understands English but the language set isn't English.
-    var dictationLanguageWarning: String? {
-        LanguageFitCopy.dictationWarning(model: currentModel(), language: ModelSpec.language(configStore.config.language))
-    }
-
     /// The id among its engine's models that `spec` resolves from, if any.
-    private func listedModelID(for spec: ModelSpec) -> String? {
+    func listedModelID(for spec: ModelSpec) -> String? {
         guard let descriptor = engines.descriptor(for: spec.engine) else { return nil }
         var context = modelContext(for: spec.engine)
         context.customPath = ""
@@ -114,26 +106,79 @@ enum LanguageFitCopy {
     static func modelName(_ spec: ModelSpec) -> String {
         switch spec.engine {
         case .whisper:
-            let id = ModelCatalog.model(forFile: spec.path)?.id ?? URL(fileURLWithPath: spec.path).lastPathComponent
-            return "Whisper \(id)"
-        case .whisperKit: return "WhisperKit \(URL(fileURLWithPath: spec.path).lastPathComponent)"
-        case .parakeet, .appleSpeech: return spec.engine.shortName
+            return modelName(engine: .whisper, id: ModelCatalog.model(forFile: spec.path)?.id
+                             ?? URL(fileURLWithPath: spec.path).lastPathComponent)
+        case .whisperKit, .parakeet, .appleSpeech:
+            return modelName(engine: spec.engine, id: URL(fileURLWithPath: spec.path).lastPathComponent)
         }
     }
 
-    /// The model only understands English and `language` (dictation's,
-    /// "auto" for Auto-detect) isn't English: what happens, and the fix.
-    static func dictationWarning(model: ModelSpec, language: String) -> String? {
-        guard model.isEnglishOnly, !ModelCatalog.isEnglish(language) else { return nil }
-        let name = modelName(model)
-        let fix = "choose a model without “.en” in its name in the Model menu."
-        if language == ModelSpec.autoDetect {
-            return "\(name) only understands English, so Auto-detect does nothing: everything comes out as English "
-                + "words. To dictate in other languages, \(fix)"
+    /// The same, from an engine and one of its model ids (or a file name).
+    static func modelName(engine: EngineKind, id: String) -> String {
+        switch engine {
+        case .whisper: return "Whisper \(id)"
+        case .whisperKit: return "WhisperKit \(id)"
+        case .parakeet, .appleSpeech: return engine.shortName
         }
-        let language = languageLabel(language)
-        return "\(name) only understands English, so \(language) comes out as English words. "
-            + "To dictate in \(language), \(fix)"
+    }
+
+    /// The Engine menu's heading over engines that don't take `language`,
+    /// naming the control that brings them back (#55).
+    static func unavailableEnginesHeading(language: String) -> String {
+        "Unavailable for \(languageLabel(language)) — change Language to use"
+    }
+
+    /// Added to "Using Whisper because …" when only the language is in the way (#55).
+    static let changeLanguageHint = "Change Language to switch back."
+
+    /// The Speech Model tab's one-line Language guidance for non-English and
+    /// Auto-detect (#61): nil for English; otherwise names what runs (and any
+    /// English-only override, missing model, hardware tier limit, or download
+    /// offered directly below). Pure; plain words.
+    static func dictationNote(selected: ModelSpec, installed: Bool, language: String, tier: MultilingualTier,
+                              usesTierPick: Bool = true,
+                              overriddenEnglishOnly: String? = nil,
+                              downloadModelName: String? = nil) -> (text: String, isProblem: Bool)? {
+        guard !ModelCatalog.isEnglish(language) else { return nil }
+        let isAuto = language == ModelSpec.autoDetect
+        let lang = languageLabel(language)
+        let tierNote = selected.engine == .whisper && usesTierPick && tier != .full
+            ? " Accuracy for other languages is limited on this Mac — more language support is coming soon."
+            : ""
+
+        if selected.isEnglishOnly {
+            let name = modelName(selected)
+            let lead = isAuto
+                ? "\(name) only understands English, so Auto-detect does nothing: everything comes out as English words."
+                : "\(name) only understands English, so \(lang) comes out as English words."
+            let fix: String
+            if let download = downloadModelName {
+                fix = " Download \(download) below, or choose a model without “.en” in its name in the Model menu."
+            } else {
+                let target = isAuto ? "other languages" : lang
+                fix = " To dictate in \(target), choose a model without “.en” in its name in the Model menu."
+            }
+            return (lead + tierNote + fix, true)
+        }
+
+        if !installed {
+            let lead = "\(lang) needs \(modelName(selected)), which isn't downloaded."
+            let action = downloadModelName != nil ? " Download it below." : ""
+            return (lead + tierNote + action, true)
+        }
+
+        let lead = overriddenEnglishOnly.map {
+            "\($0) only understands English, so \(lang) uses \(modelName(selected)) instead."
+        } ?? "\(lang) uses \(modelName(selected))."
+        let upgrade: String
+        if let download = downloadModelName {
+            upgrade = tier == .full
+                ? " Download \(download) below for better accuracy in other languages."
+                : " Download \(download) below for better accuracy."
+        } else {
+            upgrade = ""
+        }
+        return (lead + tierNote + upgrade, false)
     }
 
     /// The Meeting Language card's line for `choice` (a meeting decoded in

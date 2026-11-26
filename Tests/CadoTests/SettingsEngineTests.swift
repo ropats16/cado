@@ -140,7 +140,6 @@ final class SettingsEngineTests: XCTestCase {
         XCTAssertEqual(vm.automaticLabel, "Automatic (Fast)")
         XCTAssertEqual(vm.modelLists.downloaded.map(\.id), ["fast"])
         XCTAssertEqual(vm.modelLists.notDownloaded.map(\.id), ["big"])
-        XCTAssertTrue(vm.isLanguageSelectable)
     }
 
     func testAModelPickIsKeptPerEngine() {
@@ -169,7 +168,7 @@ final class SettingsEngineTests: XCTestCase {
         vm.setLanguage("ja")
         XCTAssertEqual(vm.engine, .whisper)
         XCTAssertEqual(vm.engineChoices, [.automatic, .engine(.whisper)], "Turbo is hidden for Japanese")
-        XCTAssertEqual(vm.engineNote, "Using Whisper (whisper.cpp) because Turbo (English/EU) doesn't support Japanese.")
+        XCTAssertEqual(vm.engineNote, "Using Whisper (whisper.cpp) because Turbo (English/EU) doesn't support Japanese. Change Language to switch back.")
         XCTAssertEqual(configStore.config.engine, "parakeet", "The choice is kept, not rewritten")
         XCTAssertEqual(engineModel.engine, .whisper)
 
@@ -177,6 +176,79 @@ final class SettingsEngineTests: XCTestCase {
         XCTAssertEqual(vm.engine, .parakeet)
         XCTAssertNil(vm.engineNote)
         XCTAssertEqual(engineModel.engine, .parakeet)
+    }
+
+    /// Regression for #55: English → Auto-detect → English → Turbo must work
+    /// directly even when the Whisper fallback lands on an English-only model
+    /// (e.g. a leftover `.en` `modelPath` with no multilingual model installed).
+    func testAutoDetectFallbackToEnglishOnlyWhisperDoesNotTrapTheUser() {
+        configStore.update {
+            $0.engine = "parakeet"
+            $0.language = "en"
+            $0.modelPath = "/models/ggml-medium.en.bin"
+        }
+        let vm = makeVM()
+        XCTAssertEqual(vm.engine, .parakeet)
+
+        vm.setLanguage(ModelSpec.autoDetect)
+        XCTAssertEqual(vm.engine, .whisper)
+        XCTAssertEqual(engineModel.path, "/models/ggml-medium.en.bin")
+        XCTAssertEqual(vm.language, ModelSpec.autoDetect)
+        XCTAssertEqual(vm.engineNote,
+                       "Using Whisper (whisper.cpp) because Turbo (English/EU) doesn't support auto-detect. Change Language to switch back.")
+        XCTAssertEqual(vm.unavailableEngines, [.parakeet])
+        XCTAssertEqual(vm.unavailableEnginesHeading, "Unavailable for Auto-detect — change Language to use")
+        UserFacingCopy.assertPlain(vm.engineNote)
+        UserFacingCopy.assertPlain(vm.unavailableEnginesHeading)
+
+        // Direct recovery without switching to an unrelated engine like Apple Speech.
+        vm.setLanguage("en")
+        XCTAssertEqual(vm.engine, .parakeet)
+        XCTAssertEqual(vm.engineRow, .engine(.parakeet))
+        XCTAssertEqual(vm.language, "en")
+        XCTAssertNil(vm.engineNote)
+        XCTAssertEqual(vm.unavailableEngines, [])
+        XCTAssertEqual(engineModel.engine, .parakeet)
+    }
+
+    /// Hardware-unavailable engines (e.g. Turbo on Intel) aren't listed as
+    /// language-blocked and don't suggest changing Language.
+    func testHardwareUnavailableEngineDoesNotSuggestChangingLanguage() {
+        let intel = EngineEnvironment.mac(15, appleSilicon: false, gib: 16)
+        configStore.update { $0.engine = "parakeet"; $0.language = "en" }
+        let registry = EngineRegistry([WhisperEngine(), ParakeetEngine()])
+        let spec = ModelSelection.select(configStore.config, environment: intel, engines: registry,
+                                         presentFilenames: ["ggml-small.en-q5_1.bin"]).spec
+        let vm = SettingsViewModel(
+            configStore: configStore, loginItem: LoginItem(service: NoLoginItem()), availableMics: { [] },
+            presentModelFilenames: { ["ggml-small.en-q5_1.bin"] }, onNeedsMenuRefresh: {},
+            pauseHotkeys: {}, reloadHotkeys: {}, hardware: intel.hardware, currentModel: { spec },
+            modelStatus: .ready, onModelSettingsChange: {}, engines: registry, environment: intel)
+        XCTAssertEqual(vm.engineNote, "Using Whisper (whisper.cpp) because Turbo needs Apple Silicon.")
+        XCTAssertEqual(vm.unavailableEngines, [])
+    }
+
+    /// Regression for #55 under Automatic engine selection with an English-only
+    /// Whisper fallback: switching back to English returns to Turbo directly.
+    func testAutomaticEngineAutoDetectRoundTripWithEnglishOnlyWhisper() {
+        configStore.update {
+            $0.engine = EngineChoice.automaticID
+            $0.language = "en"
+            $0.modelPath = "/models/ggml-medium.en.bin"
+        }
+        let vm = makeVM()
+        XCTAssertEqual(vm.engineRow, .automatic)
+        XCTAssertEqual(vm.engine, .parakeet)
+
+        vm.setLanguage(ModelSpec.autoDetect)
+        XCTAssertEqual(vm.engineRow, .automatic)
+        XCTAssertEqual(vm.engine, .whisper)
+        XCTAssertEqual(vm.language, ModelSpec.autoDetect)
+
+        vm.setLanguage("en")
+        XCTAssertEqual(vm.engineRow, .automatic)
+        XCTAssertEqual(vm.engine, .parakeet)
+        XCTAssertEqual(vm.language, "en")
     }
 
     func testAMissingModelShowsItsEnginesHint() {

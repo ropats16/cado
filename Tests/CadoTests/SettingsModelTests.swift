@@ -135,17 +135,15 @@ final class SettingsModelTests: XCTestCase {
 
     // MARK: - Language
 
-    func testLanguageFollowsTheModelTheEngineRuns() {
+    func testLanguageStaysSelectableOnEnglishOnlyWhisperAndSwitchesModel() {
         let vm = makeVM(present: ["ggml-small.en-q5_1.bin", "ggml-small-q5_1.bin"])
-        XCTAssertFalse(vm.isLanguageSelectable, "auto-picked small.en-q5_1 is English-only")
-
-        vm.selectModel(.catalog("small-q5_1"))
-        XCTAssertTrue(vm.isLanguageSelectable)
 
         vm.setLanguage("de")
         XCTAssertEqual(configStore.config.language, "de")
         XCTAssertEqual(vm.language, "de")
-        XCTAssertEqual(applied, 2)
+        XCTAssertEqual(engineModel.path, Paths.modelsDir.appendingPathComponent("ggml-small-q5_1.bin").path)
+        XCTAssertEqual(engineModel.language, "de")
+        XCTAssertEqual(applied, 1)
     }
 
     // MARK: - Keep warm

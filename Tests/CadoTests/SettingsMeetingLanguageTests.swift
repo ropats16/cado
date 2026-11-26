@@ -177,33 +177,9 @@ final class SettingsMeetingLanguageTests: XCTestCase {
 
     // MARK: - The English-only warning
 
-    func testTheDictationWarning() {
-        let small = whisper("small.en-q5_1", "en")
-        XCTAssertEqual(LanguageFitCopy.dictationWarning(model: small, language: "hi"),
-                       "Whisper small.en-q5_1 only understands English, so Hindi comes out as English words. "
-                       + "To dictate in Hindi, choose a model without “.en” in its name in the Model menu.")
-        XCTAssertEqual(LanguageFitCopy.dictationWarning(model: small, language: "auto"),
-                       "Whisper small.en-q5_1 only understands English, so Auto-detect does nothing: everything "
-                       + "comes out as English words. To dictate in other languages, choose a model without “.en” "
-                       + "in its name in the Model menu.")
-        XCTAssertNil(LanguageFitCopy.dictationWarning(model: small, language: "en"))
-        XCTAssertNil(LanguageFitCopy.dictationWarning(model: whisper("small-q5_1", "hi"), language: "hi"))
-        XCTAssertNil(LanguageFitCopy.dictationWarning(model: turbo, language: "en"))
-        let kit = ModelSpec(path: "/models/whisperkit/small.en_217MB", sha256: nil, language: "hi", engine: .whisperKit)
-        XCTAssertNotNil(LanguageFitCopy.dictationWarning(model: kit, language: "hi"))
-    }
-
-    func testTheWarningShowsWhereTheLanguageAndModelDisagree() {
-        dictation = whisper("small.en-q5_1", "en")
-        configStore.update { $0.language = "hi" }
-        XCTAssertNotNil(makeVM().dictationLanguageWarning)
-        configStore.update { $0.language = "en" }
-        XCTAssertNil(makeVM().dictationLanguageWarning)
-    }
-
     func testAllOfItIsPlainWords() {
         let small = whisper("small.en-q5_1", "en")
-        var texts = ["hi", "auto", "de"].compactMap { LanguageFitCopy.dictationWarning(model: small, language: $0) }
+        var texts: [String] = []
         for language in ["en", "auto", "hi"] {
             for dictation in [small, turbo] {
                 for choice in [MeetingModel.Choice.dictation, .dictationIn(language),

@@ -25,6 +25,14 @@ extension SettingsView {
                         case .engine(let kind): Text(kind.displayName).tag(choice)
                         }
                     }
+                    let unavailable = viewModel.unavailableEngines
+                    if !unavailable.isEmpty {
+                        Section(viewModel.unavailableEnginesHeading) {
+                            ForEach(unavailable, id: \.self) { kind in
+                                Text(kind.displayName).tag(EngineChoice.engine(kind)).disabled(true)
+                            }
+                        }
+                    }
                 }
                 .pickerWidth()
             }
@@ -41,11 +49,11 @@ extension SettingsView {
                            set: { viewModel.selectModel($0) }
                        )) {
                     Text(viewModel.automaticLabel).tag(ModelRow.automatic)
-                    if let custom = viewModel.customModelName {
-                        Text("Custom file: \(custom)").tag(ModelRow.custom)
+                    if let custom = viewModel.customModelLabel {
+                        Text(custom).tag(ModelRow.custom)
                     }
                     ForEach(lists.downloaded) { model in
-                        Text(model.label).tag(ModelRow.catalog(model.id))
+                        Text(viewModel.modelLabel(for: model)).tag(ModelRow.catalog(model.id))
                     }
                     Section(viewModel.notDownloadedHeading) {
                         ForEach(lists.notDownloaded) { model in
@@ -81,7 +89,7 @@ extension SettingsView {
             SettingsRow("Language") {
                 Picker("Language",
                        selection: Binding(
-                           get: { viewModel.isLanguageSelectable ? viewModel.language : "en" },
+                           get: { viewModel.language },
                            set: { viewModel.setLanguage($0) }
                        )) {
                     ForEach(viewModel.languageOptions, id: \.code) { option in
@@ -89,10 +97,14 @@ extension SettingsView {
                     }
                 }
                 .pickerWidth()
-                .disabled(!viewModel.isLanguageSelectable)
             }
-            if let warning = viewModel.dictationLanguageWarning {   // #47
-                StatusLine(text: warning, tone: .problem).padding(.bottom, 8)
+            if let guidance = viewModel.dictationLanguageGuidance {   // #47, #61
+                StatusLine(text: guidance.text, tone: guidance.isProblem ? .problem : .note)
+                    .padding(.bottom, guidance.download == nil ? 8 : 4)
+                if let model = guidance.download {
+                    ModelDownloadRow(model: model, viewModel: viewModel)
+                        .padding(.bottom, 4)
+                }
             }
 
             // Apple Speech: the OS-managed model for the language.
