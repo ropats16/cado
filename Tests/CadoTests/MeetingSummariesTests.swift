@@ -336,16 +336,17 @@ final class MeetingSummariesTests: XCTestCase {
                       "Saved transcript of an older note must not be rewritten")
     }
 
-    func testAutomaticSummaryWordFloorIgnoresHesitations() async throws {
+    func testAutomaticSummaryWordFloorCountsRawTurnsWhileStrippingHesitations() async throws {
         let auto = MeetingSummaries(catalog: catalog, provider: { .onDevice }, automatic: { true },
                                     minimumAutomaticWords: 10)
-        let fillerHeavy = "Um, " + Array(repeating: "um, uh,", count: 20).joined(separator: " ") + " ship on Friday."
+        let fillerHeavy = "Um, " + Array(repeating: "um, uh,", count: 20).joined(separator: " ") + " we should ship on Friday."
         let note = MeetingNote(appName: "Zoom", start: start, duration: 60,
                                turns: [.init(speaker: .me, text: fillerHeavy)])
         let url = try library.save(note.draft(locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!))
         auto.noteSaved(url)
         await auto.settled()
-        XCTAssertTrue(catalog.summarizer.calls.isEmpty, "Only 3 real words after removing hesitations")
+        XCTAssertEqual(catalog.summarizer.passages, ["Me: We should ship on Friday."],
+                       "Raw word count clears the floor; SummaryPipeline cleans hesitations once")
         XCTAssertNil(auto.state(of: url))
     }
 }
