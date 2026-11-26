@@ -108,12 +108,15 @@ extension SettingsViewModel {
         let spec = selected.spec
         let installed = isSpecInstalled(spec, present: present)
         let overridden = overriddenEnglishOnlyModel(for: config, selected: spec)
+        let usesAutomaticPick = config.modelPath.isEmpty && config.model == .automatic
+        let usesTierPick = spec.engine == .whisper && (usesAutomaticPick || overridden != nil || spec.isEnglishOnly)
         let download = dictationModelDownload(for: spec, installed: installed, language: language,
                                               overriddenEnglishOnly: overridden != nil, present: present)
         let downloadName = download.map { dictationDownloadModelName(for: $0.key) }
         guard let note = LanguageFitCopy.dictationNote(
             selected: spec, installed: installed, language: language,
             tier: MultilingualTier.tier(for: hardware),
+            usesTierPick: usesTierPick,
             overriddenEnglishOnly: overridden, downloadModelName: downloadName
         ) else { return nil }
         return DictationLanguageGuidance(text: note.text, isProblem: note.isProblem, download: download)
@@ -242,13 +245,13 @@ enum LanguageFitCopy {
     /// English-only override, missing model, hardware tier limit, or download
     /// offered directly below). Pure; plain words.
     static func dictationNote(selected: ModelSpec, installed: Bool, language: String, tier: MultilingualTier,
+                              usesTierPick: Bool = true,
                               overriddenEnglishOnly: String? = nil,
                               downloadModelName: String? = nil) -> (text: String, isProblem: Bool)? {
         guard !ModelCatalog.isEnglish(language) else { return nil }
         let isAuto = language == ModelSpec.autoDetect
         let lang = languageLabel(language)
-        let isWhisperFamily = selected.engine == .whisper || selected.engine == .whisperKit
-        let tierNote = isWhisperFamily && tier != .full
+        let tierNote = selected.engine == .whisper && usesTierPick && tier != .full
             ? " Accuracy for other languages is limited on this Mac — more language support is coming soon."
             : ""
 

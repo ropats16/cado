@@ -351,6 +351,53 @@ final class SettingsLanguageGuidanceTests: XCTestCase {
         ))
     }
 
+    func testLimitedAccuracyNoteOnlyShowsForWhisperTierPicks() {
+        // (a) 8 GB Apple Silicon, Whisper Automatic with small-q5_1 installed → shows limited/coming-soon line.
+        present = ["small-q5_1"]
+        configStore.update {
+            $0.engine = "whisper"
+            $0.model = .automatic
+            $0.modelPath = ""
+            $0.language = "hi"
+        }
+        let autoVM = makeVM(appleSilicon: true, gib: 8)
+        XCTAssertEqual(autoVM.dictationLanguageGuidance, SettingsViewModel.DictationLanguageGuidance(
+            text: "Hindi uses Whisper small-q5_1. "
+                + "Accuracy for other languages is limited on this Mac — more language support is coming soon.",
+            isProblem: false,
+            download: nil
+        ))
+
+        // (b) Explicit multilingual whisper.cpp model chosen → no limited/coming-soon line.
+        present = ["medium-q5_0"]
+        configStore.update {
+            $0.engine = "whisper"
+            $0.model = .named("medium-q5_0")
+            $0.modelPath = ""
+            $0.language = "hi"
+        }
+        let explicitVM = makeVM(appleSilicon: true, gib: 8)
+        XCTAssertEqual(explicitVM.dictationLanguageGuidance, SettingsViewModel.DictationLanguageGuidance(
+            text: "Hindi uses Whisper medium-q5_0.",
+            isProblem: false,
+            download: nil
+        ))
+
+        // (c) WhisperKit with a multilingual model → no limited/coming-soon line.
+        whisperKitInstalled = ["small"]
+        configStore.update {
+            $0.engine = "whisperkit"
+            $0.setModelChoice(.automatic, for: .whisperKit)
+            $0.language = "hi"
+        }
+        let kitVM = makeVM(appleSilicon: true, gib: 8)
+        XCTAssertEqual(kitVM.dictationLanguageGuidance, SettingsViewModel.DictationLanguageGuidance(
+            text: "Hindi uses WhisperKit small.",
+            isProblem: false,
+            download: nil
+        ))
+    }
+
     // MARK: - Intel Mac (Limited < 16 GB, Basic ≥ 16 GB)
 
     func testIntelMacGuidanceForLimitedAndBasicTiers() {
