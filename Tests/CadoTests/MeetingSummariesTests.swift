@@ -313,4 +313,39 @@ final class MeetingSummariesTests: XCTestCase {
         for error in errors { UserFacingCopy.assertPlain(MeetingSummaries.describe(error)) }
         UserFacingCopy.assertPlain(SummaryProvider.onDevice.attribution)
     }
+
+    func testSummarizingAnOlderNoteStripsHesitationsWithoutRewritingItsTranscript() async throws {
+        let oldNote = MeetingNote(appName: "Zoom", start: start, duration: 60, turns: [
+            .init(speaker: .me, text: "Um, we should, uh, ship the release on Friday."),
+            .init(speaker: .them, text: "Um, uh."),
+            .init(speaker: .them, text: "Uh-huh. Um, sounds good to me."),
+        ])
+        let url = try library.save(oldNote.draft(locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!))
+        summaries.summarize(url)
+        await summaries.settled()
+
+        XCTAssertNil(summaries.state(of: url))
+        XCTAssertEqual(catalog.summarizer.passages, [
+            "Me: We should ship the release on Friday.\nOthers: Uh-huh. Sounds good to me.",
+        ])
+        let saved = try text(url)
+        XCTAssertTrue(saved.contains(SummarySection.startMarker), "Summary section written")
+        XCTAssertTrue(saved.contains("**Me:** Um, we should, uh, ship the release on Friday."),
+                      "Saved transcript of an older note must not be rewritten")
+        XCTAssertTrue(saved.contains("**Others:** Um, uh."),
+                      "Saved transcript of an older note must not be rewritten")
+    }
+
+    func testAutomaticSummaryWordFloorIgnoresHesitations() async throws {
+        let auto = MeetingSummaries(catalog: catalog, provider: { .onDevice }, automatic: { true },
+                                    minimumAutomaticWords: 10)
+        let fillerHeavy = "Um, " + Array(repeating: "um, uh,", count: 20).joined(separator: " ") + " ship on Friday."
+        let note = MeetingNote(appName: "Zoom", start: start, duration: 60,
+                               turns: [.init(speaker: .me, text: fillerHeavy)])
+        let url = try library.save(note.draft(locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!))
+        auto.noteSaved(url)
+        await auto.settled()
+        XCTAssertTrue(catalog.summarizer.calls.isEmpty, "Only 3 real words after removing hesitations")
+        XCTAssertNil(auto.state(of: url))
+    }
 }

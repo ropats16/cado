@@ -215,12 +215,13 @@ final class MeetingSummaries: ObservableObject {
         let started = Date()
         do {
             let turns = try await Task.detached { try files.turns(of: note) }.value
+            let summaryTurns = HesitationFilter.cleanTurns(turns)
             if automaticNotes.remove(note) != nil,
-               turns.reduce(0, { $0 + $1.text.split(whereSeparator: \.isWhitespace).count }) < minimumAutomaticWords {
+               summaryTurns.reduce(0, { $0 + $1.text.split(whereSeparator: \.isWhitespace).count }) < minimumAutomaticWords {
                 states[note] = nil
                 return Log.info("Summary: a note is too short to summarize on its own.")
             }
-            let outcome = try await runPipeline(summarizer, turns: turns, provider: provider)
+            let outcome = try await runPipeline(summarizer, turns: summaryTurns, provider: provider)
             // The model that did the work, not the one chosen by now.
             let section = SummarySection.markdown(outcome, provider: provider, model: summarizer.attributionModel ?? model())
             try await Task.detached { try files.writeSection(section, into: note, summarizing: turns) }.value

@@ -414,6 +414,43 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertEqual(outcome, SummaryOutcome(summary: MeetingSummary(discussion: ["Hello", "Hi"]), skippedPassages: 0, passages: 1))
     }
 
+    func testPipelineStripsHesitationsBeforeSummarizing() async throws {
+        let fake = FakeSummarizer()
+        _ = try await SummaryPipeline(summarizer: fake).run([
+            (.me, "Um, we should, uh, ship on Friday."),
+            (.them, "Um, uh."),
+            (.them, "Uh-huh. Um, sounds good."),
+        ])
+        XCTAssertEqual(fake.passages, ["Me: We should ship on Friday.\nOthers: Uh-huh. Sounds good."])
+    }
+
+    func testPipelineWithOnlyHesitationsThrowsNothingToSummarize() async {
+        let fake = FakeSummarizer()
+        do {
+            _ = try await SummaryPipeline(summarizer: fake).run([(.me, "Um, uh."), (.them, "Erm...")])
+            XCTFail("expected nothingToSummarize")
+        } catch {
+            XCTAssertEqual(error as? SummaryPipelineError, .nothingToSummarize)
+        }
+        XCTAssertTrue(fake.calls.isEmpty)
+    }
+
+    func testPipelineKeepsGermanAndPortugueseUm() async throws {
+        let fake = FakeSummarizer()
+        _ = try await SummaryPipeline(summarizer: fake).run([
+            (.me, "Wir treffen uns um 14 Uhr im Büro."),
+            (.them, "Ähm, das passt gut."),
+        ])
+        XCTAssertEqual(fake.passages, ["Me: Wir treffen uns um 14 Uhr im Büro.\nOthers: Das passt gut."])
+
+        let fakePT = FakeSummarizer()
+        _ = try await SummaryPipeline(summarizer: fakePT).run([
+            (.me, "Preciso de um minuto para ver o orçamento."),
+            (.them, "Um."),
+        ])
+        XCTAssertEqual(fakePT.passages, ["Me: Preciso de um minuto para ver o orçamento.\nOthers: Um."])
+    }
+
     func testALongMeetingIsSummarizedInPartsThenMerged() async throws {
         let fake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 40, mergeTokens: 60))
         let outcome = try await SummaryPipeline(summarizer: fake).run(turns(20))
