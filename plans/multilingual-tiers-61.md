@@ -1,5 +1,24 @@
 # Multilingual Whisper model tiers — #61
 
+## What changed
+
+- **Tier by chip and RAM** (`MultilingualTier`): Full = Apple Silicon 16 GB or
+  more; Basic = Apple Silicon 8–15 GB or Intel 16 GB or more; Limited = the rest.
+- **whisper.cpp's Automatic pick for Auto-detect and non-English**
+  (`ModelCatalog.recommended`): Full → `large-v3-turbo-q5_0` (benchmark below),
+  Basic → `small-q5_1`, Limited → as before. English picks are unchanged.
+- **Not downloaded yet:** the largest installed multilingual model no bigger
+  than the pick, or than the pre-#61 pick if that was bigger (so a 32 GB Mac
+  with `medium-q8_0` keeps it rather than dropping to `small`).
+- **English-only models don't serve other languages:** a hand-set `modelPath`
+  or named `.en` model gives way to the Automatic pick for Auto-detect and
+  non-English once any multilingual catalog model is installed. With none
+  installed it stays, as before.
+- Meetings inherit the pick through `MeetingModel.choose`. Known edge: dictation
+  on Auto-detect with a hand-set `.en` model and Meeting Language = English
+  loads that `.en` model for meetings next to dictation's multilingual one.
+- Settings copy per tier and the #55 picker fix are part 2.
+
 ## Benchmark
 
 Machine: Apple M3 Max (`Mac15,9`, 12P + 4E), 48 GB RAM, macOS 26.7.2 (25G332),

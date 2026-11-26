@@ -6,7 +6,7 @@ import Foundation
 /// - `.full`: Apple Silicon with 16 GiB or more.
 /// - `.basic`: Apple Silicon with 8–15 GiB, or Intel with 16 GiB or more.
 /// - `.limited`: everything smaller.
-enum MultilingualTier: Equatable, CaseIterable {
+enum MultilingualTier: Equatable {
     case full, basic, limited
 
     static func tier(for hardware: HardwareProfile) -> MultilingualTier {

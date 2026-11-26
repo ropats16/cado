@@ -25,8 +25,4 @@ final class MultilingualTierTests: XCTestCase {
         XCTAssertEqual(MultilingualTier.tier(for: intel(15)), .limited)
         XCTAssertEqual(MultilingualTier.tier(for: intel(16)), .basic)
     }
-
-    func testAllCasesContainsAllThreeTiers() {
-        XCTAssertEqual(MultilingualTier.allCases, [.full, .basic, .limited])
-    }
 }

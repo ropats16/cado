@@ -5,7 +5,8 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 ## Unreleased
 
 ### Changed
-- Auto-detect and non-English languages now pick `large-v3-turbo-q5_0` on Apple Silicon Macs with 16 GB or more (while keeping `small-q5_1` on 8–15 GB Apple Silicon and 16 GB+ Intel Macs, and keeping existing larger downloaded models like `medium-q8_0` when `large-v3-turbo-q5_0` isn't downloaded). English dictation is unchanged, and an English-only Whisper model is no longer used for Auto-detect or other languages when a multilingual model is installed.
+- Auto-detect and languages other than English are transcribed with a larger Whisper model, `large-v3-turbo-q5_0` (574 MB), on Apple Silicon Macs with 16 GB or more: on our Hindi/English test it got 13% of Hindi words wrong, against 42% for `medium` and 60% for `small`. Cado never downloads it by itself; until you download it in Settings › Speech Model, the largest multilingual model you already have is used. Other Macs keep their current pick. English is unchanged.
+- An English-only Whisper model is no longer used for Auto-detect or another language when a multilingual model is installed.
 
 ## 0.6.0 - 2026-11-18
 

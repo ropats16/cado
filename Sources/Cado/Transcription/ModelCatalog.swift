@@ -159,7 +159,7 @@ enum ModelCatalog {
         switch MultilingualTier.tier(for: hardware) {
         case .full: wanted = "large-v3-turbo-q5_0"
         case .basic: wanted = "small-q5_1"
-        case .limited: wanted = id.replacingOccurrences(of: ".en", with: "")
+        case .limited: return legacyMultilingual(for: hardware)
         }
         return model(id: wanted) ?? model(id: id)!
     }
@@ -171,15 +171,14 @@ enum ModelCatalog {
     static func fallbackCeilingBytes(for hardware: HardwareProfile, language: String) -> Int64 {
         let current = recommended(for: hardware, language: language).bytes
         guard !isEnglish(language) else { return current }
-        return max(current, legacyRecommended(for: hardware, language: language).bytes)
+        return max(current, legacyMultilingual(for: hardware).bytes)
     }
 
-    /// The pre-#61 pick, only a size ceiling so Macs that already downloaded it
-    /// keep it.
-    private static func legacyRecommended(for hardware: HardwareProfile, language: String) -> WhisperModel {
+    /// The pre-#61 pick for other languages (the English pick's multilingual
+    /// sibling), only a size ceiling so Macs that already downloaded it keep it.
+    private static func legacyMultilingual(for hardware: HardwareProfile) -> WhisperModel {
         let id = recommendedID(isAppleSilicon: hardware.isAppleSilicon, memoryGiB: hardware.memoryGiB)
-        let wanted = isEnglish(language) ? id : id.replacingOccurrences(of: ".en", with: "")
-        return model(id: wanted) ?? model(id: id)!
+        return model(id: id.replacingOccurrences(of: ".en", with: "")) ?? model(id: id)!
     }
 
     private static func recommendedID(isAppleSilicon: Bool, memoryGiB gib: Int) -> String {
