@@ -568,7 +568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings: { [configStore] in
                 DictationSettings(maxSeconds: configStore.config.maxRecordingSeconds,
                                   ceilingSeconds: AudioCapture.ceilingSeconds,
-                                  trailingSpace: configStore.config.trailingSpace)
+                                  trailingSpace: configStore.config.trailingSpace,
+                                  removeHesitations: configStore.config.removeHesitations)
             },
             readiness: monitor.currentStatus,
             busy: { [weak self] in self?.meetings.dictationBusy }

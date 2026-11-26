@@ -27,6 +27,15 @@ protocol DictationCapture: AnyObject {
     func cancel()
 }
 
+/// One dictation's raw text and the language it was decoded in (for
+/// language-aware hesitation removal, #62).
+struct DictationResult: Equatable {
+    var text: String
+    /// The language decoded in (detected under auto-detect, else the model's
+    /// fixed language). nil = unknown.
+    var language: String? = nil
+}
+
 /// Turns recorded audio into text.
 protocol DictationEngine: AnyObject {
     /// A job is coming: get the model ready and keep it loaded.
@@ -35,6 +44,15 @@ protocol DictationEngine: AnyObject {
     func endPrewarm()
     /// Transcribes 16 kHz mono samples; `completion` gets the raw text on main.
     func transcribe(_ samples: [Float], completion: @escaping (Result<String, Error>) -> Void)
+    /// Transcribes 16 kHz mono samples; `completion` gets the raw text and
+    /// decoded language on main (#62).
+    func transcribeResult(_ samples: [Float], completion: @escaping (Result<DictationResult, Error>) -> Void)
+}
+
+extension DictationEngine {
+    func transcribeResult(_ samples: [Float], completion: @escaping (Result<DictationResult, Error>) -> Void) {
+        transcribe(samples) { completion($0.map { DictationResult(text: $0) }) }
+    }
 }
 
 /// How delivered text reached the user.
@@ -68,6 +86,15 @@ enum DeliveryReport: Equatable {
 /// when nothing is left; says which it did.
 protocol DictationDelivery: AnyObject {
     func deliver(_ transcript: String, trailingSpace: Bool) -> DeliveryReport
+    /// Delivers `transcript`, removing spoken hesitations when `removeHesitations`
+    /// is true using `language` (nil = unknown, #62).
+    func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport
+}
+
+extension DictationDelivery {
+    func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport {
+        deliver(transcript, trailingSpace: trailingSpace)
+    }
 }
 
 /// What the user hears and is told: sound cues, notifications. Nothing
@@ -102,7 +129,7 @@ final class NoDictationHistory: DictationHistory {
 }
 
 /// The dictation settings the session reads live: `maxSeconds` when a
-/// recording starts, `trailingSpace` when it stops.
+/// recording starts, `trailingSpace` and `removeHesitations` when it stops.
 struct DictationSettings: Equatable {
     /// Recordings shorter than this are accidental taps and are dropped.
     var minSeconds: Double = 0.3
@@ -112,6 +139,8 @@ struct DictationSettings: Equatable {
     var ceilingSeconds: Double
     /// Append a space after the delivered text.
     var trailingSpace: Bool
+    /// Remove spoken hesitation sounds ("um", "uh", …) before delivery (#62).
+    var removeHesitations: Bool = true
 
     /// The max-duration timer's length.
     var limitSeconds: Double { maxSeconds > 0 ? maxSeconds : ceilingSeconds }

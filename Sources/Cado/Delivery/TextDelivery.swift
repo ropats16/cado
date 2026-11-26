@@ -33,7 +33,12 @@ final class TextDelivery: DictationDelivery {
     }
 
     func deliver(_ transcript: String, trailingSpace: Bool) -> DeliveryReport {
-        let text = Self.clean(transcript, trailingSpace: trailingSpace)
+        deliver(transcript, trailingSpace: trailingSpace, removeHesitations: false, language: nil)
+    }
+
+    func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport {
+        let text = Self.clean(transcript, trailingSpace: trailingSpace,
+                              removeHesitations: removeHesitations, language: language)
         guard !text.isEmpty else { return .droppedEmpty }
 
         let focus = FocusRules.report(for: probe.observe())
@@ -48,12 +53,18 @@ final class TextDelivery: DictationDelivery {
     }
 
     /// `raw` without non-speech tags (`NonSpeechFilter`: tag-only text becomes
-    /// "", inline tags are removed), trimmed; non-empty text gets a trailing
+    /// "", inline tags are removed), optionally without hesitation sounds
+    /// (`HesitationFilter`, #62), trimmed; non-empty text gets a trailing
     /// space if asked. "" when there is nothing to deliver. The whisper adapter
     /// already filters each segment; this repeats it on the whole transcript so
     /// every engine gets the same rule.
-    static func clean(_ raw: String, trailingSpace: Bool) -> String {
-        var text = NonSpeechFilter.clean(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+    static func clean(_ raw: String, trailingSpace: Bool,
+                      removeHesitations: Bool = false, language: String? = nil) -> String {
+        var text = NonSpeechFilter.clean(raw)
+        if removeHesitations {
+            text = HesitationFilter.clean(text, language: language)
+        }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty && trailingSpace { text += " " }
         return text
     }

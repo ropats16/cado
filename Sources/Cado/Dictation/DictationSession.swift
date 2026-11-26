@@ -52,15 +52,15 @@ final class DictationSession {
         case micStarted(id: Int, Error?)
         case maxDurationElapsed(id: Int)
         case captured(id: Int, samples: [Float])
-        case transcribed(id: Int, Result<String, Error>)
+        case transcribed(id: Int, Result<DictationResult, Error>)
     }
 
     private enum State {
         case idle
         case recording(id: Int, startedAt: TimeInterval, limit: TimeInterval)
         /// Stopped; waiting for the capture's post-roll.
-        case finishingCapture(id: Int, trailingSpace: Bool)
-        case transcribing(id: Int, trailingSpace: Bool)
+        case finishingCapture(id: Int, trailingSpace: Bool, removeHesitations: Bool)
+        case transcribing(id: Int, trailingSpace: Bool, removeHesitations: Bool)
         case delivering
     }
 
@@ -164,28 +164,28 @@ final class DictationSession {
             end()
 
         case (.recording(let id, _, _), .micStarted(let started, let error?)) where started == id,
-             (.finishingCapture(let id, _), .micStarted(let started, let error?)) where started == id:
+             (.finishingCapture(let id, _, _), .micStarted(let started, let error?)) where started == id:
             // The capture is over; its `end`, if any, brings no samples.
             fail("Couldn't start recording", error)
             end()
 
         // transcribing
-        case (.finishingCapture(let id, let trailingSpace), .captured(let finished, let samples)) where finished == id:
+        case (.finishingCapture(let id, let trailingSpace, let removeHesitations), .captured(let finished, let samples)) where finished == id:
             // Only now, so the cue isn't recorded into the post-roll.
             feedback.play(.stop)
             guard !samples.isEmpty else {
                 Log.info("Nothing was recorded.")
                 return end()
             }
-            state = .transcribing(id: id, trailingSpace: trailingSpace)
-            engine.transcribe(samples) { [weak self] result in
+            state = .transcribing(id: id, trailingSpace: trailingSpace, removeHesitations: removeHesitations)
+            engine.transcribeResult(samples) { [weak self] result in
                 self?.handle(.transcribed(id: id, result))
             }
 
-        case (.transcribing(let id, let trailingSpace), .transcribed(let finished, let result)) where finished == id:
+        case (.transcribing(let id, let trailingSpace, let removeHesitations), .transcribed(let finished, let result)) where finished == id:
             switch result {
             case .success(let raw):
-                deliver(raw, trailingSpace: trailingSpace)
+                deliver(raw, trailingSpace: trailingSpace, removeHesitations: removeHesitations)
             case .failure(let error):
                 state = .idle
                 fail("Transcription failed", error)
@@ -244,7 +244,8 @@ final class DictationSession {
             return end()
         }
         Log.info("Recording stopped after \(String(format: "%.1f", duration))s; transcribing.")
-        state = .finishingCapture(id: id, trailingSpace: current.trailingSpace)
+        state = .finishingCapture(id: id, trailingSpace: current.trailingSpace,
+                                  removeHesitations: current.removeHesitations)
         capture.end { [weak self] samples in
             self?.handle(.captured(id: id, samples: samples))
         }
@@ -257,9 +258,10 @@ final class DictationSession {
         state = .idle
     }
 
-    private func deliver(_ transcript: String, trailingSpace: Bool) {
+    private func deliver(_ transcript: DictationResult, trailingSpace: Bool, removeHesitations: Bool) {
         state = .delivering
-        switch delivery.deliver(transcript, trailingSpace: trailingSpace) {
+        switch delivery.deliver(transcript.text, trailingSpace: trailingSpace,
+                                removeHesitations: removeHesitations, language: transcript.language) {
         case .droppedEmpty:
             Log.info("Transcription was empty.")
         case .delivered(let delivered):

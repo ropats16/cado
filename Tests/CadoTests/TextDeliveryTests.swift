@@ -111,6 +111,37 @@ final class TextDeliveryTests: XCTestCase {
         XCTAssertEqual(delivery.deliver("[Music] hello [Music]", trailingSpace: true), .pasted("hello "))
     }
 
+    func testHesitationsRemovedWhenEnabledAndKeptVerbatimWhenOff() {
+        XCTAssertEqual(delivery.deliver(" Um, we should, uh, ship on Friday.", trailingSpace: false,
+                                        removeHesitations: true, language: "en"),
+                       .pasted("We should ship on Friday."))
+        XCTAssertEqual(delivery.deliver(" Um, hello.", trailingSpace: true,
+                                        removeHesitations: true, language: "en"),
+                       .pasted("Hello. "))
+        XCTAssertEqual(delivery.deliver(" Um, we should, uh, ship on Friday.", trailingSpace: false,
+                                        removeHesitations: false, language: "en"),
+                       .pasted("Um, we should, uh, ship on Friday."))
+        XCTAssertEqual(delivery.deliver(" Um.", trailingSpace: false,
+                                        removeHesitations: false, language: "en"),
+                       .pasted("Um."))
+        XCTAssertEqual(delivery.deliver(" Wir treffen uns um 14 Uhr.", trailingSpace: false,
+                                        removeHesitations: true, language: "de"),
+                       .pasted("Wir treffen uns um 14 Uhr."))
+        XCTAssertEqual(delivery.deliver(" Preciso de um minuto.", trailingSpace: false,
+                                        removeHesitations: true, language: "pt"),
+                       .pasted("Preciso de um minuto."))
+    }
+
+    func testHesitationOnlyDictationIsDroppedWithoutTouchingClipboard() {
+        for raw in ["Um.", " Um, uh.", "[Music] Um..."] {
+            XCTAssertEqual(delivery.deliver(raw, trailingSpace: true, removeHesitations: true, language: "en"),
+                           .droppedEmpty, raw)
+        }
+        XCTAssertEqual(probe.observations, 0)
+        XCTAssertEqual(keys.pastes, 0)
+        XCTAssertEqual(pasteboard.changeCount, 0)
+    }
+
     // MARK: - Restore timing
 
     func testChromiumAppGetsTheSlowRestore() {

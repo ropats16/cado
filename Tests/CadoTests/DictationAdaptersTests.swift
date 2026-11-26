@@ -44,6 +44,45 @@ final class DictationAdaptersTests: XCTestCase {
         }
         wait(for: [done], timeout: 5)
     }
+
+    private final class LanguageAdapter: TranscriptionAdapter {
+        let detected: String?
+        init(detected: String?) { self.detected = detected }
+        func transcribe(samples: [Float]) throws -> [Transcript.Segment] { [] }
+        func transcribe(samples: [Float], language: String?) throws -> Transcript {
+            Transcript(segments: [.init(text: " Um, hallo.", start: 0, end: 1)], language: detected)
+        }
+    }
+
+    func testEngineAdapterCarriesDetectedOrModelLanguage() {
+        let model = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("adapter-lang-\(UUID().uuidString).bin")
+        FileManager.default.createFile(atPath: model.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: model) }
+
+        // Auto-detect model: uses transcript's detected language.
+        let autoEngine = TranscriptionEngine(model: ModelSpec(path: model.path, sha256: nil, language: "auto"),
+                                             makeAdapter: { _ in LanguageAdapter(detected: "de") })
+        autoEngine.load()
+        let autoDone = expectation(description: "auto")
+        EngineDictationAdapter(autoEngine).transcribeResult([0.1]) { result in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertEqual(try? result.get(), DictationResult(text: " Um, hallo.", language: "de"))
+            autoDone.fulfill()
+        }
+
+        // Fixed-language model whose adapter returns nil language (e.g. Parakeet/Apple Speech): uses model language.
+        let fixedEngine = TranscriptionEngine(model: ModelSpec(path: model.path, sha256: nil, language: "pt"),
+                                              makeAdapter: { _ in LanguageAdapter(detected: nil) })
+        fixedEngine.load()
+        let fixedDone = expectation(description: "fixed")
+        EngineDictationAdapter(fixedEngine).transcribeResult([0.1]) { result in
+            XCTAssertEqual(try? result.get(), DictationResult(text: " Um, hallo.", language: "pt"))
+            fixedDone.fulfill()
+        }
+
+        wait(for: [autoDone, fixedDone], timeout: 5)
+    }
 }
 
 /// `SystemClock` against the real main run loop.

@@ -19,6 +19,18 @@ final class EngineDictationAdapter: DictationEngine {
             DispatchQueue.main.async { completion(result.map(\.text)) }
         }
     }
+
+    func transcribeResult(_ samples: [Float], completion: @escaping (Result<DictationResult, Error>) -> Void) {
+        engine.run(samples, language: nil) { result, ranOn in
+            DispatchQueue.main.async {
+                completion(result.map { transcript in
+                    let modelLang = ranOn?.language
+                    let language = transcript.language ?? (modelLang == ModelSpec.autoDetect ? nil : modelLang)
+                    return DictationResult(text: transcript.text, language: language)
+                })
+            }
+        }
+    }
 }
 
 /// Sound cues and notification banners. The overlay isn't here: it watches
