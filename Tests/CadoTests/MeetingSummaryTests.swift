@@ -399,6 +399,70 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertEqual(SummaryText.clippedOverview(seventyWords), expectedSixty)
     }
 
+    func testOverviewNothingValuesKeepValidSentences() {
+        let valid = """
+            Discussion:
+            - Reviewed Q2 roadmap options
+
+            Overview:
+            No decisions were made.
+            """
+        XCTAssertEqual(SummaryText.read(valid).summary.overview, "No decisions were made.")
+
+        for empty in ["None.", "N/A", "na!", "Nothing."] {
+            let text = """
+                Discussion:
+                - Reviewed Q2 roadmap options
+
+                Overview:
+                \(empty)
+                """
+            XCTAssertEqual(SummaryText.read(text).summary.overview, "", empty)
+        }
+    }
+
+    func testClippedOverviewStripsMarkdownProtectsSpeakerLabelsAndKeepsLeadingNumbers() {
+        XCTAssertEqual(SummaryText.clippedOverview("## The plan is approved."), "The plan is approved.")
+        XCTAssertEqual(SummaryText.clippedOverview("_The plan is approved._"), "The plan is approved.")
+
+        let speakerOverview = SummaryText.clippedOverview("**Me:** will send the deck.")
+        XCTAssertFalse(SummarySection.isTurnLine(speakerOverview))
+        XCTAssertTrue(speakerOverview.contains("will send the deck."))
+        XCTAssertEqual(speakerOverview, "Me: will send the deck.")
+
+        let othersOverview = SummaryText.clippedOverview("**Others:** approved the schedule.")
+        XCTAssertFalse(SummarySection.isTurnLine(othersOverview))
+        XCTAssertEqual(othersOverview, "Others: approved the schedule.")
+
+        let themOverview = SummaryText.clippedOverview("**Them:** will send notes.")
+        XCTAssertFalse(SummarySection.isTurnLine(themOverview))
+        XCTAssertEqual(themOverview, "Them: will send notes.")
+
+        let decimalUnderHeading = """
+            Decisions:
+            - Approve budget
+
+            Overview:
+            2.5 million was approved.
+            """
+        XCTAssertEqual(SummaryText.read(decimalUnderHeading).summary.overview, "2.5 million was approved.")
+
+        let decimalBeforeHeading = """
+            2.5 million was approved.
+
+            Decisions:
+            - Approve budget
+            """
+        XCTAssertEqual(SummaryText.read(decimalBeforeHeading).summary.overview, "2.5 million was approved.")
+    }
+
+    func testClippedOverviewUsesFoundationSentenceBoundaries() {
+        XCTAssertEqual(
+            SummaryText.clippedOverview("Dr. Rao approved the budget. The launch moves to March 10. Marketing will follow up."),
+            "Dr. Rao approved the budget. The launch moves to March 10."
+        )
+    }
+
     func testCombinedKeepsSingleOverviewAndDropsMultiPartOverviews() {
         let one = MeetingSummary(
             overview: "Shipped CSV export.",

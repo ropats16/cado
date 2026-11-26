@@ -75,20 +75,20 @@ enum SummaryText {
                 guard !line.isEmpty else { continue }
             }
             guard let field else {
-                if !isListItem(line), let item = item(line) { leadingOverviewLines.append(item) }
+                if !isListItem(line), let text = overviewItem(line) { leadingOverviewLines.append(text) }
                 continue
             }
             switch field {
             case .section(let section):
                 if let item = item(line) { reading.summary[section].append(item) }
             case .overview:
-                if let item = item(line) { overviewLines.append(item) }
+                if let text = overviewItem(line) { overviewLines.append(text) }
             case .summary:
                 if isListItem(line) {
                     reading.sections.insert(.discussion)
                     if let item = item(line) { reading.summary[.discussion].append(item) }
-                } else if let item = item(line) {
-                    summaryOverviewLines.append(item)
+                } else if let text = overviewItem(line) {
+                    summaryOverviewLines.append(text)
                 }
             }
         }
@@ -99,28 +99,46 @@ enum SummaryText {
         return reading
     }
 
-    /// Collapses whitespace, keeps at most the first two sentences (ending at
-    /// `.`, `!` or `?` followed by a space or the end), and if still over 60
-    /// words cuts at 60 words with "…" (#64). Pure.
+    /// Collapses whitespace, strips leading markdown/bullet decoration (and
+    /// matching trailing emphasis), keeps a leading speaker label safe from
+    /// `SummarySection.isTurnLine`, keeps at most the first two sentences via
+    /// Foundation sentence boundaries, and if still over 60 words cuts at 60
+    /// words with "…" (#64). Pure.
     static func clippedOverview(_ text: String) -> String {
         let collapsed = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         guard !collapsed.isEmpty else { return "" }
-        var sentences = 0
-        var clipped = collapsed
-        var index = collapsed.startIndex
-        while index < collapsed.endIndex {
-            let ch = collapsed[index]
-            let next = collapsed.index(after: index)
-            if (ch == "." || ch == "!" || ch == "?"),
-               next == collapsed.endIndex || collapsed[next] == " " {
-                sentences += 1
-                if sentences == 2 {
-                    clipped = String(collapsed[...index])
+        let leading = collapsed.prefix { "#-*_>•+ ".contains($0) }
+        var body = String(collapsed.dropFirst(leading.count))
+        let openingEmphasis = leading.reversed().prefix { $0 == "_" || $0 == "*" }
+        if !openingEmphasis.isEmpty {
+            let closing = String(openingEmphasis)
+            if body.hasSuffix(closing) {
+                body.removeLast(closing.count)
+            } else if let mark = openingEmphasis.first, openingEmphasis.allSatisfy({ $0 == mark }) {
+                while body.last == mark { body.removeLast() }
+            }
+            body = body.trimmingCharacters(in: .whitespaces)
+        }
+        guard !body.isEmpty else { return "" }
+        for label in MeetingSpeaker.allCases.flatMap(\.acceptedLabels) {
+            if body.count > label.count,
+               body.prefix(label.count).caseInsensitiveCompare(label) == .orderedSame {
+                let afterLabel = body.dropFirst(label.count).drop { $0 == "*" }
+                if afterLabel.first == ":" {
+                    let rest = afterLabel.dropFirst().drop { $0 == "*" }.drop { $0 == " " }
+                    let originalLabel = String(body.prefix(label.count))
+                    body = rest.isEmpty ? "\(originalLabel):" : "\(originalLabel): \(rest)"
                     break
                 }
             }
-            index = next
         }
+        var sentences: [String] = []
+        body.enumerateSubstrings(in: body.startIndex..., options: [.bySentences, .localized]) { sentence, _, _, stop in
+            guard let s = sentence?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return }
+            sentences.append(s)
+            if sentences.count == 2 { stop = true }
+        }
+        let clipped = sentences.isEmpty ? body : sentences.joined(separator: " ")
         let words = clipped.split(separator: " ")
         guard words.count > 60 else { return clipped }
         return words.prefix(60).joined(separator: " ") + "…"
@@ -202,6 +220,28 @@ enum SummaryText {
         guard !bare.isEmpty, !nothing.contains(bare) else { return nil }
         return text
     }
+
+    /// An overview line without a leading bullet (`-`, `*`, `•`, `+`); keeps
+    /// leading numbers intact and drops only explicit empty placeholders (#64).
+    private static func overviewItem(_ line: String) -> String? {
+        var s = Substring(line)
+        if let first = s.first {
+            if first == "•" {
+                s = s.dropFirst()
+            } else if "-*+".contains(first), s.dropFirst().first?.isWhitespace == true {
+                s = s.dropFirst()
+            }
+        }
+        let text = s.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return nil }
+        var bare = text.lowercased()
+        while let last = bare.last, ".!*_ ".contains(last) { bare.removeLast() }
+        while let first = bare.first, "*_ ".contains(first) { bare.removeFirst() }
+        guard !bare.isEmpty, !overviewNothing.contains(bare) else { return nil }
+        return text
+    }
+
+    private static let overviewNothing: Set<String> = ["none", "n/a", "na", "nothing"]
 
     private static let nothing: Set<String> = [
         "none", "n/a", "na", "nothing", "no decisions", "no action items", "no key points",
