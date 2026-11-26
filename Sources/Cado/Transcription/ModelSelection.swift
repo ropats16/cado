@@ -56,7 +56,9 @@ enum ModelSelection {
 
     /// Precedence: an explicit `modelPath` (any file; verified if its name is a
     /// catalog file), else a named `model` (even if not yet downloaded — the
-    /// engine then reports `.missing`), else the auto-pick.
+    /// engine then reports `.missing`), else the auto-pick; for non-English
+    /// languages (including Auto-detect), an English-only explicit pick yields
+    /// to the auto-pick whenever a multilingual catalog model is installed (#61).
     ///
     /// The auto-pick never asks for a download: if the recommended model isn't
     /// present it uses the largest downloaded catalog model no bigger than it
@@ -66,22 +68,32 @@ enum ModelSelection {
     static func resolve(model: ModelChoice, modelPath: String, language: String,
                         hardware: HardwareProfile, modelsDir: URL,
                         presentFilenames: Set<String>) -> ModelSpec {
-        if !modelPath.isEmpty {
-            return .file(modelPath, language: language)
-        }
         let file = { (id: String) in
             ModelSpec.file(modelsDir.appendingPathComponent(WhisperModel.filename(for: id)).path, language: language)
         }
-        if case .named(let id) = model {
-            return file(id)
+        // An English-only explicit pick can't transcribe other languages; once
+        // any multilingual catalog model is installed, fall back to the
+        // multilingual auto-pick instead (#61).
+        let overrideEnglishOnly = !ModelCatalog.isEnglish(language)
+            && ModelCatalog.models.contains { !$0.isEnglishOnly && presentFilenames.contains($0.filename) }
+
+        if !modelPath.isEmpty {
+            if !(overrideEnglishOnly && ModelCatalog.isEnglishOnly(modelPath)) {
+                return .file(modelPath, language: language)
+            }
+        } else if case .named(let id) = model {
+            if !(overrideEnglishOnly && ModelCatalog.isEnglishOnly(id)) {
+                return file(id)
+            }
         }
 
         let recommended = ModelCatalog.recommended(for: hardware, language: language)
+        let ceiling = ModelCatalog.fallbackCeilingBytes(for: hardware, language: language)
         let usable = ModelCatalog.models.filter {
             presentFilenames.contains($0.filename) && (ModelCatalog.isEnglish(language) || !$0.isEnglishOnly)
         }
         var chosen = usable.contains(recommended) ? recommended
-            : usable.filter { $0.bytes <= recommended.bytes }.max { $0.bytes < $1.bytes }
+            : usable.filter { $0.bytes <= ceiling }.max { $0.bytes < $1.bytes }
             ?? usable.min { $0.bytes < $1.bytes }
             ?? recommended
         // Within one size tier (`small.en-q5_1` vs `small-q5_1`) English takes the
