@@ -152,13 +152,12 @@ struct SummaryPipeline {
     /// Synthesizes an overview when a non-empty summary ended without one
     /// (e.g. only one part of a multi-part meeting survived, a merge answer
     /// omitted Overview, or a failed merge fell back to joining parts).
-    /// Non-stopping errors keep the extracted items without an overview.
+    /// Any error but cancellation keeps the extracted items without an overview.
     private func synthesizeOverview(for summary: MeetingSummary) async throws -> String {
         do {
             return try await call { try await summarizer.overview(for: summary) }
-        } catch let error as SummarizerError where error.stopsMerging {
-            throw error
         } catch let error as SummarizerError {
+            // Whatever went wrong, the items are the summary: never lose them for want of a lead.
             Log.error("Summary: synthesizing fallback overview failed (\(error)); keeping items without overview.")
             return ""
         }

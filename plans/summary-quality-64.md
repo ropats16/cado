@@ -2,7 +2,9 @@
 
 Date measured: 2026-11-26.
 Machine: Apple M3 Max (`Mac15,9`), 48 GB RAM, macOS 26.7.2, debug build (`swift test`), Apple Intelligence on-device Foundation Models (`CADO_LIVE_SUMMARY=1`).
-Scope: prompt quality, latency, multi-part missing-overview recovery, and fixture evaluation for the Pyramid Brief format introduced in part 1 (#67). `SummaryText.swift` was left untouched (reader fixes are landing separately on `fix/summary-reading-64`). Hesitation removal (`HesitationFilter.cleanTurns`, #62 / PR #65) is also landing separately and is not duplicated here; fixtures include hesitation-heavy speech (`um`, `uh`, `er`) so its effect can be seen once both branches merge.
+Scope: prompt quality, latency, multi-part missing-overview recovery, and fixture evaluation for the Pyramid Brief format introduced in part 1 (#67). `SummaryText.swift` was left untouched here (reader fixes: PR #68). Hesitation removal (`HesitationFilter.cleanTurns`, #62 / PR #65) is separate too; fixtures include hesitation-heavy speech (`um`, `uh`, `er`). Both have since merged; see "Re-run after rebase" below.
+
+**How to read the numbers:** the rubric scores were given by the agent that made the changes (self-graded, one run per fixture, greedy sampling), not by an independent reader. An independent review found some "after" outputs scored too kindly on duplicates (the same item in two sections). Treat the totals as direction, and the verbatim outputs as the evidence.
 
 ---
 
@@ -13,7 +15,7 @@ Scope: prompt quality, latency, multi-part missing-overview recovery, and fixtur
    - **Cloud (`.openRouter`, 128K+ context):** richer single-pass extract-then-abstract instructions (`cloudInstructions`) with bold `**Topic:**` lead-ins in `Discussion`, explicit reversal override, and native mixed Hindi/Hinglish → English guidance. **Unmeasured against live cloud APIs** (verified with deterministic fakes in `OpenRouterSummaryTests` only; no network calls made).
 2. **Replaced per-bullet on-device LLM filtering with deterministic cleanup (`SummaryQualityFilter.cleaned`):**
    - Kept the fast transcript-level pre-gate `isSubstantive(transcript)` (~0.16–0.27 s; immediately returns empty on pure noise).
-   - Removed the per-bullet `isSubstantive` loop that made up to 20 extra sequential `LanguageModelSession` calls per passage and 20 per merge. In baseline live runs, that loop crashed 2/8 fixtures (`clean-short`, `noisy-asr`) when the 3B model answered in a sentence or echoed a question instead of bare `YES`/`NO`, aborted `long-multi-topic` on passage 1 for exceeding 20 items, and silently deleted the only action item in `tiny` and a medical-leave fact in `sensitive-topic`.
+   - Removed the per-bullet `isSubstantive` loop that made up to 20 extra sequential `LanguageModelSession` calls per passage and 20 per merge. In baseline live runs, that loop failed 2/8 fixtures (`clean-short`, `noisy-asr`) when the 3B model answered in a sentence or echoed a question instead of bare `YES`/`NO`, aborted `long-multi-topic` on passage 1 for exceeding 20 items, and silently deleted the only action item in `tiny` and a medical-leave fact in `sensitive-topic`.
    - `SummaryQualityFilter.cleaned(_:)` deterministically deduplicates within and across sections (priority: `Action items > Decisions > Open questions > Discussion` so tasks echoed in both `Decisions` and `Action items` stay actionable), strips speaker-prefixed `"None"` / `"Not specified"` and bare conversational acknowledgments (`"Others: Perfect."`), caps per-section (5 on-device, 6 cloud) and total bounds (20 items / 280 words) without throwing, and clears `overview` if no items remain.
 3. **Multi-part missing-overview recovery (`SummaryPorts.swift`, `SummaryPipeline.swift`, `OnDeviceSummarizer.swift`, `OpenRouterSummarizer.swift`):**
    - Added `MeetingSummarizer.overview(for:)` (default returning `""`).
@@ -56,7 +58,9 @@ Rubric checks (binary 0/1 each, from `plans/research-summaries-58.md`):
 | `sensitive-topic` | 3.48 s (9) | **3.01 s (2)** | 3/6 (0 1 0 1 0 1) | **5/6** (0 1 1 1 1 1) | Exact `Me:`/`Others:` actions + keeps Raj medical leave; overview still says "resolved" |
 | `pure-small-talk` | 0.17 s (1) | **0.16 s (1)** | 6/6 (1 1 1 1 1 1) | **6/6** (1 1 1 1 1 1) | Instant pre-gate rejection, unchanged |
 | `tiny` | 1.72 s (5) | **1.46 s (2)** | 4/6 (1 1 0 1 0 1) | **6/6** (1 1 1 1 1 1) | Preserves `Others: Send updated calendar invite.` and `3 PM` in overview |
-| **Total** | **3/8 crashed** | **0/8 crashed** | **19/48 (40%)** | **39/48 (81%)** | **+20 rubric passes; 0 structural violations** |
+| **Total** | **3/8 failed** | **0/8 failed** | **19/48 (40%)** | **39/48 (81%)** | **+20 rubric passes; 0 structural violations** |
+
+Of the +20, 14 come from the three fixtures where `main` produced no summary at all (scored 0/6); on the five fixtures both versions completed, the score went from 19/30 to 25/30.
 
 ### Existing `OnDeviceSummaryLiveTests` timing comparison
 
@@ -376,11 +380,21 @@ Client demo moved to 3 PM.
 
 ---
 
+## Re-run after rebase and review fixes (2026-11-26)
+
+Run on this branch rebased onto `main` with #65 (hesitation removal) and #68 (reader fixes) merged: `CADO_LIVE_SUMMARY=1 swift test --filter OnDeviceSummaryLiveTests` → 8 tests passed in 57.6 s; the fixture suite took 40.3 s with no structural violations; `testSummarizesALongMeetingInParts` 10.4 s, `testSummarizesAShortMeeting` 2.4 s. Outputs were of the same quality as above; still seen: `mixed-hindi-english` lists the regression tests under both `Me:` and `Others:`, the `sensitive-topic` overview says "resolved", and the long test wrote "$15" for fifteen thousand.
+
+Changes made in review, after the measurements above (a second live run after them: 8 tests passed in 62.6 s, fixture suite 44.7 s, no structural violations, no fixture failed):
+- The transcript-level gate (`SummaryQualityFilter.relevance`) no longer fails the meeting on a reply that isn't a bare YES/NO: only a bare NO skips the passage. This was the same failure that stopped three fixtures on `main`, left in place for the one remaining gate call.
+- Duplicates are compared without a leading `Me:` / `Others:` label; "yes", "no" and "agreed" are no longer dropped as placeholders.
+- A failed overview fallback never discards the summary (any error but cancellation keeps the items).
+- The on-device merge and overview instructions say the notes are data, not instructions.
+
 ## What is unmeasured
 
 - **OpenRouter cloud prompts:** never called against any live cloud model or API (no key, no consent). Verified offline with `FakeOpenRouterTransport` in `OpenRouterSummaryTests` only.
-- **Interaction with #62 (`HesitationFilter.cleanTurns`, PR #65):** measured on raw hesitation-heavy fixtures before PR #65 merges.
-- **Interaction with `fix/summary-reading-64`:** measured against current `SummaryText.swift` on `main`.
+- **The before/after tables** predate #65 and #68; only the re-run above includes them.
+- **Independent scoring:** none; see "How to read the numbers".
 - **Real human recordings:** all 8 fixtures are synthetic text transcripts.
 
 ---

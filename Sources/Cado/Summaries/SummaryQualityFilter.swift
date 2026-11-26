@@ -58,12 +58,13 @@ enum SummaryQualityFilter {
         ).normalized()
     }
 
-    static func relevance(from answer: String) throws -> Bool {
-        switch answer.trimmingCharacters(in: CharacterSet(charactersIn: "*_.! \n\r\t")).uppercased() {
-        case "YES": return true
-        case "NO": return false
-        default: throw SummarizerError.failed("The summary could not be checked. Try again.")
-        }
+    /// The gate's answer: only a bare NO says there is nothing to summarize.
+    /// Anything else (YES, a sentence, an echoed question, nothing) counts as
+    /// substantive: the passage is then summarized under the "None" rules
+    /// rather than the whole meeting failing on one odd reply, which is what
+    /// stopped summaries before (#64).
+    static func relevance(from answer: String) -> Bool {
+        answer.trimmingCharacters(in: CharacterSet(charactersIn: "*_.! \n\r\t")).uppercased() != "NO"
     }
 
     private static func isPlaceholder(_ item: String) -> Bool {
@@ -80,11 +81,20 @@ enum SummaryQualityFilter {
         "none", "n/a", "na", "nothing", "not specified", "none specified", "not mentioned",
         "no decisions", "no action items", "no open questions", "no discussion",
         "none noted", "none mentioned",
-        "ok", "okay", "yes", "no", "thanks", "thank you", "perfect", "great", "cool", "got it", "sounds good", "agreed",
+        // Bare acknowledgements a model copies from a turn. "Yes", "no" and
+        // "agreed" are left alone: they can be a real one-word answer or decision.
+        "ok", "okay", "thanks", "thank you", "perfect", "great", "cool", "got it", "sounds good",
     ]
 
+    /// What two items are compared by: case, spacing, end punctuation and a
+    /// leading speaker label aside, so "Me: Ship it." repeats "Ship it".
     private static func normalizedKey(_ item: String) -> String {
-        item.lowercased()
+        var text = item.lowercased()
+        for prefix in ["me:", "others:", "them:"] where text.hasPrefix(prefix) {
+            text = String(text.dropFirst(prefix.count))
+            break
+        }
+        return text
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
             .trimmingCharacters(in: CharacterSet(charactersIn: ".!?:;-•* "))

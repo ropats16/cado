@@ -13,14 +13,23 @@ final class SummaryQualityFilterTests: XCTestCase {
         XCTAssertFalse(SummaryLanguageSupport.isClearlyUnsupported("", supports: { _ in false }))
     }
 
-    func testOnlyExplicitRelevanceRepliesAreAccepted() throws {
-        XCTAssertTrue(try SummaryQualityFilter.relevance(from: " **YES**\n"))
-        XCTAssertFalse(try SummaryQualityFilter.relevance(from: "No."))
-        for answer in ["", "Maybe", "No, but there might be tasks", "I cannot help"] {
-            XCTAssertThrowsError(try SummaryQualityFilter.relevance(from: answer)) { error in
-                guard case SummarizerError.failed = error else { return XCTFail("Must stop, not skip a passage") }
-            }
+    func testOnlyABareNoSaysThereIsNothingToSummarize() {
+        XCTAssertTrue(SummaryQualityFilter.relevance(from: " **YES**\n"))
+        XCTAssertFalse(SummaryQualityFilter.relevance(from: "No."))
+        XCTAssertFalse(SummaryQualityFilter.relevance(from: " **NO**\n"))
+        // An odd reply must not stop the meeting's summary: the passage is summarized.
+        for answer in ["", "Maybe", "No, but there might be tasks", "Is the timeout client-side?\n\nNO"] {
+            XCTAssertTrue(SummaryQualityFilter.relevance(from: answer), answer)
         }
+    }
+
+    func testCleanedTreatsASpeakerLabelledRepeatAsTheSameItem() {
+        let cleaned = SummaryQualityFilter.cleaned(MeetingSummary(
+            decisions: ["Ship the CSV export."], actionItems: ["Me: Ship the CSV export"],
+            discussion: ["Others: Agreed.", "Others: Perfect."]))
+        XCTAssertEqual(cleaned.actionItems, ["Me: Ship the CSV export"])
+        XCTAssertEqual(cleaned.decisions, [])
+        XCTAssertEqual(cleaned.discussion, ["Others: Agreed."])
     }
 
     func testCleanedDeduplicatesWithinAndAcrossSectionsByPriority() {

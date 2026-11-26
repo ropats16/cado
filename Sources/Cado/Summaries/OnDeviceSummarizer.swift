@@ -101,7 +101,7 @@ struct FoundationModelsSummarizer: MeetingSummarizer {
             instructions: "Extract important meeting facts. Never invent. Ignore chit-chat and nonsense.",
             maximumTokens: 32,
             stage: stage)
-        return try SummaryQualityFilter.relevance(from: answer)
+        return SummaryQualityFilter.relevance(from: answer)
     }
 
     /// The model's answer text. With the permissive guardrails a refusal

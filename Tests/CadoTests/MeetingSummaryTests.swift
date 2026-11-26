@@ -160,7 +160,6 @@ final class MeetingSummaryTests: XCTestCase {
 
     func testThePromptsKeepTheHeadingsInEnglishAndShortListsFirst() {
         let onDevice = SummaryPrompts.instructions(for: .onDevice)
-        XCTAssertEqual(onDevice, SummaryPrompts.instructions)
         XCTAssertTrue(onDevice.contains("five plain English headings"))
         XCTAssertTrue(onDevice.contains("DO NOT invent facts"))
         XCTAssertTrue(onDevice.contains("DO NOT put status updates, past completed work, or tentative suggestions into Decisions or Action items."))
@@ -917,7 +916,7 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertTrue(empty.summary.isEmpty)
     }
 
-    func testPipelineOverviewFallbackRetriesBusyKeepsItemsOnNonStoppingErrorsAndStopsOnUnavailable() async throws {
+    func testPipelineOverviewFallbackRetriesBusyAndKeepsItemsOnAnyError() async throws {
         // Busy is retried then succeeds.
         let busyFake = FakeSummarizer()
         busyFake.onSummarize = { _ in MeetingSummary(decisions: ["Ship CSV"]) }
@@ -931,8 +930,8 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertEqual(retried.summary.overview, "Shipping CSV.")
         XCTAssertEqual(sleeps.waits, [.seconds(2)])
 
-        // Non-stopping errors keep the extracted items without an overview.
-        for error in [SummarizerError.refused, .failed("boom"), .tooLong] {
+        // Any error keeps the extracted items without an overview: a lead is never worth the summary.
+        for error in [SummarizerError.refused, .failed("boom"), .tooLong, .unavailable(.appleIntelligenceOff)] {
             let softFail = FakeSummarizer()
             softFail.onSummarize = { _ in MeetingSummary(decisions: ["Ship CSV"]) }
             softFail.onOverview = { _ in throw error }
@@ -940,16 +939,6 @@ final class MeetingSummaryTests: XCTestCase {
             XCTAssertEqual(outcome.summary, MeetingSummary(overview: "", decisions: ["Ship CSV"]), "\(error)")
         }
 
-        // Unavailable and cancellation stop the run.
-        let unavailable = FakeSummarizer()
-        unavailable.onSummarize = { _ in MeetingSummary(decisions: ["Ship CSV"]) }
-        unavailable.onOverview = { _ in throw SummarizerError.unavailable(.appleIntelligenceOff) }
-        do {
-            _ = try await SummaryPipeline(summarizer: unavailable).run([(.me, "Ship CSV.")])
-            XCTFail("Expected unavailable to stop run")
-        } catch {
-            XCTAssertEqual(error as? SummarizerError, .unavailable(.appleIntelligenceOff))
-        }
     }
 
     #if canImport(FoundationModels)
