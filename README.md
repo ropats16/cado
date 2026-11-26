@@ -532,8 +532,13 @@ Meetings says why and nothing changes.
   is complete without a summary: summarizing never delays or risks it, and if
   Cado quits or the summary fails, the note just has no summary.
 - **Language and quality:** summaries are written in English, including for
-  mixed-language meetings. They focus on clear takeaways, explicit decisions,
-  and tasks rather than reproducing each turn. A summary cannot recover words
+  mixed-language meetings. Prompts are tuned separately for Apple Intelligence's
+  small on-device model and OpenRouter's larger cloud models, focusing on an
+  answer-first overview, explicit decisions (with later reversals overriding
+  earlier choices), clear commitments, concrete discussion points, and open
+  questions for unresolved blockers or tentative ideas. On-device summaries
+  gate out small-talk/noise passages before summarizing and run deterministic
+  deduplication and bounds cleanup afterward. A summary cannot recover words
   that speech recognition got wrong. For Hindi/English meetings, choose
   **Settings › Meetings › More meeting settings › Meeting Language › Auto-detect**
   and use a downloaded multilingual speech model; dictation can keep its own
@@ -544,7 +549,8 @@ Meetings says why and nothing changes.
   your Mac only after you explicitly set it up).
 - **Long meetings:** the on-device model reads only a few pages at a time, so
   Cado summarizes a long transcript in parts (cut between turns) and then
-  combines them. A part the model declines (it can refuse some topics) is left
+  combines them, writing a fallback overview if a multi-part merge ends without
+  one. A part the model declines (it can refuse some topics) is left
   out, and the summary says part of the meeting couldn't be summarized.
 - **Summarize again:** in the Library, a meeting note's summary card has
   **Regenerate Summary** (or **Summarize** for a note without one, such as one

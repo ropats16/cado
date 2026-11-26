@@ -47,6 +47,8 @@ struct FoundationModelsSummarizer: MeetingSummarizer {
     /// separate sessions, so their context does not accumulate.
     static let answerTokens = 700
     let limits = SummarizerLimits(passageTokens: 2_000, mergeTokens: 2_000)
+    /// Optional diagnostic hook for live evaluation tests (never set in production).
+    var onCall: (@Sendable (_ stage: String, _ answer: String, _ elapsed: TimeInterval) -> Void)? = nil
 
     static var availability: SummarizerAvailability {
         switch SystemLanguageModel.default.availability {
@@ -67,42 +69,54 @@ struct FoundationModelsSummarizer: MeetingSummarizer {
         // Asking for lists can pressure the small model to invent
         // takeaways even from greetings or recognition noise. Check for
         // substance before asking it to fill those lists.
-        guard try await isSubstantive(transcript) else { return MeetingSummary() }
+        guard try await isSubstantive(transcript, stage: "gate(\(part)/\(total))") else { return MeetingSummary() }
         let summary = try SummaryPrompts.passageSummary(
-            from: await ask(SummaryPrompts.passagePrompt(transcript, part: part, of: total)))
-        return try await filtered(summary)
+            from: await ask(SummaryPrompts.passagePrompt(transcript, part: part, of: total, for: .onDevice),
+                            stage: "passage(\(part)/\(total))"))
+        return SummaryQualityFilter.cleaned(summary)
     }
 
     func merge(_ parts: [MeetingSummary]) async throws -> MeetingSummary {
-        let summary = try SummaryPrompts.mergedSummary(from: await ask(SummaryPrompts.mergePrompt(parts)))
-        return try await filtered(summary)
+        let summary = try SummaryPrompts.mergedSummary(
+            from: await ask(SummaryPrompts.mergePrompt(parts, for: .onDevice),
+                            instructions: SummaryPrompts.mergeInstructions(for: .onDevice),
+                            stage: "merge(\(parts.count))"))
+        return SummaryQualityFilter.cleaned(summary)
     }
 
-    private func filtered(_ summary: MeetingSummary) async throws -> MeetingSummary {
-        try await SummaryQualityFilter.filtered(summary, classify: isSubstantive)
+    func overview(for summary: MeetingSummary) async throws -> String {
+        let answer = try await ask(
+            SummaryPrompts.overviewPrompt(summary, maxTokens: limits.mergeTokens, for: .onDevice),
+            instructions: SummaryPrompts.overviewInstructions,
+            maximumTokens: 120,
+            stage: "overview")
+        return SummaryPrompts.overview(from: answer)
     }
 
-    private func isSubstantive(_ text: String) async throws -> Bool {
+    private func isSubstantive(_ text: String, stage: String = "gate") async throws -> Bool {
         let prompt = "Does this transcript contain clear substantive meeting information: a meaningful fact, "
             + "update, issue, decision or task? Ignore greetings, small talk, audio checks, filler and "
             + "unintelligible disconnected words. Answer exactly YES or NO.\n\n" + text
         let answer = try await ask(prompt,
             instructions: "Extract important meeting facts. Never invent. Ignore chit-chat and nonsense.",
-            maximumTokens: 32)
-        return try SummaryQualityFilter.relevance(from: answer)
+            maximumTokens: 32,
+            stage: stage)
+        return SummaryQualityFilter.relevance(from: answer)
     }
 
     /// The model's answer text. With the permissive guardrails a refusal
     /// usually comes back as text, not an error (`SummaryPrompts` reads it).
-    private func ask(_ prompt: String, instructions: String = SummaryPrompts.instructions,
-                     maximumTokens: Int = Self.answerTokens) async throws -> String {
+    private func ask(_ prompt: String, instructions: String = SummaryPrompts.instructions(for: .onDevice),
+                     maximumTokens: Int = Self.answerTokens, stage: String = "ask") async throws -> String {
         try Task.checkCancellation()
+        let started = Date()
         let model = SystemLanguageModel(useCase: .general, guardrails: .permissiveContentTransformations)
         let session = LanguageModelSession(model: model, instructions: instructions)
         let options = GenerationOptions(sampling: .greedy, maximumResponseTokens: maximumTokens)
         do {
             let response = try await session.respond(to: prompt, options: options).content
             try Task.checkCancellation()
+            onCall?(stage, response, Date().timeIntervalSince(started))
             return response
         } catch let error as LanguageModelSession.GenerationError {
             throw Self.map(error)

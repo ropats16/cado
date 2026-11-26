@@ -225,14 +225,25 @@ struct OpenRouterSummarizer: MeetingSummarizer {
     }
 
     func summarize(_ transcript: String, part: Int, of total: Int) async throws -> MeetingSummary {
-        try SummaryPrompts.passageSummary(from: await ask(SummaryPrompts.passagePrompt(transcript, part: part, of: total)))
+        let summary = try SummaryPrompts.passageSummary(
+            from: await ask(SummaryPrompts.passagePrompt(transcript, part: part, of: total, for: .openRouter)))
+        return SummaryQualityFilter.cleaned(summary, maxPerSection: 6)
     }
 
     func merge(_ parts: [MeetingSummary]) async throws -> MeetingSummary {
-        try SummaryPrompts.mergedSummary(from: await ask(SummaryPrompts.mergePrompt(parts)))
+        let summary = try SummaryPrompts.mergedSummary(
+            from: await ask(SummaryPrompts.mergePrompt(parts, for: .openRouter)))
+        return SummaryQualityFilter.cleaned(summary, maxPerSection: 6)
     }
 
-    func request(prompt: String) throws -> URLRequest {
+    func overview(for summary: MeetingSummary) async throws -> String {
+        let answer = try await ask(
+            SummaryPrompts.overviewPrompt(summary, maxTokens: limits.mergeTokens, for: .openRouter),
+            instructions: SummaryPrompts.overviewInstructions)
+        return SummaryPrompts.overview(from: answer)
+    }
+
+    func request(prompt: String, instructions: String = SummaryPrompts.instructions(for: .openRouter)) throws -> URLRequest {
         struct Message: Encodable { var role: String; var content: String }
         /// Only providers that keep no copy of the text.
         struct Provider: Encodable { var data_collection = "deny"; var zdr = true }
@@ -252,15 +263,15 @@ struct OpenRouterSummarizer: MeetingSummarizer {
         encoder.outputFormatting = [.sortedKeys]
         request.httpBody = try encoder.encode(Body(
             model: model,
-            messages: [Message(role: "system", content: SummaryPrompts.instructions),
+            messages: [Message(role: "system", content: instructions),
                        Message(role: "user", content: prompt)],
             temperature: 0.2, max_tokens: Self.answerTokens, stream: false))
         return request
     }
 
-    private func ask(_ prompt: String) async throws -> String {
+    private func ask(_ prompt: String, instructions: String = SummaryPrompts.instructions(for: .openRouter)) async throws -> String {
         guard allowed() else { throw SummarizerError.unavailable(.notSetUp(OpenRouterSetup.turnedOffSentence)) }
-        let request = try request(prompt: prompt)
+        let request = try request(prompt: prompt, instructions: instructions)
         let result: (body: Data, status: Int)
         do {
             result = try await transport.send(request)

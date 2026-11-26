@@ -136,18 +136,28 @@ final class OpenRouterSummaryTests: XCTestCase {
         XCTAssertEqual(body["stream"] as? Bool, false)
         let messages = try XCTUnwrap(body["messages"] as? [[String: String]])
         XCTAssertEqual(messages.map { $0["role"] }, ["system", "user"])
-        XCTAssertEqual(messages[0]["content"], SummaryPrompts.instructions)
-        XCTAssertEqual(messages[1]["content"], SummaryPrompts.passagePrompt("Me: hello\nOthers: hi", part: 1, of: 1))
+        XCTAssertEqual(messages[0]["content"], SummaryPrompts.instructions(for: .openRouter))
+        XCTAssertEqual(messages[1]["content"], SummaryPrompts.passagePrompt("Me: hello\nOthers: hi", part: 1, of: 1, for: .openRouter))
         XCTAssertFalse(String(decoding: request.httpBody!, as: UTF8.self).contains(secret), "The key is a header only")
     }
 
-    func testMergeUsesTheSharedPrompt() async throws {
+    func testMergeAndOverviewUseCloudPrompts() async throws {
         let transport = FakeOpenRouterTransport()
         let parts = [MeetingSummary(discussion: ["a"]), MeetingSummary(discussion: ["b"])]
         _ = try await summarizer(transport).merge(parts)
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(transport.requests.first?.httpBody)) as? [String: Any])
         let messages = try XCTUnwrap(body["messages"] as? [[String: String]])
-        XCTAssertEqual(messages[1]["content"], SummaryPrompts.mergePrompt(parts))
+        XCTAssertEqual(messages[0]["content"], SummaryPrompts.instructions(for: .openRouter))
+        XCTAssertEqual(messages[1]["content"], SummaryPrompts.mergePrompt(parts, for: .openRouter))
+
+        let overviewTransport = FakeOpenRouterTransport([.response(200, FakeOpenRouterTransport.completion("UK launches May 19."))])
+        let summary = MeetingSummary(decisions: ["Launch UK on May 19"])
+        let overview = try await summarizer(overviewTransport).overview(for: summary)
+        XCTAssertEqual(overview, "UK launches May 19.")
+        let overviewBody = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(overviewTransport.requests.first?.httpBody)) as? [String: Any])
+        let overviewMessages = try XCTUnwrap(overviewBody["messages"] as? [[String: String]])
+        XCTAssertEqual(overviewMessages[0]["content"], SummaryPrompts.overviewInstructions)
+        XCTAssertTrue((overviewMessages[1]["content"] ?? "").contains("Launch UK on May 19"))
     }
 
     func testMostMeetingsAreOnePassageButLongOnesStillSplit() async throws {
