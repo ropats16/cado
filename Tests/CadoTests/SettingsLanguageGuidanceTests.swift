@@ -232,6 +232,24 @@ final class SettingsLanguageGuidanceTests: XCTestCase {
         ))
     }
 
+    func testMissingExplicitMultilingualPickOffersThatModelsDownload() {
+        present = ["small.en-q5_1"]
+        configStore.update {
+            $0.engine = "whisper"
+            $0.model = .named("medium-q5_0")
+            $0.language = ModelSpec.autoDetect
+        }
+        let vm = makeVM(appleSilicon: true, gib: 32)
+        XCTAssertEqual(vm.dictationLanguageGuidance, SettingsViewModel.DictationLanguageGuidance(
+            text: "Auto-detect needs Whisper medium-q5_0, which isn't downloaded. Download it below.",
+            isProblem: true,
+            download: DownloadableModel(
+                key: ModelDownloadKey(engine: .whisper, id: "medium-q5_0"),
+                label: ModelCatalog.model(id: "medium-q5_0")!.label
+            )
+        ))
+    }
+
     // MARK: - 8 GB Apple Silicon Mac (Basic tier)
 
     func testEightGBAppleSiliconShowsTierCaveatAndOffersSmallDownloadWhenMissing() {

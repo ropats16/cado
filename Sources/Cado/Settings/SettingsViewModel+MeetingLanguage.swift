@@ -160,29 +160,27 @@ extension SettingsViewModel {
         return nil
     }
 
-    /// The Download row offered directly under Language: for whisper, the
-    /// tier's recommended multilingual model when missing (whether `spec` is
-    /// missing, an `.en` model with no multilingual fallback, or a smaller
-    /// Automatic/override fallback); for other in-app-downloadable engines,
-    /// `spec` itself when missing.
+    /// The Download row offered directly under Language: always matches the
+    /// model the guidance sentence names. When `spec` itself is missing (and
+    /// not English-only), offers `spec`; otherwise for whisper, offers the
+    /// tier's recommended multilingual model when missing (an `.en` pick with
+    /// no multilingual fallback, or a smaller Automatic/override fallback).
     private func dictationModelDownload(for spec: ModelSpec, installed: Bool, language: String,
                                         overriddenEnglishOnly: Bool, present: Set<String>) -> DownloadableModel? {
-        if spec.engine == .whisper {
-            let recommended = ModelCatalog.recommended(for: hardware, language: language)
-            guard !present.contains(recommended.filename),
-                  engines.whisper.inAppDownload(of: recommended.id, in: modelsDir) != nil else { return nil }
-            let usesAutomaticPick = configStore.config.modelPath.isEmpty && configStore.config.model == .automatic
-            if spec.isEnglishOnly || !installed || usesAutomaticPick || overriddenEnglishOnly {
-                return DownloadableModel(key: ModelDownloadKey(engine: .whisper, id: recommended.id),
-                                         label: recommended.label)
-            }
-            return nil
+        if !installed, !spec.isEnglishOnly {
+            guard let id = listedModelID(for: spec), let descriptor = engines.descriptor(for: spec.engine),
+                  descriptor.inAppDownload(of: id, in: modelsDir) != nil else { return nil }
+            let label = descriptor.models.first { $0.id == id }?.label ?? id
+            return DownloadableModel(key: ModelDownloadKey(engine: spec.engine, id: id), label: label)
         }
-        guard !installed, !spec.isEnglishOnly,
-              let id = listedModelID(for: spec), let descriptor = engines.descriptor(for: spec.engine),
-              descriptor.inAppDownload(of: id, in: modelsDir) != nil else { return nil }
-        let label = descriptor.models.first { $0.id == id }?.label ?? id
-        return DownloadableModel(key: ModelDownloadKey(engine: spec.engine, id: id), label: label)
+        guard spec.engine == .whisper else { return nil }
+        let usesAutomaticPick = configStore.config.modelPath.isEmpty && configStore.config.model == .automatic
+        guard spec.isEnglishOnly || usesAutomaticPick || overriddenEnglishOnly else { return nil }
+        let recommended = ModelCatalog.recommended(for: hardware, language: language)
+        guard !present.contains(recommended.filename),
+              engines.whisper.inAppDownload(of: recommended.id, in: modelsDir) != nil else { return nil }
+        return DownloadableModel(key: ModelDownloadKey(engine: .whisper, id: recommended.id),
+                                 label: recommended.label)
     }
 
     private func dictationDownloadModelName(for key: ModelDownloadKey) -> String {
