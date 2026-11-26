@@ -7,12 +7,16 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 ### Changed
 - Auto-detect and languages other than English are transcribed with a larger Whisper model, `large-v3-turbo-q5_0` (574 MB), on Apple Silicon Macs with 16 GB or more: on our Hindi/English test it got 13% of Hindi words wrong, against 42% for `medium` and 60% for `small`. Cado never downloads it by itself; until you download it in Settings › Speech Model, the largest multilingual model you already have is used. Other Macs keep their current pick. English is unchanged.
 - An English-only Whisper model is no longer used for Auto-detect or another language when a multilingual model is installed.
+- Settings › Speech Model now says which model Auto-detect or another language uses on this Mac, and offers the better model's download when there is one. On Macs that can only run smaller models it says accuracy for other languages is limited for now, with more language support coming.
 - Meeting summaries now lead with a short overview, followed by Decisions, Action items, Discussion and Open questions (empty sections are left out). Ideas nobody committed to go under Open questions instead of being written up as decisions or tasks, and long meetings are no longer squeezed into three key points. On-device summaries no longer fail on some meetings with "The summary could not be checked", and repeated or empty items are removed. Existing summaries are unchanged until you choose Regenerate Summary in the Library.
 
 ### Added
 - Spoken hesitation sounds ("um", "uh", …) are removed by default from dictated text and meeting transcripts on every speech engine, with punctuation, spacing and sentence-start capitalization tidied up and hesitation-only passages dropped. Real words in every language Cado transcribes (such as German and Portuguese "um") and meaningful expressions ("uh-huh", "mm-hmm", "like", "you know") stay untouched.
 - Settings › Speech Model › **Remove hesitation sounds** (and `removeHesitations` in `config.json`, on by default): turn it off to keep dictated text and meeting transcripts verbatim.
 - Meeting summaries always strip hesitation sounds before summarizing, including when summarizing or regenerating summaries for notes recorded before this change, without rewriting the saved transcript.
+
+### Fixed
+- Changing Language from English to Auto-detect and back to English no longer traps you away from Turbo (Parakeet): the Language picker stays editable and always displays your saved language even when Whisper falls back to an English-only model, unavailable engines stay visible in the Engine menu with a note to change Language to use them, and the fallback note explains how to switch back directly.
 
 ## 0.6.0 - 2026-11-18
 

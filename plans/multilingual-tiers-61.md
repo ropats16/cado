@@ -17,7 +17,9 @@
 - Meetings inherit the pick through `MeetingModel.choose`. Known edge: dictation
   on Auto-detect with a hand-set `.en` model and Meeting Language = English
   loads that `.en` model for meetings next to dictation's multilingual one.
-- Settings copy per tier and the #55 picker fix are part 2.
+- Settings copy per tier, inline multilingual model download, and the #55
+  picker/recovery fix are implemented in part 2 (see
+  `plans/manual-checks/language-routing-settings-61.md`).
 
 ## Benchmark
 

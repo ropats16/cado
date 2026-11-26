@@ -619,7 +619,10 @@ anything by itself:
 
 Settings' Automatic row names the engine it picked and why it isn't Turbo
 (e.g. "Automatic (Whisper — Turbo isn't downloaded)"). Pick an engine there (or
-set `engine`) to override it. Why these defaults: [`plans/bench-results/15`](plans/bench-results/15/README.md).
+set `engine`) to override it; engines runnable on your Mac that don't support
+the current language stay visible under **Unavailable for … — change Language
+to use**, and a language fallback explains how to switch back. Why these
+defaults: [`plans/bench-results/15`](plans/bench-results/15/README.md).
 
 **Switch to a different model.** By default the app picks one for your chip +
 RAM (**Automatic** in Settings). To use another, download it (Settings → Speech Model
@@ -640,12 +643,18 @@ is refused; the first use of a new file shows **Verifying…** while it's hashed
 (once — the result is cached). If a switch fails, Cado keeps (or goes back
 to) the model it was using and Settings says why.
 
-**Language.** English-only (`.en`) models always transcribe English: if the
-language set isn't English, Settings › Speech Model says so under Language,
-with the fix (choose a model without ".en" in its name). With a multilingual
-model, pick the language in Settings (or `"language": "de"`, or `"auto"` to
-detect it each time). Meetings have their own language setting (see
-**Meeting notes › Language**).
+**Language.** Language is always editable and decides the model family: English
+(and Turbo's 24 European languages when Turbo is active) stays on Turbo, while
+**Auto-detect** and other languages use a multilingual Whisper model sized for
+your Mac. Under **Language**, Settings › Speech Model shows one plain line
+naming the model in use (or saying when an English-only `.en` model was
+overridden or only understands English) and offers a **Download** row right
+below whenever the recommended multilingual model isn't installed yet. On Macs
+that run smaller multilingual models (8–15 GB Apple Silicon, Intel, or < 8 GB),
+it notes that accuracy for other languages is limited on that Mac and that more
+language support is coming soon. Pick a language in Settings (or `"language":
+"de"`, or `"auto"` to detect it each time). Meetings have their own language
+setting (see **Meeting notes › Language**).
 
 **Keep model loaded.** Automatic by default: kept loaded, except on Macs with
 8 GB or less, where the model is unloaded after `modelIdleMinutes` (default 5)
@@ -728,7 +737,7 @@ opens the Settings tab with that hotkey (Dictation, or Meetings for `meetingHotk
 | `maxRecordingSeconds` | Auto-stop after this many seconds (default 600; `0` = no limit, capped at 30 min). |
 | `trailingSpace`       | Add a space after each dictation (default off).     |
 | `removeHesitations`   | Remove spoken hesitation sounds ("um", "uh", …) from dictated text and meeting transcripts on every engine (default `true`; set `false` to keep speech verbatim). Summaries still filter hesitations from what the summary model sees without rewriting saved notes. |
-| `language`            | `en` (default), another code like `de`, or `auto`. English-only models always use `en`. |
+| `language`            | `en` (default), another code like `de`, or `auto`. For non-English or `auto`, an English-only `.en` whisper model yields to the multilingual Automatic pick whenever any multilingual catalog model is installed. |
 | `threads`             | CPU threads; `0` = auto (performance cores, max 8). |
 | `keepMicWarm`         | Keep the mic on from launch (default off: it stays on 30 s after each dictation). |
 | `mascotAlwaysVisible` | Keep a small resting Cado on screen; click it to start/stop dictating (default off). |
