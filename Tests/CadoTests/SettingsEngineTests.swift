@@ -140,7 +140,6 @@ final class SettingsEngineTests: XCTestCase {
         XCTAssertEqual(vm.automaticLabel, "Automatic (Fast)")
         XCTAssertEqual(vm.modelLists.downloaded.map(\.id), ["fast"])
         XCTAssertEqual(vm.modelLists.notDownloaded.map(\.id), ["big"])
-        XCTAssertTrue(vm.isLanguageSelectable)
     }
 
     func testAModelPickIsKeptPerEngine() {
@@ -190,13 +189,11 @@ final class SettingsEngineTests: XCTestCase {
         }
         let vm = makeVM()
         XCTAssertEqual(vm.engine, .parakeet)
-        XCTAssertTrue(vm.isLanguageSelectable)
 
         vm.setLanguage(ModelSpec.autoDetect)
         XCTAssertEqual(vm.engine, .whisper)
         XCTAssertEqual(engineModel.path, "/models/ggml-medium.en.bin")
         XCTAssertEqual(vm.language, ModelSpec.autoDetect)
-        XCTAssertTrue(vm.isLanguageSelectable, "An English-only fallback must not lock the Language picker (#55)")
         XCTAssertEqual(vm.engineNote,
                        "Using Whisper (whisper.cpp) because Turbo (English/EU) doesn't support auto-detect. Change Language to switch back.")
         XCTAssertEqual(vm.unavailableEngines, [.parakeet])
@@ -247,7 +244,6 @@ final class SettingsEngineTests: XCTestCase {
         XCTAssertEqual(vm.engineRow, .automatic)
         XCTAssertEqual(vm.engine, .whisper)
         XCTAssertEqual(vm.language, ModelSpec.autoDetect)
-        XCTAssertTrue(vm.isLanguageSelectable)
 
         vm.setLanguage("en")
         XCTAssertEqual(vm.engineRow, .automatic)

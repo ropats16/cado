@@ -16,7 +16,7 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 - Meeting summaries always strip hesitation sounds before summarizing, including when summarizing or regenerating summaries for notes recorded before this change, without rewriting the saved transcript.
 
 ### Fixed
-- Changing Language from English to Auto-detect and back to English no longer traps you away from Turbo (Parakeet): the Language picker stays editable and always displays your saved language even when Whisper falls back to an English-only model, unavailable engines stay visible in the Engine menu with a note to change Language to use them, and the fallback note explains how to switch back directly.
+- Changing Language to Auto-detect no longer locks the Language menu or hides Turbo. The menu always shows your saved language, and engines that don't take it are listed with the reason, so switching back to English returns to Turbo.
 
 ## 0.6.0 - 2026-11-18
 

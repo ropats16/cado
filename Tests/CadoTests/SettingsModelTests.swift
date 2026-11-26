@@ -137,7 +137,6 @@ final class SettingsModelTests: XCTestCase {
 
     func testLanguageStaysSelectableOnEnglishOnlyWhisperAndSwitchesModel() {
         let vm = makeVM(present: ["ggml-small.en-q5_1.bin", "ggml-small-q5_1.bin"])
-        XCTAssertTrue(vm.isLanguageSelectable, "Language decides the model family; never locked on .en models (#55, #61)")
 
         vm.setLanguage("de")
         XCTAssertEqual(configStore.config.language, "de")

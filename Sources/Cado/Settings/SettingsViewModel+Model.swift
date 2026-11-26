@@ -139,7 +139,7 @@ extension SettingsViewModel {
     /// The heading over `unavailableEngines` in the Engine menu, naming the
     /// control that brings them back (#55).
     var unavailableEnginesHeading: String {
-        "Unavailable for \(LanguageFitCopy.languageLabel(ModelSpec.language(language))) — change Language to use"
+        LanguageFitCopy.unavailableEnginesHeading(language: ModelSpec.language(language))
     }
 
     /// The Automatic row: the engine it runs, and why it isn't Turbo when it
@@ -160,7 +160,7 @@ extension SettingsViewModel {
         let selected = selection(config)
         guard !selected.isAutomatic, let note = selected.note else { return nil }
         if engines.availability(ofID: config.engine, in: environment) == .available {
-            return "\(note) Change Language to switch back."
+            return "\(note) \(LanguageFitCopy.changeLanguageHint)"
         }
         return note
     }
@@ -243,10 +243,6 @@ extension SettingsViewModel {
               overriddenEnglishOnlyModel(for: config, selected: selection(config).spec) != nil else { return "" }
         return " — English only, not used for \(LanguageFitCopy.languageLabel(currentLanguage))"
     }
-
-    /// Always true: Language decides the model family (#55, #61), so an
-    /// English-only model never disables the picker or hides the saved request.
-    var isLanguageSelectable: Bool { true }
 
     /// The languages offered for multilingual models, plus a hand-set code from
     /// `config.json` so the picker always shows the truth.
