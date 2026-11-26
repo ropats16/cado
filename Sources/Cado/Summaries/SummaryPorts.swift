@@ -6,13 +6,16 @@ import Foundation
 // (chunking, merging, the note's Summary section, when to run) is pure or
 // app-side and doesn't know which provider runs.
 
-/// What a summary says. Pure.
+/// What a summary says (#64). Pure.
 struct MeetingSummary: Equatable, Sendable {
-    var keyPoints: [String] = []
+    var overview: String = ""
     var decisions: [String] = []
     var actionItems: [String] = []
+    var discussion: [String] = []
+    var openQuestions: [String] = []
 
-    var isEmpty: Bool { keyPoints.isEmpty && decisions.isEmpty && actionItems.isEmpty }
+    /// An overview with no items is not a summary (#64).
+    var isEmpty: Bool { decisions.isEmpty && actionItems.isEmpty && discussion.isEmpty && openQuestions.isEmpty }
 }
 
 /// How much text one call may take, in estimated tokens (`TokenEstimate`).

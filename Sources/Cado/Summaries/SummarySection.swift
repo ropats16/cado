@@ -11,13 +11,18 @@ import Foundation
 /// <!-- cado:summary -->
 /// ## Summary
 ///
-/// ### Key points
-/// - …
+/// <Overview paragraph.>
 ///
 /// ### Decisions
 /// - …
 ///
 /// ### Action items
+/// - …
+///
+/// ### Discussion
+/// - …
+///
+/// ### Open questions
 /// - …
 ///
 /// _Summarized on this Mac by Apple Intelligence. …_
@@ -34,18 +39,21 @@ enum SummarySection {
     static let heading = "Summary"
     static let transcriptHeading = "Transcript"
 
-    /// The section's Markdown, markers included, ending in a newline.
+    /// The section's Markdown, markers included, ending in a newline (#64).
     static func markdown(_ outcome: SummaryOutcome, provider: SummaryProvider, model: String? = nil) -> String {
         let summary = outcome.summary
         var lines = [startMarker, "## \(heading)"]
+        let overview = oneLine(summary.overview).trimmingCharacters(in: .whitespaces)
+        if !summary.isEmpty, !overview.isEmpty { lines += ["", overview] }
         func list(_ title: String, _ items: [String]) {
             guard !items.isEmpty else { return }
             lines += ["", "### \(title)"] + items.map { "- " + oneLine($0) }
         }
-        list(SummaryText.keyPoints, summary.keyPoints)
         list(SummaryText.decisions, summary.decisions)
         list(SummaryText.actionItems, summary.actionItems)
-        if summary.isEmpty { lines += ["", "No key points, decisions or action items were found."] }
+        list(SummaryText.discussion, summary.discussion)
+        list(SummaryText.openQuestions, summary.openQuestions)
+        if summary.isEmpty { lines += ["", "Nothing to note was found in this meeting."] }
         lines.append("")
         if outcome.skippedPassages > 0 {
             lines.append("_Part of this meeting couldn't be summarized, so the summary may leave things out._")

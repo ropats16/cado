@@ -174,7 +174,7 @@ final class OpenRouterConsentTests: XCTestCase {
     func testRegenerateNamesOpenRouterToo() throws {
         let draft = MeetingNote(appName: "Zoom", start: start, duration: 60, turns: [.init(speaker: .me, text: "Budget?")]).draft()
         let note = try library.create(draft)
-        let body = SummarySection.applying(SummarySection.markdown(SummaryOutcome(summary: MeetingSummary(keyPoints: ["a"])),
+        let body = SummarySection.applying(SummarySection.markdown(SummaryOutcome(summary: MeetingSummary(discussion: ["a"])),
                                                                    provider: .onDevice), to: note.body)
         let reading = NoteReading(Note(summary: note.summary, body: body), calendar: .current)
         let panel = try XCTUnwrap(SummaryPanel.make(reading, state: nil, availability: .available, provider: .openRouter, model: nil))

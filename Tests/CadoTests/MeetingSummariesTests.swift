@@ -105,7 +105,7 @@ final class MeetingSummariesTests: XCTestCase {
         XCTAssertEqual(written, [url.standardizedFileURL])
         let after = try text(url)
         XCTAssertTrue(after.hasPrefix(String(before.prefix(while: { $0 != "R" }))), "Front matter kept")
-        XCTAssertTrue(after.contains("## Summary\n\n### Key points\n- Budget?\n- Unchanged.\n"), after)
+        XCTAssertTrue(after.contains("## Summary\n\n### Discussion\n- Budget?\n- Unchanged.\n"), after)
         XCTAssertEqual(catalog.summarizer.passages, ["Me: Budget?\nOthers: Unchanged."])
         let note = try library.note(id: url.lastPathComponent)
         let reading = NoteReading(note, calendar: .current)
@@ -131,7 +131,7 @@ final class MeetingSummariesTests: XCTestCase {
         let second = try text(url)
         XCTAssertEqual(second.components(separatedBy: SummarySection.startMarker).count, 2, "Still one section")
         XCTAssertTrue(second.contains("### Decisions\n- Keep the budget"))
-        XCTAssertFalse(second.contains("### Key points"))
+        XCTAssertFalse(second.contains("### Discussion"))
     }
 
     func testAnEditOutsideTheSummarySurvivesRegenerate() async throws {
@@ -232,7 +232,7 @@ final class MeetingSummariesTests: XCTestCase {
         let edited = try text(url).replacingOccurrences(of: "Unchanged.", with: "")
         catalog.summarizer.onSummarize = { _ in
             try? edited.write(to: url, atomically: true, encoding: .utf8)
-            return MeetingSummary(keyPoints: ["Unchanged."])
+            return MeetingSummary(discussion: ["Unchanged."])
         }
         summaries.summarize(url)
         await summaries.settled()
@@ -244,7 +244,7 @@ final class MeetingSummariesTests: XCTestCase {
         let url = try saveMeeting()
         catalog.summarizer.onSummarize = { _ in
             try? (self.text(url) + "\nMy own line.\n").write(to: url, atomically: true, encoding: .utf8)
-            return MeetingSummary(keyPoints: ["x"])
+            return MeetingSummary(discussion: ["x"])
         }
         summaries.summarize(url)
         await summaries.settled()

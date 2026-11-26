@@ -7,6 +7,7 @@ User-facing changes per release, newest first. Versioning rules: `docs/RELEASING
 ### Changed
 - Auto-detect and languages other than English are transcribed with a larger Whisper model, `large-v3-turbo-q5_0` (574 MB), on Apple Silicon Macs with 16 GB or more: on our Hindi/English test it got 13% of Hindi words wrong, against 42% for `medium` and 60% for `small`. Cado never downloads it by itself; until you download it in Settings › Speech Model, the largest multilingual model you already have is used. Other Macs keep their current pick. English is unchanged.
 - An English-only Whisper model is no longer used for Auto-detect or another language when a multilingual model is installed.
+- Meeting summaries now lead with a short overview followed by Decisions, Action items, Discussion, and Open questions (omitting empty sections). Existing summaries are unchanged until you choose Regenerate Summary in the Library.
 
 ## 0.6.0 - 2026-11-18
 

@@ -25,8 +25,8 @@ final class MeetingSummaryTests: XCTestCase {
             - Sam sends the deck by Friday
             """
         XCTAssertEqual(SummaryText.parse(text), MeetingSummary(
-            keyPoints: ["Budget is unchanged", "Launch moves to March"], decisions: [],
-            actionItems: ["Sam sends the deck by Friday"]))
+            decisions: [], actionItems: ["Sam sends the deck by Friday"],
+            discussion: ["Budget is unchanged", "Launch moves to March"]))
     }
 
     func testParsesLooseMarkdownAnswers() {
@@ -42,13 +42,13 @@ final class MeetingSummaryTests: XCTestCase {
             - N/A
             """
         let s = SummaryText.parse(text)
-        XCTAssertEqual(s.keyPoints, ["One", "Two"])
+        XCTAssertEqual(s.discussion, ["One", "Two"])
         XCTAssertEqual(s.decisions, ["Ship it."])
         XCTAssertEqual(s.actionItems, ["Write it up"], "Checkboxes and N/A dropped; text before any heading ignored")
     }
 
     func testRenderParsesBackToTheSameSummary() {
-        let s = MeetingSummary(keyPoints: ["a", "b"], decisions: [], actionItems: ["c"])
+        let s = MeetingSummary(decisions: [], actionItems: ["c"], discussion: ["a", "b"])
         XCTAssertEqual(SummaryText.parse(SummaryText.render(s)), s)
         XCTAssertTrue(SummaryText.render(s).contains("Decisions:\n- None"))
     }
@@ -62,9 +62,9 @@ final class MeetingSummaryTests: XCTestCase {
             """
         let reading = SummaryText.read(text)
         XCTAssertEqual(reading.summary, MeetingSummary(
-            keyPoints: ["Budget is unchanged", "Launch moves to March"], decisions: [],
-            actionItems: ["Sam sends the deck"]))
-        XCTAssertEqual(reading.sections, [.keyPoints, .decisions, .actionItems])
+            decisions: [], actionItems: ["Sam sends the deck"],
+            discussion: ["Budget is unchanged", "Launch moves to March"]))
+        XCTAssertEqual(reading.sections, [.discussion, .decisions, .actionItems])
         XCTAssertEqual(SummaryText.parse("Me: hi\nSam: deck").isEmpty, true, "A speaker label isn't a heading")
     }
 
@@ -80,9 +80,73 @@ final class MeetingSummaryTests: XCTestCase {
     }
 
     func testAnAllNoneAnswerIsARealEmptySummary() throws {
-        let none = "Decisions:\n- None\n\nAction items:\n- None\n\nKey points:\n- None"
+        let none = """
+            Decisions:
+            - None
+
+            Action items:
+            - None
+
+            Open questions:
+            - None
+
+            Discussion:
+            - None
+
+            Overview:
+            None
+            """
         XCTAssertEqual(try SummaryPrompts.passageSummary(from: none), MeetingSummary())
         XCTAssertEqual(try SummaryPrompts.mergedSummary(from: none), MeetingSummary())
+
+        let strayOverview = """
+            Decisions:
+            - None
+            Action items:
+            - None
+            Open questions:
+            - None
+            Discussion:
+            - None
+            Overview:
+            They said hello and tested the mic.
+            """
+        XCTAssertEqual(try SummaryPrompts.passageSummary(from: strayOverview), MeetingSummary())
+        XCTAssertEqual(try SummaryPrompts.mergedSummary(from: strayOverview), MeetingSummary())
+    }
+
+    func testMergedSummaryRequiresAllFourListsButAllowsMissingOverview() throws {
+        let missingOpenQuestions = """
+            Decisions:
+            - Ship CSV
+            Action items:
+            - None
+            Discussion:
+            - Export takes 2 days
+            Overview:
+            Shipping CSV.
+            """
+        XCTAssertThrowsError(try SummaryPrompts.mergedSummary(from: missingOpenQuestions)) {
+            XCTAssertEqual($0 as? SummarizerError, .incomplete)
+        }
+
+        let missingOverview = """
+            Decisions:
+            - Ship CSV
+            Action items:
+            - None
+            Open questions:
+            - None
+            Discussion:
+            - Export takes 2 days
+            """
+        XCTAssertEqual(try SummaryPrompts.mergedSummary(from: missingOverview), MeetingSummary(
+            overview: "",
+            decisions: ["Ship CSV"],
+            actionItems: [],
+            discussion: ["Export takes 2 days"],
+            openQuestions: []
+        ))
     }
 
     func testACutOffMergeIsIncompleteButACutOffPassageKeepsWhatItHas() throws {
@@ -95,21 +159,186 @@ final class MeetingSummaryTests: XCTestCase {
     }
 
     func testThePromptsKeepTheHeadingsInEnglishAndShortListsFirst() {
-        XCTAssertTrue(SummaryPrompts.instructions.contains("keep the three headings in English"))
+        let instructions = SummaryPrompts.instructions
+        XCTAssertTrue(instructions.contains("keep the headings in English"))
+        XCTAssertTrue(instructions.contains("5 discussion points"))
+        XCTAssertTrue(instructions.contains("One short line per item"))
+        XCTAssertTrue(instructions.contains("all lists"))
+        XCTAssertTrue(instructions.contains("An idea, question or suggestion nobody committed to is an open question, never a decision or an action item."))
+        XCTAssertFalse(instructions.contains("Aim for at most 100 words total"))
+        XCTAssertTrue(instructions.contains("Decisions:\n- None\nAction items:\n- None\nOpen questions:\n- None\nDiscussion:\n- None\nOverview:\nNone"))
+
         let shape = SummaryPrompts.answerShape
-        let at = ["Decisions:", "Action items:", "Key points:"].map { shape.range(of: $0)?.lowerBound }
+        let at = ["Decisions:", "Action items:", "Open questions:", "Discussion:", "Overview:"].map { shape.range(of: $0)?.lowerBound }
         XCTAssertFalse(at.contains(nil), shape)
-        XCTAssertEqual(at.compactMap { $0 }, at.compactMap { $0 }.sorted(), "Key points last: a cut-off answer loses those first")
-        let merge = SummaryPrompts.mergePrompt([MeetingSummary(keyPoints: ["a"])])
-        XCTAssertTrue(merge.contains("Key points:\n- a") && merge.hasSuffix(shape))
-        XCTAssertTrue(SummaryPrompts.passagePrompt("Me: hi", part: 2, of: 3).contains("part 2 of 3"))
+        XCTAssertEqual(at.compactMap { $0 }, at.compactMap { $0 }.sorted(), "Short lists first, overview last")
+        XCTAssertTrue(shape.contains("(who does what, if said)"), shape)
+        XCTAssertTrue(shape.contains("(unresolved questions or blockers; ideas nobody committed to)"), shape)
+        XCTAssertTrue(shape.contains("(Topic: the substance, with numbers if said)"), shape)
+        XCTAssertTrue(shape.contains("Overview:\n<one or two sentences: what the meeting settled, or what is still open>"), shape)
+
+        let merge = SummaryPrompts.mergePrompt([MeetingSummary(discussion: ["a"])])
+        XCTAssertTrue(merge.contains("Discussion:\n- a") && merge.hasSuffix(shape))
+        XCTAssertTrue(merge.lowercased().contains("later parts override earlier ones"))
+        XCTAssertTrue(merge.lowercased().contains("overview for the whole meeting last"))
+
+        let single = SummaryPrompts.passagePrompt("Me: hi", part: 1, of: 1)
+        XCTAssertFalse(single.contains("Overview:\nNone"))
+        XCTAssertTrue(single.hasSuffix(shape))
+        let multi = SummaryPrompts.passagePrompt("Me: hi", part: 2, of: 3)
+        XCTAssertTrue(multi.contains("part 2 of 3"))
+        XCTAssertTrue(multi.contains("Overview:\nNone"))
     }
 
     func testCombinedKeepsOrderAndDropsRepeats() {
-        let a = MeetingSummary(keyPoints: ["Budget unchanged", "x"], decisions: ["Ship"], actionItems: ["Sam: deck"])
-        let b = MeetingSummary(keyPoints: ["budget  unchanged.", "y"], decisions: [], actionItems: ["Ana: notes"])
+        let a = MeetingSummary(decisions: ["Ship"], actionItems: ["Sam: deck"], discussion: ["Budget unchanged", "x"])
+        let b = MeetingSummary(decisions: [], actionItems: ["Ana: notes"], discussion: ["budget  unchanged.", "y"])
         XCTAssertEqual(MeetingSummary.combined([a, b]), MeetingSummary(
-            keyPoints: ["Budget unchanged", "x", "y"], decisions: ["Ship"], actionItems: ["Sam: deck", "Ana: notes"]))
+            decisions: ["Ship"], actionItems: ["Sam: deck", "Ana: notes"], discussion: ["Budget unchanged", "x", "y"]))
+    }
+
+    func testMeetingSummaryIsEmptyIgnoresOverview() {
+        XCTAssertTrue(MeetingSummary().isEmpty)
+        XCTAssertTrue(MeetingSummary(overview: "Only an overview.").isEmpty)
+        XCTAssertFalse(MeetingSummary(openQuestions: ["Who owns the rollout?"]).isEmpty)
+        XCTAssertFalse(MeetingSummary(discussion: ["Export cap is 200 receipts"]).isEmpty)
+    }
+
+    func testReadsNewFivePartShapeAndOldThreeListShape() {
+        let newText = """
+            Decisions:
+            - Ship CSV export for the Dec 10 beta
+
+            Action items:
+            - Me: Share a test build by Thursday
+
+            Open questions:
+            - Should exports over 200 receipts warn or split?
+
+            Discussion:
+            - Export format: CSV takes 2 days vs. 8 days for PDF
+
+            Overview:
+            CSV export ships Dec 10 while PDF moves to v2.
+            """
+        let newReading = SummaryText.read(newText)
+        XCTAssertEqual(newReading.summary, MeetingSummary(
+            overview: "CSV export ships Dec 10 while PDF moves to v2.",
+            decisions: ["Ship CSV export for the Dec 10 beta"],
+            actionItems: ["Me: Share a test build by Thursday"],
+            discussion: ["Export format: CSV takes 2 days vs. 8 days for PDF"],
+            openQuestions: ["Should exports over 200 receipts warn or split?"]
+        ))
+        XCTAssertEqual(newReading.sections, [.decisions, .actionItems, .openQuestions, .discussion])
+        XCTAssertTrue(newReading.hasOverview)
+
+        let oldText = """
+            Key points:
+            - Budget is unchanged
+            - Launch moves to March
+
+            Decisions:
+            - None
+
+            Action items:
+            - Sam sends the deck by Friday
+            """
+        let oldReading = SummaryText.read(oldText)
+        XCTAssertEqual(oldReading.summary, MeetingSummary(
+            overview: "",
+            decisions: [],
+            actionItems: ["Sam sends the deck by Friday"],
+            discussion: ["Budget is unchanged", "Launch moves to March"],
+            openQuestions: []
+        ))
+        XCTAssertEqual(oldReading.sections, [.discussion, .decisions, .actionItems])
+        XCTAssertFalse(oldReading.hasOverview)
+    }
+
+    func testReadsAliasesForNewHeadingsAndInlineOverview() {
+        let text = """
+            Unresolved questions:
+            - Is the 15 MB timeout client-side or storage API?
+            Notes:
+            - Timeout affects 3% of accounts
+            TL;DR:
+            - Timeout root cause is still open.
+            - Checking logs before Friday.
+            """
+        let reading = SummaryText.read(text)
+        XCTAssertEqual(reading.summary.openQuestions, ["Is the 15 MB timeout client-side or storage API?"])
+        XCTAssertEqual(reading.summary.discussion, ["Timeout affects 3% of accounts"])
+        XCTAssertEqual(reading.summary.overview, "Timeout root cause is still open. Checking logs before Friday.")
+        XCTAssertTrue(reading.hasOverview)
+
+        let inline = SummaryText.read("Bottom line: None\nOpen issues: One blocker")
+        XCTAssertEqual(inline.summary.overview, "")
+        XCTAssertTrue(inline.hasOverview)
+        XCTAssertEqual(inline.summary.openQuestions, ["One blocker"])
+    }
+
+    func testRenderAndReadRoundTripsAllFiveFields() {
+        let full = MeetingSummary(
+            overview: "CSV export ships Dec 10; timeout root cause stays open.",
+            decisions: ["Ship CSV export"],
+            actionItems: ["Me: Share test build by Thursday"],
+            discussion: ["Export format: CSV takes 2 days vs. 8 for PDF"],
+            openQuestions: ["Is the 15 MB timeout client-side?"]
+        )
+        let rendered = SummaryText.render(full)
+        XCTAssertEqual(rendered, """
+            Decisions:
+            - Ship CSV export
+
+            Action items:
+            - Me: Share test build by Thursday
+
+            Open questions:
+            - Is the 15 MB timeout client-side?
+
+            Discussion:
+            - Export format: CSV takes 2 days vs. 8 for PDF
+
+            Overview:
+            CSV export ships Dec 10; timeout root cause stays open.
+            """)
+        let reading = SummaryText.read(rendered)
+        XCTAssertEqual(reading.summary, full)
+        XCTAssertTrue(reading.hasOverview)
+    }
+
+    func testClippedOverviewLimitsSentencesAndWordCount() {
+        XCTAssertEqual(SummaryText.clippedOverview(""), "")
+        XCTAssertEqual(SummaryText.clippedOverview("   \n\t  "), "")
+        XCTAssertEqual(
+            SummaryText.clippedOverview("First   sentence.\nSecond sentence! Third sentence?"),
+            "First sentence. Second sentence!"
+        )
+        let seventyWords = (1...70).map { "word\($0)" }.joined(separator: " ") + "."
+        let expectedSixty = (1...60).map { "word\($0)" }.joined(separator: " ") + "…"
+        XCTAssertEqual(SummaryText.clippedOverview(seventyWords), expectedSixty)
+    }
+
+    func testCombinedKeepsSingleOverviewAndDropsMultiPartOverviews() {
+        let one = MeetingSummary(
+            overview: "Shipped CSV export.",
+            decisions: ["Ship CSV"],
+            openQuestions: ["Warn or split?"]
+        )
+        XCTAssertEqual(MeetingSummary.combined([one]), one)
+
+        let two = MeetingSummary(
+            overview: "Second part overview.",
+            decisions: ["ship  csv."],
+            openQuestions: ["Client or storage API?"]
+        )
+        XCTAssertEqual(MeetingSummary.combined([one, two]), MeetingSummary(
+            overview: "",
+            decisions: ["Ship CSV"],
+            actionItems: [],
+            discussion: [],
+            openQuestions: ["Warn or split?", "Client or storage API?"]
+        ))
     }
 
     // MARK: Chunking
@@ -182,7 +411,7 @@ final class MeetingSummaryTests: XCTestCase {
         let fake = FakeSummarizer()
         let outcome = try await SummaryPipeline(summarizer: fake).run([(.me, "Hello"), (.them, "Hi")])
         XCTAssertEqual(fake.calls, [.summarize("Me: Hello\nOthers: Hi", part: 1, of: 1)])
-        XCTAssertEqual(outcome, SummaryOutcome(summary: MeetingSummary(keyPoints: ["Hello", "Hi"]), skippedPassages: 0, passages: 1))
+        XCTAssertEqual(outcome, SummaryOutcome(summary: MeetingSummary(discussion: ["Hello", "Hi"]), skippedPassages: 0, passages: 1))
     }
 
     func testALongMeetingIsSummarizedInPartsThenMerged() async throws {
@@ -197,15 +426,15 @@ final class MeetingSummaryTests: XCTestCase {
         }
         XCTAssertTrue(fake.calls.dropFirst(parts).allSatisfy { if case .merge(let n) = $0 { return n >= 1 } else { return false } })
         XCTAssertGreaterThan(fake.calls.count, parts, "Merged")
-        XCTAssertEqual(outcome.summary.keyPoints, turns(20).map(\.text), "Every point survives, in order")
+        XCTAssertEqual(outcome.summary.discussion, turns(20).map(\.text), "Every point survives, in order")
         XCTAssertEqual(outcome.passages, parts)
     }
 
     func testMergeGroupsFitTheBudgetAndAlwaysShrink() {
-        let part = MeetingSummary(keyPoints: [String(repeating: "x", count: 300)])
+        let part = MeetingSummary(discussion: [String(repeating: "x", count: 300)])
         let groups = SummaryPipeline.groups(Array(repeating: part, count: 5), budget: 10)
         XCTAssertEqual(groups.map(\.count), [2, 2, 1], "Two at least, even over budget")
-        let small = MeetingSummary(keyPoints: ["a"])
+        let small = MeetingSummary(discussion: ["a"])
         XCTAssertEqual(SummaryPipeline.groups(Array(repeating: small, count: 5), budget: 1_000).map(\.count), [5])
     }
 
@@ -217,8 +446,8 @@ final class MeetingSummaryTests: XCTestCase {
         }
         let outcome = try await SummaryPipeline(summarizer: fake).run(turns(6))
         XCTAssertEqual(outcome.skippedPassages, 1)
-        XCTAssertFalse(outcome.summary.keyPoints.contains { $0.contains("Point 3 ") })
-        XCTAssertTrue(outcome.summary.keyPoints.contains { $0.contains("Point 6 ") }, "Later passages still count")
+        XCTAssertFalse(outcome.summary.discussion.contains { $0.contains("Point 3 ") })
+        XCTAssertTrue(outcome.summary.discussion.contains { $0.contains("Point 6 ") }, "Later passages still count")
     }
 
     func testAnUnreadableLanguageIsLeftOutToo() async throws {
@@ -260,7 +489,7 @@ final class MeetingSummaryTests: XCTestCase {
         let clock = SleepRecorder()
         let outcome = try await SummaryPipeline(summarizer: fake, sleep: clock.sleep).run(turns(6))
         XCTAssertEqual(outcome.skippedPassages, 0)
-        XCTAssertEqual(outcome.summary.keyPoints, turns(6).map(\.text), "Nothing left out")
+        XCTAssertEqual(outcome.summary.discussion, turns(6).map(\.text), "Nothing left out")
         XCTAssertEqual(clock.waits, Array(SummaryPipeline.defaultBusyRetryDelays.prefix(2)))
     }
 
@@ -346,7 +575,7 @@ final class MeetingSummaryTests: XCTestCase {
         }
         let outcome = try await SummaryPipeline(summarizer: fake).run(turns(8))
         XCTAssertEqual(outcome.skippedPassages, 0)
-        XCTAssertEqual(outcome.summary.keyPoints, turns(8).map(\.text))
+        XCTAssertEqual(outcome.summary.discussion, turns(8).map(\.text))
         XCTAssertEqual(fake.passages.count, 1 + 2 + 4, "Whole, halves, quarters")
     }
 
@@ -358,7 +587,7 @@ final class MeetingSummaryTests: XCTestCase {
         }
         let outcome = try await SummaryPipeline(summarizer: fake).run(turns(8))
         XCTAssertEqual(outcome.skippedPassages, 1, "Only the quarter holding point 1")
-        XCTAssertEqual(outcome.summary.keyPoints, Array(turns(8).map(\.text).dropFirst(2)))
+        XCTAssertEqual(outcome.summary.discussion, Array(turns(8).map(\.text).dropFirst(2)))
     }
 
     func testAFailedMergeFallsBackToJoiningTheParts() async throws {
@@ -366,9 +595,45 @@ final class MeetingSummaryTests: XCTestCase {
             let fake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 30, mergeTokens: 2_000))
             fake.onMerge = { _ in throw thrown }
             let outcome = try await SummaryPipeline(summarizer: fake).run(turns(6))
-            XCTAssertEqual(outcome.summary.keyPoints, turns(6).map(\.text), "\(thrown)")
+            XCTAssertEqual(outcome.summary.discussion, turns(6).map(\.text), "\(thrown)")
             XCTAssertEqual(outcome.skippedPassages, 0)
         }
+    }
+
+    func testSinglePassageCarriesOverviewAndFailedMergeDropsOverviews() async throws {
+        let singleFake = FakeSummarizer()
+        singleFake.onSummarize = { _ in
+            MeetingSummary(overview: "Moved launch to March 10.", decisions: ["Move launch to March 10"])
+        }
+        let single = try await SummaryPipeline(summarizer: singleFake).run([(.me, "Move launch to March 10.")])
+        XCTAssertEqual(single.passages, 1)
+        XCTAssertEqual(single.summary, MeetingSummary(
+            overview: "Moved launch to March 10.",
+            decisions: ["Move launch to March 10"]
+        ))
+
+        let mergeFailFake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 25, mergeTokens: 2_000))
+        var partNumber = 0
+        mergeFailFake.onSummarize = { _ in
+            partNumber += 1
+            return MeetingSummary(
+                overview: "Part \(partNumber) overview.",
+                decisions: ["Decision \(partNumber)"],
+                actionItems: ["Action \(partNumber)"],
+                discussion: ["Topic \(partNumber)"],
+                openQuestions: ["Question \(partNumber)"]
+            )
+        }
+        mergeFailFake.onMerge = { _ in throw SummarizerError.incomplete }
+        let merged = try await SummaryPipeline(summarizer: mergeFailFake).run(turns(2))
+        XCTAssertEqual(merged.passages, 2)
+        XCTAssertEqual(merged.summary, MeetingSummary(
+            overview: "",
+            decisions: ["Decision 1", "Decision 2"],
+            actionItems: ["Action 1", "Action 2"],
+            discussion: ["Topic 1", "Topic 2"],
+            openQuestions: ["Question 1", "Question 2"]
+        ))
     }
 
     #if canImport(FoundationModels)
@@ -423,18 +688,18 @@ final class MeetingSummaryTests: XCTestCase {
     }
 
     private let outcome = SummaryOutcome(summary: MeetingSummary(
-        keyPoints: ["Budget is unchanged"], decisions: [], actionItems: ["Sam sends the deck"]))
+        decisions: [], actionItems: ["Sam sends the deck"], discussion: ["Budget is unchanged"]))
 
     func testTheSectionReadsAsMarkdown() {
         XCTAssertEqual(SummarySection.markdown(outcome, provider: .onDevice), """
             <!-- cado:summary -->
             ## Summary
 
-            ### Key points
-            - Budget is unchanged
-
             ### Action items
             - Sam sends the deck
+
+            ### Discussion
+            - Budget is unchanged
 
             _\(SummaryProvider.onDevice.attribution)_
 
@@ -444,12 +709,75 @@ final class MeetingSummaryTests: XCTestCase {
             """)
     }
 
+    func testFullSummaryAndPartialSummaryMarkdownAndIdempotence() {
+        let full = SummaryOutcome(summary: MeetingSummary(
+            overview: "Pebble will ship CSV export for Dec 10 and defer PDF to v2.",
+            decisions: ["Ship CSV + zipped receipts for the Dec 10 beta"],
+            actionItems: ["Me: Share a CSV test build by Thursday"],
+            discussion: ["**Export format:** CSV takes 2 days vs. 8 days for PDF"],
+            openQuestions: ["Should exports over 200 receipts warn or split?"]
+        ))
+        let fullMarkdown = SummarySection.markdown(full, provider: .onDevice)
+        XCTAssertEqual(fullMarkdown, """
+            <!-- cado:summary -->
+            ## Summary
+
+            Pebble will ship CSV export for Dec 10 and defer PDF to v2.
+
+            ### Decisions
+            - Ship CSV + zipped receipts for the Dec 10 beta
+
+            ### Action items
+            - Me: Share a CSV test build by Thursday
+
+            ### Discussion
+            - **Export format:** CSV takes 2 days vs. 8 days for PDF
+
+            ### Open questions
+            - Should exports over 200 receipts warn or split?
+
+            _\(SummaryProvider.onDevice.attribution)_
+
+            ## Transcript
+            <!-- /cado:summary -->
+
+            """)
+
+        let minimal = SummaryOutcome(summary: MeetingSummary(
+            overview: "Demo moves to 3 PM.",
+            actionItems: ["Me: Send the updated invite"]
+        ))
+        XCTAssertEqual(SummarySection.markdown(minimal, provider: .onDevice), """
+            <!-- cado:summary -->
+            ## Summary
+
+            Demo moves to 3 PM.
+
+            ### Action items
+            - Me: Send the updated invite
+
+            _\(SummaryProvider.onDevice.attribution)_
+
+            ## Transcript
+            <!-- /cado:summary -->
+
+            """)
+
+        let body = meetingBody()
+        let once = SummarySection.applying(fullMarkdown, to: body)
+        let twice = SummarySection.applying(fullMarkdown, to: once)
+        XCTAssertEqual(twice, once)
+    }
+
     func testPartlySummarizedAndEmptyAreSaid() {
         var partial = outcome
         partial.skippedPassages = 1
         XCTAssertTrue(SummarySection.markdown(partial, provider: .onDevice).contains("Part of this meeting couldn't be summarized"))
         let empty = SummarySection.markdown(SummaryOutcome(summary: MeetingSummary()), provider: .onDevice)
-        XCTAssertTrue(empty.contains("No key points, decisions or action items were found."))
+        XCTAssertTrue(empty.contains("Nothing to note was found in this meeting."))
+        let overviewOnly = SummarySection.markdown(SummaryOutcome(summary: MeetingSummary(overview: "Just small talk.")), provider: .onDevice)
+        XCTAssertTrue(overviewOnly.contains("Nothing to note was found in this meeting."))
+        XCTAssertFalse(overviewOnly.contains("Just small talk."))
     }
 
     func testTheSectionGoesAfterTheNoticesAndBeforeTheTranscript() {
@@ -474,7 +802,7 @@ final class MeetingSummaryTests: XCTestCase {
         let first = SummarySection.applying(SummarySection.markdown(outcome, provider: .onDevice), to: body)
         XCTAssertEqual(SummarySection.applying(SummarySection.markdown(outcome, provider: .onDevice), to: first), first,
                        "Idempotent")
-        let other = SummaryOutcome(summary: MeetingSummary(keyPoints: ["Something else"]))
+        let other = SummaryOutcome(summary: MeetingSummary(discussion: ["Something else"]))
         let second = SummarySection.applying(SummarySection.markdown(other, provider: .onDevice), to: first)
         XCTAssertEqual(second.components(separatedBy: SummarySection.startMarker).count, 2, "One section")
         XCTAssertTrue(second.contains("Something else"))
@@ -486,7 +814,7 @@ final class MeetingSummaryTests: XCTestCase {
         var body = SummarySection.applying(SummarySection.markdown(outcome, provider: .onDevice), to: meetingBody())
         body += "\nMy own note at the end.\n"
         body = "Something I typed first.\n\n" + body
-        let replaced = SummarySection.applying(SummarySection.markdown(SummaryOutcome(summary: MeetingSummary(keyPoints: ["New"])),
+        let replaced = SummarySection.applying(SummarySection.markdown(SummaryOutcome(summary: MeetingSummary(discussion: ["New"])),
                                                                        provider: .onDevice), to: body)
         XCTAssertTrue(replaced.hasPrefix("Something I typed first.\n\nRecorded from Zoom"))
         XCTAssertTrue(replaced.hasSuffix("\nMy own note at the end.\n"))
@@ -532,8 +860,8 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertEqual(r.header.app, "Zoom")
         XCTAssertEqual(r.notices, ["Recording stopped at the 2-hour limit."])
         XCTAssertEqual(r.summary, [
-            .heading(level: 3, text: "Key points"), .bullet("Budget is unchanged", depth: 0),
             .heading(level: 3, text: "Action items"), .bullet("Sam sends the deck", depth: 0),
+            .heading(level: 3, text: "Discussion"), .bullet("Budget is unchanged", depth: 0),
             .paragraph("_\(SummaryProvider.onDevice.attribution)_"),
         ])
         XCTAssertEqual(r.turns.map(\.text), ["Budget?", "Unchanged."])
