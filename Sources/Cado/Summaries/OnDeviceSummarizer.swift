@@ -64,7 +64,7 @@ struct FoundationModelsSummarizer: MeetingSummarizer {
         if SummaryLanguageSupport.isClearlyUnsupported(transcript, supports: {
             SystemLanguageModel.default.supportsLocale(Locale(identifier: $0))
         }) { throw SummarizerError.unsupportedLanguage }
-        // Asking for three lists can pressure the small model to invent
+        // Asking for lists can pressure the small model to invent
         // takeaways even from greetings or recognition noise. Check for
         // substance before asking it to fill those lists.
         guard try await isSubstantive(transcript) else { return MeetingSummary() }
