@@ -23,90 +23,72 @@ final class SummaryQualityFilterTests: XCTestCase {
         }
     }
 
-    func testFilterPreservesOrderAndWholeDecisionsAndActions() async throws {
-        let summary = MeetingSummary(decisions: ["Delay beta to Monday"], actionItems: ["Fix login by Friday"],
-                                     discussion: ["noise", "Login blocks beta", "Login blocks beta"])
-        let result = try await SummaryQualityFilter.filtered(summary) { $0 != "noise" }
-        XCTAssertEqual(result, MeetingSummary(decisions: ["Delay beta to Monday"], actionItems: ["Fix login by Friday"],
-                                              discussion: ["Login blocks beta"]))
-    }
-
-    func testOversizedAnswerFailsBeforeAnyClassifierCall() async {
-        let tooMany = MeetingSummary(discussion: (0...SummaryQualityFilter.maximumItems).map { "Fact \($0)" })
-        let tooLong = MeetingSummary(discussion: [Array(repeating: "word", count: SummaryQualityFilter.maximumWords + 1)
-            .joined(separator: " ")])
-        for summary in [tooMany, tooLong] {
-            do {
-                _ = try await SummaryQualityFilter.filtered(summary) { _ in
-                    XCTFail("Oversized output must not trigger unbounded classifier calls")
-                    return true
-                }
-                XCTFail("Expected failure rather than silently truncated actions")
-            } catch {
-                guard case SummarizerError.failed = error else { return XCTFail("Unexpected error: \(error)") }
-            }
-        }
-    }
-
-    func testFilterChecksAllFourListsAndHandlesOverviewWithoutClassifyingIt() async throws {
+    func testCleanedDeduplicatesWithinAndAcrossSectionsByPriority() {
         let summary = MeetingSummary(
-            overview: "Beta moves to Monday while login is fixed.",
-            decisions: ["Delay beta to Monday"],
-            actionItems: ["Fix login by Friday"],
-            discussion: ["noise", "Login blocks beta"],
-            openQuestions: ["noise", "Does staging need a reset?"]
+            overview: "Launch moves to March 10. Beta budget approved.",
+            decisions: ["Move launch to March 10.", "move  launch to march 10", "Send beta invite by Monday"],
+            actionItems: ["Send beta invite by Monday.", "Me: Confirm with marketing"],
+            discussion: ["Move launch to March 10", "Me: Confirm with marketing.", "Design needs one more week"],
+            openQuestions: ["Should exports warn or split?", "Should exports warn or split"]
         )
-        var classified: [String] = []
-        let kept = try await SummaryQualityFilter.filtered(summary) { item in
-            classified.append(item)
-            return item != "noise"
-        }
-        XCTAssertFalse(classified.contains(summary.overview), "Overview is not sent to classify")
-        XCTAssertEqual(kept, MeetingSummary(
-            overview: "Beta moves to Monday while login is fixed.",
-            decisions: ["Delay beta to Monday"],
-            actionItems: ["Fix login by Friday"],
-            discussion: ["Login blocks beta"],
-            openQuestions: ["Does staging need a reset?"]
+        XCTAssertEqual(SummaryQualityFilter.cleaned(summary), MeetingSummary(
+            overview: "Launch moves to March 10. Beta budget approved.",
+            decisions: ["Move launch to March 10."],
+            actionItems: ["Send beta invite by Monday.", "Me: Confirm with marketing"],
+            discussion: ["Design needs one more week"],
+            openQuestions: ["Should exports warn or split?"]
         ))
-
-        let allRejected = try await SummaryQualityFilter.filtered(summary) { _ in false }
-        XCTAssertEqual(allRejected, MeetingSummary())
     }
 
-    func testTwentyOneItemsFailsWithTooLong() async {
-        XCTAssertEqual(SummaryQualityFilter.maximumItems, 20)
-        XCTAssertEqual(SummaryQualityFilter.maximumWords, 280)
-        let twentyOne = MeetingSummary(
-            decisions: (1...5).map { "Decision \($0)" },
-            actionItems: (1...5).map { "Action \($0)" },
-            discussion: (1...6).map { "Discussion \($0)" },
-            openQuestions: (1...5).map { "Question \($0)" }
+    func testCleanedDropsSpeakerPrefixedNoneAndBareAcknowledgments() {
+        let summary = MeetingSummary(
+            overview: "Webhook timeout increased to 15 seconds.",
+            decisions: ["Increase webhook timeout to 15 seconds"],
+            actionItems: ["Me: None", "Others: Not specified.", "Others: Perfect.", "Me:/Others: None", "Others: Deploy config by Thursday"],
+            discussion: ["   ", "Me: Thanks."],
+            openQuestions: ["Others: N/A"]
         )
-        do {
-            _ = try await SummaryQualityFilter.filtered(twentyOne) { _ in
-                XCTFail("21 items must fail before classify")
-                return true
-            }
-            XCTFail("Expected too-long failure")
-        } catch {
-            XCTAssertEqual(error as? SummarizerError, .failed("The summary was too long. Try again."))
-        }
+        XCTAssertEqual(SummaryQualityFilter.cleaned(summary), MeetingSummary(
+            overview: "Webhook timeout increased to 15 seconds.",
+            decisions: ["Increase webhook timeout to 15 seconds"],
+            actionItems: ["Others: Deploy config by Thursday"],
+            discussion: [],
+            openQuestions: []
+        ))
     }
 
-    func testCancellationAndClassifierFailurePropagate() async {
-        let summary = MeetingSummary(discussion: ["A meaningful update", "Another update"])
-        do {
-            _ = try await SummaryQualityFilter.filtered(summary) { _ in throw CancellationError() }
-            XCTFail("Cancellation must stop the summary")
-        } catch { XCTAssertTrue(error is CancellationError) }
-        do {
-            _ = try await SummaryQualityFilter.filtered(summary) { _ in
-                try SummaryQualityFilter.relevance(from: "uncertain")
-            }
-            XCTFail("An uncertain check must preserve the old summary")
-        } catch {
-            guard case SummarizerError.failed = error else { return XCTFail("Unexpected error: \(error)") }
-        }
+    func testCleanedClearsOverviewWhenNoItemsRemain() {
+        let onlyPlaceholders = MeetingSummary(
+            overview: "They said hello.",
+            decisions: ["None"],
+            actionItems: ["Me: None", "Others: Perfect."]
+        )
+        XCTAssertEqual(SummaryQualityFilter.cleaned(onlyPlaceholders), MeetingSummary())
+    }
+
+    func testCleanedCapsPerSectionAndTotalBoundsWithoutThrowing() {
+        let oversized = MeetingSummary(
+            overview: "First sentence. Second sentence. Third sentence.",
+            decisions: (1...8).map { "Decision \($0)" },
+            actionItems: (1...8).map { "Action \($0)" },
+            discussion: (1...8).map { "Discussion \($0)" },
+            openQuestions: (1...8).map { "Question \($0)" }
+        )
+        let cleaned = SummaryQualityFilter.cleaned(oversized)
+        XCTAssertEqual(cleaned.overview, "First sentence. Second sentence.")
+        XCTAssertEqual(cleaned.decisions, ["Decision 1", "Decision 2", "Decision 3", "Decision 4", "Decision 5"])
+        XCTAssertEqual(cleaned.actionItems, ["Action 1", "Action 2", "Action 3", "Action 4", "Action 5"])
+        XCTAssertEqual(cleaned.openQuestions, ["Question 1", "Question 2", "Question 3", "Question 4", "Question 5"])
+        XCTAssertEqual(cleaned.discussion, ["Discussion 1", "Discussion 2", "Discussion 3", "Discussion 4", "Discussion 5"])
+
+        let wordHeavy = MeetingSummary(
+            decisions: [Array(repeating: "word", count: 200).joined(separator: " ")],
+            actionItems: [Array(repeating: "task", count: 100).joined(separator: " ")],
+            discussion: ["Short note"]
+        )
+        let wordBounded = SummaryQualityFilter.cleaned(wordHeavy)
+        XCTAssertEqual(wordBounded.actionItems.count, 1)
+        XCTAssertEqual(wordBounded.decisions, [], "Item pushing total over 280 words is skipped")
+        XCTAssertEqual(wordBounded.discussion, ["Short note"], "Shorter item within remaining budget still fits")
     }
 }

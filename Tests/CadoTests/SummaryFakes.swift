@@ -9,6 +9,7 @@ final class FakeSummarizer: MeetingSummarizer, @unchecked Sendable {
     enum Call: Equatable {
         case summarize(String, part: Int, of: Int)
         case merge(Int)
+        case overview
     }
 
     let limits: SummarizerLimits
@@ -16,6 +17,7 @@ final class FakeSummarizer: MeetingSummarizer, @unchecked Sendable {
     private var _calls: [Call] = []
     var onSummarize: (String) throws -> MeetingSummary = FakeSummarizer.echo
     var onMerge: ([MeetingSummary]) throws -> MeetingSummary = { .combined($0) }
+    var onOverview: ((MeetingSummary) throws -> String)? = nil
 
     var calls: [Call] { lock.withLock { _calls } }
     var passages: [String] {
@@ -40,6 +42,12 @@ final class FakeSummarizer: MeetingSummarizer, @unchecked Sendable {
     func merge(_ parts: [MeetingSummary]) async throws -> MeetingSummary {
         lock.withLock { _calls.append(.merge(parts.count)) }
         return try onMerge(parts)
+    }
+
+    func overview(for summary: MeetingSummary) async throws -> String {
+        guard let onOverview else { return "" }
+        lock.withLock { _calls.append(.overview) }
+        return try onOverview(summary)
     }
 }
 

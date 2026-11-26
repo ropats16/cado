@@ -159,35 +159,70 @@ final class MeetingSummaryTests: XCTestCase {
     }
 
     func testThePromptsKeepTheHeadingsInEnglishAndShortListsFirst() {
-        let instructions = SummaryPrompts.instructions
-        XCTAssertTrue(instructions.contains("keep the headings in English"))
-        XCTAssertTrue(instructions.contains("5 discussion points"))
-        XCTAssertTrue(instructions.contains("One short line per item"))
-        XCTAssertTrue(instructions.contains("all lists"))
-        XCTAssertTrue(instructions.contains("An idea, question or suggestion nobody committed to is an open question, never a decision or an action item."))
-        XCTAssertFalse(instructions.contains("Aim for at most 100 words total"))
-        XCTAssertTrue(instructions.contains("Decisions:\n- None\nAction items:\n- None\nOpen questions:\n- None\nDiscussion:\n- None\nOverview:\nNone"))
+        let onDevice = SummaryPrompts.instructions(for: .onDevice)
+        XCTAssertEqual(onDevice, SummaryPrompts.instructions)
+        XCTAssertTrue(onDevice.contains("five plain English headings"))
+        XCTAssertTrue(onDevice.contains("DO NOT invent facts"))
+        XCTAssertTrue(onDevice.contains("DO NOT put status updates, past completed work, or tentative suggestions into Decisions or Action items."))
+        XCTAssertTrue(onDevice.contains("Decisions:\n- None\nAction items:\n- None\nOpen questions:\n- None\nDiscussion:\n- None\nOverview:\nNone"))
+
+        let cloud = SummaryPrompts.instructions(for: .openRouter)
+        XCTAssertNotEqual(cloud, onDevice, "On-device and cloud providers have distinct prompts")
+        XCTAssertTrue(cloud.contains("extract then abstract"))
+        XCTAssertTrue(cloud.contains("**Topic:**"))
+        XCTAssertTrue(cloud.contains("Write Overview LAST"))
+
+        let onDeviceMerge = SummaryPrompts.mergeInstructions(for: .onDevice)
+        XCTAssertTrue(onDeviceMerge.contains("Later parts OVERRIDE earlier parts"))
+        XCTAssertFalse(onDeviceMerge.contains("Hello, can you hear me?"), "Merge instructions omit transcript-noise examples")
 
         let shape = SummaryPrompts.answerShape
         let at = ["Decisions:", "Action items:", "Open questions:", "Discussion:", "Overview:"].map { shape.range(of: $0)?.lowerBound }
         XCTAssertFalse(at.contains(nil), shape)
         XCTAssertEqual(at.compactMap { $0 }, at.compactMap { $0 }.sorted(), "Short lists first, overview last")
-        XCTAssertTrue(shape.contains("(who does what, if said)"), shape)
-        XCTAssertTrue(shape.contains("(unresolved questions or blockers; ideas nobody committed to)"), shape)
-        XCTAssertTrue(shape.contains("(Topic: the substance, with numbers if said)"), shape)
-        XCTAssertTrue(shape.contains("Overview:\n<one or two sentences: what the meeting settled, or what is still open>"), shape)
+        XCTAssertTrue(shape.contains("(Me:/Others: only when clear, task, deadline)"), shape)
+        XCTAssertTrue(shape.contains("(blockers, unresolved questions, uncommitted ideas)"), shape)
+        XCTAssertTrue(shape.contains("Overview:\n<1 or 2 plain sentences: what was settled, or what stays open>"), shape)
 
-        let merge = SummaryPrompts.mergePrompt([MeetingSummary(discussion: ["a"])])
+        let merge = SummaryPrompts.mergePrompt([MeetingSummary(discussion: ["a"])], for: .onDevice)
         XCTAssertTrue(merge.contains("Discussion:\n- a") && merge.hasSuffix(shape))
-        XCTAssertTrue(merge.lowercased().contains("later parts override earlier ones"))
-        XCTAssertTrue(merge.lowercased().contains("overview for the whole meeting last"))
+        XCTAssertTrue(merge.lowercased().contains("reverses or cancels an earlier decision"))
+        XCTAssertTrue(merge.lowercased().contains("overview last"))
+        XCTAssertFalse(merge.contains("Decisions:\n- None"), "Compact merge parts omit empty lists")
 
-        let single = SummaryPrompts.passagePrompt("Me: hi", part: 1, of: 1)
+        let cloudMerge = SummaryPrompts.mergePrompt([MeetingSummary(discussion: ["a"])], for: .openRouter)
+        XCTAssertTrue(cloudMerge.contains("Later parts override earlier ones"))
+        XCTAssertTrue(cloudMerge.contains("**<short topic>:**"))
+
+        let single = SummaryPrompts.passagePrompt("Me: hi", part: 1, of: 1, for: .onDevice)
         XCTAssertFalse(single.contains("Overview:\nNone"))
         XCTAssertTrue(single.hasSuffix(shape))
-        let multi = SummaryPrompts.passagePrompt("Me: hi", part: 2, of: 3)
+        let multi = SummaryPrompts.passagePrompt("Me: hi", part: 2, of: 3, for: .onDevice)
         XCTAssertTrue(multi.contains("part 2 of 3"))
         XCTAssertTrue(multi.contains("Overview:\nNone"))
+    }
+
+    func testOverviewPromptAndParserStripFormattingAndRespectBounds() {
+        let summary = MeetingSummary(
+            decisions: ["Launch UK on May 19"],
+            actionItems: ["Me: Send UK checklist by Tuesday"],
+            discussion: ["Canada GST blocked until June"],
+            openQuestions: ["Scope German beta for Q3?"]
+        )
+        let prompt = SummaryPrompts.overviewPrompt(summary, maxTokens: 1_500, for: .onDevice)
+        XCTAssertTrue(prompt.contains("Decisions:\n- Launch UK on May 19"))
+        XCTAssertTrue(prompt.contains("Open questions:\n- Scope German beta for Q3?"))
+
+        XCTAssertEqual(SummaryPrompts.overview(from: "Overview:\n- UK launches May 19. German beta stays open. Third sentence dropped."),
+                       "UK launches May 19. German beta stays open.")
+        XCTAssertEqual(SummaryPrompts.overview(from: "**Summary:** None"), "")
+        XCTAssertEqual(SummaryPrompts.overview(from: "UK launches May 19 while Canada moves to June."),
+                       "UK launches May 19 while Canada moves to June.")
+
+        // Budget caps large fallback-combined summaries instead of overflowing context.
+        let huge = MeetingSummary(decisions: (1...100).map { "Decision number \($0) with extra context words here" })
+        let bounded = SummaryPrompts.overviewPrompt(huge, maxTokens: 120, for: .onDevice)
+        XCTAssertLessThan(TokenEstimate.tokens(bounded), 200)
     }
 
     func testCombinedKeepsOrderAndDropsRepeats() {
@@ -832,6 +867,89 @@ final class MeetingSummaryTests: XCTestCase {
             discussion: ["Topic 1", "Topic 2"],
             openQuestions: ["Question 1", "Question 2"]
         ))
+    }
+
+    func testPipelineSynthesizesMissingOverviewInAllThreeMultiPartCases() async throws {
+        // 1. Only one part survived in a multi-part meeting (part 1 omitted overview because total > 1).
+        let onePartFake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 25, mergeTokens: 2_000))
+        onePartFake.onSummarize = { passage in
+            if passage.contains("Point 2 ") { throw SummarizerError.refused }
+            return MeetingSummary(overview: "", decisions: ["Ship CSV"])
+        }
+        onePartFake.onOverview = { summary in
+            XCTAssertEqual(summary.decisions, ["Ship CSV"])
+            return "Decided to ship CSV."
+        }
+        let onePart = try await SummaryPipeline(summarizer: onePartFake).run(turns(2))
+        XCTAssertEqual(onePart.skippedPassages, 1)
+        XCTAssertEqual(onePart.summary.overview, "Decided to ship CSV.")
+        XCTAssertEqual(onePartFake.calls.filter { $0 == .overview }.count, 1)
+
+        // 2. Merge succeeded with items but omitted Overview.
+        let mergeNoOverviewFake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 25, mergeTokens: 2_000))
+        mergeNoOverviewFake.onSummarize = { _ in MeetingSummary(decisions: ["Ship CSV"]) }
+        mergeNoOverviewFake.onMerge = { _ in MeetingSummary(overview: "", decisions: ["Ship CSV"]) }
+        mergeNoOverviewFake.onOverview = { _ in "Merged summary ships CSV." }
+        let mergeNoOverview = try await SummaryPipeline(summarizer: mergeNoOverviewFake).run(turns(2))
+        XCTAssertEqual(mergeNoOverview.summary.overview, "Merged summary ships CSV.")
+        XCTAssertEqual(mergeNoOverviewFake.calls.filter { $0 == .overview }.count, 1)
+
+        // 3. Merge failed and fell back to combined (which drops partial overviews).
+        let mergeFailedFake = FakeSummarizer(limits: SummarizerLimits(passageTokens: 25, mergeTokens: 2_000))
+        mergeFailedFake.onSummarize = { passage in MeetingSummary(overview: "Part only.", decisions: [passage]) }
+        mergeFailedFake.onMerge = { _ in throw SummarizerError.incomplete }
+        mergeFailedFake.onOverview = { _ in "Fallback overview from combined items." }
+        let mergeFailed = try await SummaryPipeline(summarizer: mergeFailedFake).run(turns(2))
+        XCTAssertEqual(mergeFailed.summary.overview, "Fallback overview from combined items.")
+        XCTAssertEqual(mergeFailedFake.calls.filter { $0 == .overview }.count, 1)
+
+        // 4. Happy path (overview already present) and empty summary make zero overview calls.
+        let alreadyHasOverview = FakeSummarizer()
+        alreadyHasOverview.onSummarize = { _ in MeetingSummary(overview: "Already done.", decisions: ["Ship"]) }
+        alreadyHasOverview.onOverview = { _ in XCTFail("Must not call overview when already present"); return "" }
+        let existing = try await SummaryPipeline(summarizer: alreadyHasOverview).run([(.me, "Ship it.")])
+        XCTAssertEqual(existing.summary.overview, "Already done.")
+
+        let emptyFake = FakeSummarizer()
+        emptyFake.onSummarize = { _ in MeetingSummary() }
+        emptyFake.onOverview = { _ in XCTFail("Must not call overview for an empty summary"); return "" }
+        let empty = try await SummaryPipeline(summarizer: emptyFake).run([(.me, "Hi.")])
+        XCTAssertTrue(empty.summary.isEmpty)
+    }
+
+    func testPipelineOverviewFallbackRetriesBusyKeepsItemsOnNonStoppingErrorsAndStopsOnUnavailable() async throws {
+        // Busy is retried then succeeds.
+        let busyFake = FakeSummarizer()
+        busyFake.onSummarize = { _ in MeetingSummary(decisions: ["Ship CSV"]) }
+        var busyLeft = 1
+        busyFake.onOverview = { _ in
+            if busyLeft > 0 { busyLeft -= 1; throw SummarizerError.busy }
+            return "Shipping CSV."
+        }
+        let sleeps = SleepRecorder()
+        let retried = try await SummaryPipeline(summarizer: busyFake, sleep: sleeps.sleep).run([(.me, "Ship CSV.")])
+        XCTAssertEqual(retried.summary.overview, "Shipping CSV.")
+        XCTAssertEqual(sleeps.waits, [.seconds(2)])
+
+        // Non-stopping errors keep the extracted items without an overview.
+        for error in [SummarizerError.refused, .failed("boom"), .tooLong] {
+            let softFail = FakeSummarizer()
+            softFail.onSummarize = { _ in MeetingSummary(decisions: ["Ship CSV"]) }
+            softFail.onOverview = { _ in throw error }
+            let outcome = try await SummaryPipeline(summarizer: softFail).run([(.me, "Ship CSV.")])
+            XCTAssertEqual(outcome.summary, MeetingSummary(overview: "", decisions: ["Ship CSV"]), "\(error)")
+        }
+
+        // Unavailable and cancellation stop the run.
+        let unavailable = FakeSummarizer()
+        unavailable.onSummarize = { _ in MeetingSummary(decisions: ["Ship CSV"]) }
+        unavailable.onOverview = { _ in throw SummarizerError.unavailable(.appleIntelligenceOff) }
+        do {
+            _ = try await SummaryPipeline(summarizer: unavailable).run([(.me, "Ship CSV.")])
+            XCTFail("Expected unavailable to stop run")
+        } catch {
+            XCTAssertEqual(error as? SummarizerError, .unavailable(.appleIntelligenceOff))
+        }
     }
 
     #if canImport(FoundationModels)
