@@ -34,10 +34,12 @@ enum HesitationFilter {
     /// segments use to join) is preserved.
     ///
     /// `language`: an ISO 639 code (`"en"`, `"de"`, `"pt"`, …), `"auto"`, or
-    /// `nil` (unknown: detected from `text` via `NLLanguageRecognizer` so real
-    /// words like German/Portuguese `"um"` stay safe).
+    /// `nil` (unknown). Ambiguous/language-specific hesitations (`um`, `erm…`,
+    /// `äh…`, `euh…`) require their language to be confirmed against the text
+    /// via `NLLanguageRecognizer` (run lazily only when a candidate token is
+    /// present); universal non-words (`uh`, `uhm`, `umm…`) apply everywhere.
     static func clean(_ text: String, language: String? = nil) -> String {
-        cleanDetailed(text, language: language).text
+        cleanDetailed(text, languageHint: language, preConfirmedLanguage: nil).text
     }
 
     /// Filters timestamped segments in order: hesitation-only segments are
@@ -45,12 +47,20 @@ enum HesitationFilter {
     /// (`" Um,"` before `" we should ship."`) capitalizes the next surviving
     /// segment's opening word. Times are kept.
     static func filter(_ segments: [Transcript.Segment], language: String? = nil) -> [Transcript.Segment] {
-        let resolvedLanguage = resolveLanguage(language, for: segments.map(\.text).joined())
+        var resolvedPassageLanguage: String?? = nil
+        let passageLanguage: () -> String? = {
+            if let cached = resolvedPassageLanguage { return cached }
+            let joined = segments.map(\.text).joined()
+            let confirmed = confirmLanguage(hint: language, for: joined)
+            resolvedPassageLanguage = .some(confirmed)
+            return confirmed
+        }
+
         var out: [Transcript.Segment] = []
         var capitalizeNext = false
 
         for segment in segments {
-            let result = cleanDetailed(segment.text, language: resolvedLanguage)
+            let result = cleanDetailed(segment.text, languageHint: language, preConfirmedLanguage: passageLanguage)
             var text = result.text
             if text.allSatisfy(\.isWhitespace) {
                 if result.capitalizeFollowing { capitalizeNext = true }
@@ -71,16 +81,28 @@ enum HesitationFilter {
     }
 
     /// Cleans a meeting's turns for summarization without altering saved notes.
-    /// Detects the transcript's language once (falling back per turn for mixed
-    /// meetings) so short turns like `"Um."` obey the meeting's language
-    /// (dropped in English, kept as "One." in Portuguese).
+    /// A turn's language is its own detection, else the whole note's detection,
+    /// else unknown (when unknown, ambiguous tokens stay). Language detection
+    /// runs lazily only when a turn contains a language-dependent candidate.
     static func cleanTurns(_ turns: [(speaker: MeetingSpeaker, text: String)])
         -> [(speaker: MeetingSpeaker, text: String)] {
-        let whole = turns.map(\.text).joined(separator: "\n")
-        let noteLanguage = detectLanguage(in: whole, minWords: 2, minConfidence: 0.5)
+        var cachedNoteLanguage: String?? = nil
+        func noteLanguage() -> String? {
+            if let cached = cachedNoteLanguage { return cached }
+            let whole = turns.map(\.text).joined(separator: "\n")
+            let detected = detectLanguage(in: whole, minWords: 2, minConfidence: 0.5)
+            cachedNoteLanguage = .some(detected)
+            return detected
+        }
+
         return turns.compactMap { turn in
-            let turnLanguage = detectLanguage(in: turn.text, minWords: 4, minConfidence: 0.85) ?? noteLanguage
-            let cleaned = clean(turn.text, language: turnLanguage ?? "en")
+            let turnLanguage: String?
+            if containsLanguageDependentCandidate(in: turn.text) {
+                turnLanguage = detectLanguage(in: turn.text, minWords: 4, minConfidence: 0.85) ?? noteLanguage()
+            } else {
+                turnLanguage = nil
+            }
+            let cleaned = clean(turn.text, language: turnLanguage)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else { return nil }
             return (speaker: turn.speaker, text: cleaned)
@@ -89,13 +111,20 @@ enum HesitationFilter {
 
     // MARK: - Core cleaning
 
-    private static func cleanDetailed(_ text: String, language: String?) -> Cleaned {
+    private static func cleanDetailed(_ text: String, languageHint: String?,
+                                      preConfirmedLanguage: (() -> String?)?) -> Cleaned {
         guard !text.isEmpty else { return Cleaned(text: text, capitalizeFollowing: false) }
         let (tokens, seps) = tokenize(text)
         guard !tokens.isEmpty else { return Cleaned(text: text, capitalizeFollowing: false) }
 
-        let lang = resolveLanguage(language, for: text)
-        let marked = markHesitations(tokens: tokens, seps: seps, language: lang)
+        var cachedLanguage: String?? = nil
+        let resolveConfirmedLanguage: () -> String? = {
+            if let cached = cachedLanguage { return cached }
+            let confirmed = preConfirmedLanguage?() ?? confirmLanguage(hint: languageHint, for: text)
+            cachedLanguage = .some(confirmed)
+            return confirmed
+        }
+        let marked = markHesitations(tokens: tokens, seps: seps, confirmedLanguage: resolveConfirmedLanguage)
         guard marked.contains(true) else { return Cleaned(text: text, capitalizeFollowing: false) }
 
         // Whole string is only hesitations.
@@ -211,7 +240,8 @@ enum HesitationFilter {
 
     // MARK: - Hesitation matching & false-positive guards
 
-    private static func markHesitations(tokens: [String], seps: [String], language: String) -> [Bool] {
+    private static func markHesitations(tokens: [String], seps: [String],
+                                        confirmedLanguage: () -> String?) -> [Bool] {
         var marked = [Bool](repeating: false, count: tokens.count)
         var protected = [Bool](repeating: false, count: tokens.count)
 
@@ -240,34 +270,46 @@ enum HesitationFilter {
                 continue
             }
 
-            if isHesitationWord(word, language: language) {
+            if isHesitationWord(word, confirmedLanguage: confirmedLanguage) {
                 marked[i] = true
             }
         }
         return marked
     }
 
-    private static func isHesitationWord(_ word: String, language: String) -> Bool {
+    private static func isPureNonAcronymWord(_ word: String) -> Bool {
         let letters = word.filter(\.isLetter)
         // Must be pure letters (no digits, hyphens, apostrophes, underscores).
         guard letters.count == word.count, letters.count >= 2 else { return false }
         // Protect all-caps acronyms ("UM", "UH", "ERM", "EUH").
-        if letters.allSatisfy(\.isUppercase) { return false }
+        return !letters.allSatisfy(\.isUppercase)
+    }
+
+    private static func isHesitationWord(_ word: String, confirmedLanguage: () -> String?) -> Bool {
+        guard isPureNonAcronymWord(word) else { return false }
 
         let lower = word.lowercased()
 
         // Universal non-words safe across every language Cado transcribes.
         if isUhSound(lower) || isUhmSound(lower) || isStretchedUm(lower) { return true }
 
-        switch language {
-        case "en":
-            return lower == "um" || isErmSound(lower)
-        case "de":
-            return isGermanHesitation(lower)
-        case "fr":
-            return isFrenchHesitation(lower)
-        default:
-            return false
+        guard let requiredLanguage = languageForAmbiguousCandidate(lower) else { return false }
+        return confirmedLanguage() == requiredLanguage
+    }
+
+    /// The language a language-specific hesitation candidate belongs to, or `nil`
+    /// if the token is not in any language-specific hesitation list.
+    private static func languageForAmbiguousCandidate(_ lower: String) -> String? {
+        if lower == "um" || isErmSound(lower) { return "en" }
+        if isGermanHesitation(lower) { return "de" }
+        if isFrenchHesitation(lower) { return "fr" }
+        return nil
+    }
+
+    private static func containsLanguageDependentCandidate(in text: String) -> Bool {
+        let (tokens, _) = tokenize(text)
+        return tokens.contains { word in
+            isPureNonAcronymWord(word) && languageForAmbiguousCandidate(word.lowercased()) != nil
         }
     }
 
@@ -481,11 +523,20 @@ enum HesitationFilter {
 
     // MARK: - Language resolution
 
-    /// Normalizes a configured/detected language code; falls back to
-    /// `NLLanguageRecognizer` when nil or `"auto"`.
-    private static func resolveLanguage(_ raw: String?, for text: String) -> String {
-        if let code = normalizeCode(raw) { return code }
-        return detectLanguage(in: text, minWords: 2, minConfidence: 0.5) ?? "en"
+    /// Confirms which language-specific hesitation list (`"en"`, `"de"`, `"fr"`)
+    /// applies to `text`. When `hint` normalizes to one of those languages,
+    /// `detectLanguage` on `text` must either abstain or agree. When `hint` is
+    /// `nil` or `"auto"`, `detectLanguage` must positively identify that
+    /// language (abstaining returns `nil`, never `"en"`).
+    private static func confirmLanguage(hint: String?, for text: String) -> String? {
+        if let code = normalizeCode(hint) {
+            guard code == "en" || code == "de" || code == "fr" else { return nil }
+            let detected = detectLanguage(in: text, minWords: 2, minConfidence: 0.5)
+            return (detected == nil || detected == code) ? code : nil
+        }
+        guard let detected = detectLanguage(in: text, minWords: 2, minConfidence: 0.5),
+              detected == "en" || detected == "de" || detected == "fr" else { return nil }
+        return detected
     }
 
     private static func normalizeCode(_ raw: String?) -> String? {
@@ -496,15 +547,16 @@ enum HesitationFilter {
         return primary.isEmpty ? nil : primary
     }
 
-    /// Detects the dominant language of `text`, ignoring bare `"um"` tokens so
-    /// an English hesitation doesn't bias a short snippet toward German or
-    /// Portuguese. Returns `nil` when there are too few words or confidence is
-    /// below `minConfidence`.
+    /// Detects the dominant language of `text`, ignoring hesitation tokens so
+    /// fillers don't bias a short snippet toward another language. Returns `nil`
+    /// when there are too few other words or confidence is below `minConfidence`.
     static func detectLanguage(in text: String, minWords: Int = 2, minConfidence: Double = 0.5) -> String? {
         let (tokens, _) = tokenize(text)
         let sampleTokens = tokens.filter { token in
             let lower = token.lowercased()
-            return lower != "um" && !isUhSound(lower) && !isUhmSound(lower) && !isStretchedUm(lower)
+            return lower != "um"
+                && !isUhSound(lower) && !isUhmSound(lower) && !isStretchedUm(lower)
+                && !isErmSound(lower) && !isGermanHesitation(lower) && !isFrenchHesitation(lower)
         }
         guard sampleTokens.count >= minWords else { return nil }
         let sample = sampleTokens.joined(separator: " ")

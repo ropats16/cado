@@ -427,7 +427,7 @@ final class MeetingSummaryTests: XCTestCase {
     func testPipelineWithOnlyHesitationsThrowsNothingToSummarize() async {
         let fake = FakeSummarizer()
         do {
-            _ = try await SummaryPipeline(summarizer: fake).run([(.me, "Um, uh."), (.them, "Erm...")])
+            _ = try await SummaryPipeline(summarizer: fake).run([(.me, "Uh, uhm."), (.them, "Umm...")])
             XCTFail("expected nothingToSummarize")
         } catch {
             XCTAssertEqual(error as? SummaryPipelineError, .nothingToSummarize)

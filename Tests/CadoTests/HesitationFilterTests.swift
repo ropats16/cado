@@ -47,8 +47,8 @@ final class HesitationFilterTests: XCTestCase {
                        "iOS 26 is out.")
         XCTAssertEqual(HesitationFilter.clean("Um, a quick note.", language: "en"),
                        "A quick note.")
-        XCTAssertEqual(HesitationFilter.clean("Um, über cool.", language: "en"),
-                       "Über cool.")
+        XCTAssertEqual(HesitationFilter.clean("Um, über cool, I think we should ship it.", language: "en"),
+                       "Über cool, I think we should ship it.")
         XCTAssertEqual(HesitationFilter.clean("“Um, we should go.”", language: "en"),
                        "“We should go.”")
         XCTAssertEqual(HesitationFilter.clean("\"Um, we should go.\"", language: "en"),
@@ -254,7 +254,48 @@ final class HesitationFilterTests: XCTestCase {
                        "Wir treffen uns um 14 Uhr im Büro.")
         XCTAssertEqual(HesitationFilter.clean("Preciso de um minuto para ver o orçamento.", language: nil),
                        "Preciso de um minuto para ver o orçamento.")
-        XCTAssertEqual(HesitationFilter.clean("Um.", language: nil), "")
+        XCTAssertEqual(HesitationFilter.clean("Um.", language: nil), "Um.")
+    }
+
+    func testAmbiguousTokensRequireConfirmedEnglish() {
+        // 1-3: Non-English text with configured language "en" keeps "um".
+        XCTAssertEqual(HesitationFilter.clean("Um zehn Uhr treffen wir uns.", language: "en"),
+                       "Um zehn Uhr treffen wir uns.")
+        XCTAssertEqual(HesitationFilter.clean("Er ist um acht Uhr gekommen.", language: "en"),
+                       "Er ist um acht Uhr gekommen.")
+        XCTAssertEqual(HesitationFilter.clean("Eu quero um café com leite.", language: "en"),
+                       "Eu quero um café com leite.")
+        // 4: Confirmed English removes "um".
+        XCTAssertEqual(HesitationFilter.clean("Um, I think we should ship it on Friday.", language: "en"),
+                       "I think we should ship it on Friday.")
+        // 5: Detection abstains, configured English stands.
+        XCTAssertEqual(HesitationFilter.clean("Um, okay.", language: "en"),
+                       "Okay.")
+        // 6: Unknown language (nil or "auto") requires positive English detection; abstaining is not English.
+        XCTAssertEqual(HesitationFilter.clean("Um carro.", language: nil), "Um carro.")
+        XCTAssertEqual(HesitationFilter.clean("Um carro.", language: "auto"), "Um carro.")
+        XCTAssertEqual(HesitationFilter.clean("Um.", language: nil), "Um.")
+        XCTAssertEqual(HesitationFilter.clean("Um.", language: "auto"), "Um.")
+        XCTAssertEqual(HesitationFilter.clean("Um, I think we should ship it on Friday.", language: nil),
+                       "I think we should ship it on Friday.")
+        XCTAssertEqual(HesitationFilter.clean("Um, I think we should ship it on Friday.", language: "auto"),
+                       "I think we should ship it on Friday.")
+        // German/French lists follow the same rule when text positively contradicts the hint.
+        XCTAssertEqual(HesitationFilter.clean("Ähm, I think we should ship it on Friday.", language: "de"),
+                       "Ähm, I think we should ship it on Friday.")
+        XCTAssertEqual(HesitationFilter.clean("Euh, I think we should ship it on Friday.", language: "fr"),
+                       "Euh, I think we should ship it on Friday.")
+        // 7: Universal hesitation goes while non-English "um" stays.
+        XCTAssertEqual(HesitationFilter.clean("Uh, eu quero um café com leite.", language: "en"),
+                       "Eu quero um café com leite.")
+        // 8: cleanTurns with unknown-language short note vs English note.
+        let shortUnknown = HesitationFilter.cleanTurns([(.me, "Um carro.")])
+        XCTAssertEqual(shortUnknown.map(\.text), ["Um carro."])
+        let englishNote = HesitationFilter.cleanTurns([
+            (.me, "We should, um, move the launch to next week."),
+            (.them, "Um."),
+        ])
+        XCTAssertEqual(englishNote.map(\.text), ["We should move the launch to next week."])
     }
 
     // MARK: - Segments and cross-segment capitalization
