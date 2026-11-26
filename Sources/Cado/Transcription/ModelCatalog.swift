@@ -134,24 +134,51 @@ enum ModelCatalog {
         return models.first { $0.filename == name }
     }
 
-    /// The default model for this Mac: the English-only model of the tier
-    /// below, or its multilingual sibling when `language` isn't English.
-    /// Quantized throughout — near-identical accuracy for half the RAM and a
-    /// faster load. Mirrored by `scripts/model_catalog.sh`.
+    /// The default model for this Mac: the English-only model below for
+    /// English, or the `MultilingualTier` pick for Auto-detect and other
+    /// languages (#61). Quantized throughout — near-identical accuracy for half
+    /// the RAM and a faster load. The English column is mirrored by
+    /// `scripts/model_catalog.sh`.
     ///
-    /// | Chip          | RAM (whole GiB) | Model            | File   |
-    /// |---------------|-----------------|------------------|--------|
-    /// | Apple Silicon | < 8             | base.en-q5_1     |  60 MB |
-    /// | Apple Silicon | 8 – 15          | small.en-q5_1    | 190 MB |
-    /// | Apple Silicon | 16 – 31         | medium.en-q5_0   | 539 MB |
-    /// | Apple Silicon | ≥ 32            | medium.en-q8_0   | 823 MB |
-    /// | Intel (CPU)   | < 8             | tiny.en-q5_1     |  32 MB |
-    /// | Intel (CPU)   | 8 – 15          | base.en-q5_1     |  60 MB |
-    /// | Intel (CPU)   | ≥ 16            | small.en-q5_1    | 190 MB |
+    /// | Chip          | RAM (whole GiB) | English          | Other languages          |
+    /// |---------------|-----------------|------------------|--------------------------|
+    /// | Apple Silicon | < 8             | base.en-q5_1     | base-q5_1                |
+    /// | Apple Silicon | 8 – 15          | small.en-q5_1    | small-q5_1               |
+    /// | Apple Silicon | 16 – 31         | medium.en-q5_0   | large-v3-turbo-q5_0      |
+    /// | Apple Silicon | ≥ 32            | medium.en-q8_0   | large-v3-turbo-q5_0      |
+    /// | Intel (CPU)   | < 8             | tiny.en-q5_1     | tiny-q5_1                |
+    /// | Intel (CPU)   | 8 – 15          | base.en-q5_1     | base-q5_1                |
+    /// | Intel (CPU)   | ≥ 16            | small.en-q5_1    | small-q5_1               |
     static func recommended(for hardware: HardwareProfile, language: String = "en") -> WhisperModel {
         let id = recommendedID(isAppleSilicon: hardware.isAppleSilicon, memoryGiB: hardware.memoryGiB)
+        if isEnglish(language) {
+            // Every table entry is in the catalog (pinned by tests).
+            return model(id: id)!
+        }
+        let wanted: String
+        switch MultilingualTier.tier(for: hardware) {
+        case .full: wanted = "large-v3-turbo-q5_0"
+        case .basic: wanted = "small-q5_1"
+        case .limited: wanted = id.replacingOccurrences(of: ".en", with: "")
+        }
+        return model(id: wanted) ?? model(id: id)!
+    }
+
+    /// Size ceiling for the auto-pick fallback (#61): English uses the
+    /// recommended model's own size; other languages use
+    /// `max(recommended.bytes, legacy.bytes)` so a Mac that already downloaded
+    /// the pre-#61 pick keeps it when the new recommendation isn't installed.
+    static func fallbackCeilingBytes(for hardware: HardwareProfile, language: String) -> Int64 {
+        let current = recommended(for: hardware, language: language).bytes
+        guard !isEnglish(language) else { return current }
+        return max(current, legacyRecommended(for: hardware, language: language).bytes)
+    }
+
+    /// The pre-#61 pick, only a size ceiling so Macs that already downloaded it
+    /// keep it.
+    private static func legacyRecommended(for hardware: HardwareProfile, language: String) -> WhisperModel {
+        let id = recommendedID(isAppleSilicon: hardware.isAppleSilicon, memoryGiB: hardware.memoryGiB)
         let wanted = isEnglish(language) ? id : id.replacingOccurrences(of: ".en", with: "")
-        // Every table entry is in the catalog (pinned by tests).
         return model(id: wanted) ?? model(id: id)!
     }
 

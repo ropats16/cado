@@ -110,7 +110,7 @@ final class SettingsMeetingLanguageTests: XCTestCase {
         configStore.update { $0.engine = "whisper"; $0.meetingLanguage = "auto" }
         let vm = makeVM(gib: 16)
         XCTAssertEqual(vm.meetingLanguageNote.text,
-                       "Auto-detect needs a model that knows many languages: Whisper medium-q5_0 isn't downloaded. "
+                       "Auto-detect needs a model that knows many languages: Whisper large-v3-turbo-q5_0 isn't downloaded. "
                        + "Until it is, meetings use the dictation model, Whisper small.en-q5_1, which only understands "
                        + "English. Download it below.")
     }
