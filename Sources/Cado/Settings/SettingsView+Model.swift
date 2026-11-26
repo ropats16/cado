@@ -49,11 +49,11 @@ extension SettingsView {
                            set: { viewModel.selectModel($0) }
                        )) {
                     Text(viewModel.automaticLabel).tag(ModelRow.automatic)
-                    if let custom = viewModel.customModelName {
-                        Text("Custom file: \(custom)").tag(ModelRow.custom)
+                    if let custom = viewModel.customModelLabel {
+                        Text(custom).tag(ModelRow.custom)
                     }
                     ForEach(lists.downloaded) { model in
-                        Text(model.label).tag(ModelRow.catalog(model.id))
+                        Text(viewModel.modelLabel(for: model)).tag(ModelRow.catalog(model.id))
                     }
                     Section(viewModel.notDownloadedHeading) {
                         ForEach(lists.notDownloaded) { model in

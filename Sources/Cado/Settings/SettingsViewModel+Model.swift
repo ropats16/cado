@@ -209,7 +209,39 @@ extension SettingsViewModel {
 
     /// The file name of the custom model, when that row is selected.
     var customModelName: String? {
-        modelRow == .custom ? URL(fileURLWithPath: currentModel().path).lastPathComponent : nil
+        guard modelRow == .custom else { return nil }
+        let config = configStore.config
+        let customPath = config.customModelPath(for: engine)
+        if !customPath.isEmpty {
+            return URL(fileURLWithPath: customPath).lastPathComponent
+        }
+        if engine == .whisper, case .named(let id) = config.model {
+            return WhisperModel.filename(for: id)
+        }
+        return URL(fileURLWithPath: currentModel().path).lastPathComponent
+    }
+
+    /// The Model picker's label for the custom-file row, noting when an
+    /// English-only file is overridden for the current language (#61).
+    var customModelLabel: String? {
+        guard let name = customModelName else { return nil }
+        return "Custom file: \(name)\(englishOnlyOverrideSuffix(for: .custom))"
+    }
+
+    /// The Model picker's label for a downloaded model row: its catalog label,
+    /// plus an override suffix when it is the config's pick and an English-only
+    /// override is active for the current language (#61).
+    func modelLabel(for option: EngineModelOption) -> String {
+        option.label + englishOnlyOverrideSuffix(for: .catalog(option.id))
+    }
+
+    private func englishOnlyOverrideSuffix(for row: ModelRow) -> String {
+        guard modelRow == row else { return "" }
+        let config = configStore.config
+        let currentLanguage = ModelSpec.language(config.language)
+        guard !ModelCatalog.isEnglish(currentLanguage),
+              overriddenEnglishOnlyModel(for: config, selected: selection(config).spec) != nil else { return "" }
+        return " — English only, not used for \(LanguageFitCopy.languageLabel(currentLanguage))"
     }
 
     /// Always true: Language decides the model family (#55, #61), so an

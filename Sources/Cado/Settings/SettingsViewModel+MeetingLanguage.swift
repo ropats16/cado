@@ -147,7 +147,7 @@ extension SettingsViewModel {
     /// The explicit English-only whisper model `config` names (`modelPath` or
     /// named `.en` model) when `selected` overrode it with a multilingual
     /// Automatic pick (#61).
-    private func overriddenEnglishOnlyModel(for config: Config, selected: ModelSpec) -> String? {
+    func overriddenEnglishOnlyModel(for config: Config, selected: ModelSpec) -> String? {
         guard selected.engine == .whisper, !selected.isEnglishOnly else { return nil }
         if !config.modelPath.isEmpty, ModelCatalog.isEnglishOnly(config.modelPath) {
             let name = ModelCatalog.model(forFile: config.modelPath)?.id

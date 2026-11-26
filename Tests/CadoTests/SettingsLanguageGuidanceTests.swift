@@ -180,6 +180,50 @@ final class SettingsLanguageGuidanceTests: XCTestCase {
         XCTAssertNil(vm.dictationLanguageGuidance)
     }
 
+    func testOverriddenEnglishOnlyModelRowIsLabeledInModelPicker() {
+        present = ["base-q5_1", "small-q5_1", "small.en-q5_1", "medium.en", "tiny.en"]
+        configStore.update {
+            $0.engine = "parakeet"
+            $0.language = ModelSpec.autoDetect
+            $0.model = .automatic
+            $0.modelPath = modelsDir.appendingPathComponent("ggml-medium.en.bin").path
+        }
+
+        let vm = makeVM(appleSilicon: true, gib: 48)
+        let mediumEn = vm.modelLists.downloaded.first { $0.id == "medium.en" }!
+        let smallEn = vm.modelLists.downloaded.first { $0.id == "small.en-q5_1" }!
+        let small = vm.modelLists.downloaded.first { $0.id == "small-q5_1" }!
+
+        XCTAssertEqual(vm.modelRow, .catalog("medium.en"))
+        XCTAssertEqual(vm.modelLabel(for: mediumEn), "\(mediumEn.label) — English only, not used for Auto-detect")
+        XCTAssertEqual(vm.modelLabel(for: smallEn), smallEn.label, "Not the config's pick")
+        XCTAssertEqual(vm.modelLabel(for: small), small.label, "Not the config's pick")
+        UserFacingCopy.assertPlain(vm.modelLabel(for: mediumEn))
+
+        // Same config with Language = English: plain label (both on Turbo and Whisper).
+        vm.setLanguage("en")
+        XCTAssertEqual(vm.modelLabel(for: mediumEn), mediumEn.label)
+
+        configStore.update { $0.engine = "whisper"; $0.language = "en" }
+        let englishVM = makeVM(appleSilicon: true, gib: 48)
+        XCTAssertEqual(englishVM.modelLabel(for: mediumEn), mediumEn.label)
+
+        // Custom (non-catalog) .en file gets the same suffix when overridden, and plain label for English.
+        configStore.update {
+            $0.engine = "whisper"
+            $0.language = "hi"
+            $0.modelPath = modelsDir.appendingPathComponent("custom.en.bin").path
+        }
+        let customHindiVM = makeVM(appleSilicon: true, gib: 48)
+        XCTAssertEqual(customHindiVM.modelRow, .custom)
+        XCTAssertEqual(customHindiVM.customModelLabel, "Custom file: custom.en.bin — English only, not used for Hindi")
+        UserFacingCopy.assertPlain(customHindiVM.customModelLabel)
+
+        configStore.update { $0.language = "en" }
+        let customEnglishVM = makeVM(appleSilicon: true, gib: 48)
+        XCTAssertEqual(customEnglishVM.customModelLabel, "Custom file: custom.en.bin")
+    }
+
     func testFullTierAutomaticWithAndWithoutLargeV3Turbo() {
         configStore.update { $0.engine = "auto"; $0.language = ModelSpec.autoDetect }
 
