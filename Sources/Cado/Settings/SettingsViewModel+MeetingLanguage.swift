@@ -112,7 +112,7 @@ extension SettingsViewModel {
         let usesTierPick = spec.engine == .whisper && (usesAutomaticPick || overridden != nil || spec.isEnglishOnly)
         let download = dictationModelDownload(for: spec, installed: installed, language: language,
                                               overriddenEnglishOnly: overridden != nil, present: present)
-        let downloadName = download.map { dictationDownloadModelName(for: $0.key) }
+        let downloadName = download.flatMap { isDownloadingModel($0.key) ? nil : dictationDownloadModelName(for: $0.key) }
         guard let note = LanguageFitCopy.dictationNote(
             selected: spec, installed: installed, language: language,
             tier: MultilingualTier.tier(for: hardware),

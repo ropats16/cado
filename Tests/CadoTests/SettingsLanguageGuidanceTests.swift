@@ -26,10 +26,45 @@ final class SettingsLanguageGuidanceTests: XCTestCase {
 
     private final class StubDownloader: ModelDownloading, @unchecked Sendable {
         let onDownload: @Sendable (ModelDownload) -> Void
-        init(onDownload: @escaping @Sendable (ModelDownload) -> Void) { self.onDownload = onDownload }
+        private let lock = NSLock()
+        private var holds: Bool
+        private var released = false
+        private var release: CheckedContinuation<Void, Never>?
+
+        init(holds: Bool = false, onDownload: @escaping @Sendable (ModelDownload) -> Void) {
+            self.holds = holds
+            self.onDownload = onDownload
+        }
+
         func download(_ download: ModelDownload, progress: @escaping @Sendable (Int64) -> Void) async throws {
+            progress(download.totalBytes / 2)
+            let shouldHold = lock.withLock { holds }
+            if shouldHold {
+                await withTaskCancellationHandler {
+                    await withCheckedContinuation { continuation in
+                        let now = lock.withLock { () -> Bool in
+                            if released { return true }
+                            release = continuation
+                            return false
+                        }
+                        if now { continuation.resume() }
+                    }
+                } onCancel: { [weak self] in
+                    self?.finishHolding()
+                }
+                try Task.checkCancellation()
+            }
             progress(download.totalBytes)
             onDownload(download)
+        }
+
+        func finishHolding() {
+            let continuation = lock.withLock { () -> CheckedContinuation<Void, Never>? in
+                released = true
+                defer { release = nil }
+                return release
+            }
+            continuation?.resume()
         }
     }
 
@@ -504,6 +539,60 @@ final class SettingsLanguageGuidanceTests: XCTestCase {
         XCTAssertNil(vm.dictationLanguageGuidance?.download)
         XCTAssertEqual(vm.dictationLanguageGuidance?.text,
                        "Whisper medium.en only understands English, so Auto-detect uses Whisper large-v3-turbo-q5_0 instead.")
+    }
+
+    func testGuidanceDropsDownloadInstructionWhileOfferedModelIsDownloading() async {
+        // Owner's setup: upgrade download in progress drops "Download ... below for better accuracy ...".
+        present = ["base-q5_1", "small-q5_1", "small.en-q5_1", "medium.en", "tiny.en"]
+        configStore.update {
+            $0.engine = "parakeet"
+            $0.language = ModelSpec.autoDetect
+            $0.model = .automatic
+            $0.modelPath = modelsDir.appendingPathComponent("ggml-medium.en.bin").path
+        }
+        let box = installedBox
+        let downloader = StubDownloader(holds: true) { download in box.insert(download.modelID) }
+        let vm = makeVM(appleSilicon: true, gib: 48, downloader: downloader)
+        guard let offered = vm.dictationLanguageGuidance?.download else {
+            return XCTFail("Expected large-v3-turbo-q5_0 download offer")
+        }
+
+        let task = vm.downloadModel(offered.key)
+        XCTAssertTrue(vm.isDownloadingModel(offered.key))
+        XCTAssertEqual(vm.dictationLanguageGuidance, SettingsViewModel.DictationLanguageGuidance(
+            text: "Whisper medium.en only understands English, so Auto-detect uses Whisper small-q5_1 instead.",
+            isProblem: false,
+            download: offered
+        ))
+        XCTAssertFalse(vm.dictationLanguageGuidance?.text.contains("Download") ?? true)
+
+        downloader.finishHolding()
+        await task?.value
+        XCTAssertNil(vm.dictationLanguageGuidance?.download)
+
+        // Missing model download in progress drops "Download it below.".
+        present = ["small.en-q5_1"]
+        configStore.update {
+            $0.engine = "auto"
+            $0.language = ModelSpec.autoDetect
+            $0.model = .automatic
+            $0.modelPath = ""
+        }
+        let missingDownloader = StubDownloader(holds: true) { _ in }
+        let missingVM = makeVM(appleSilicon: true, gib: 8, downloader: missingDownloader)
+        guard let missingOffered = missingVM.dictationLanguageGuidance?.download else {
+            return XCTFail("Expected small-q5_1 download offer")
+        }
+        let missingTask = missingVM.downloadModel(missingOffered.key)
+        XCTAssertEqual(missingVM.dictationLanguageGuidance, SettingsViewModel.DictationLanguageGuidance(
+            text: "Auto-detect needs Whisper small-q5_1, which isn't downloaded. "
+                + "Accuracy for other languages is limited on this Mac — more language support is coming soon.",
+            isProblem: true,
+            download: missingOffered
+        ))
+        XCTAssertFalse(missingVM.dictationLanguageGuidance?.text.contains("Download") ?? true)
+        missingVM.cancelModelDownload(missingOffered.key)
+        await missingTask?.value
     }
 
     // MARK: - WhisperKit
