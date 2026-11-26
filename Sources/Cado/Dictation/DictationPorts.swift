@@ -85,16 +85,9 @@ enum DeliveryReport: Equatable {
 /// caret, or the clipboard when nothing editable is focused), or drops it
 /// when nothing is left; says which it did.
 protocol DictationDelivery: AnyObject {
-    func deliver(_ transcript: String, trailingSpace: Bool) -> DeliveryReport
     /// Delivers `transcript`, removing spoken hesitations when `removeHesitations`
     /// is true using `language` (nil = unknown, #62).
     func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport
-}
-
-extension DictationDelivery {
-    func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport {
-        deliver(transcript, trailingSpace: trailingSpace)
-    }
 }
 
 /// What the user hears and is told: sound cues, notifications. Nothing
@@ -140,7 +133,7 @@ struct DictationSettings: Equatable {
     /// Append a space after the delivered text.
     var trailingSpace: Bool
     /// Remove spoken hesitation sounds ("um", "uh", …) before delivery (#62).
-    var removeHesitations: Bool = true
+    var removeHesitations: Bool
 
     /// The max-duration timer's length.
     var limitSeconds: Double { maxSeconds > 0 ? maxSeconds : ceilingSeconds }

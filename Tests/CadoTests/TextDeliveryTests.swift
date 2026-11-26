@@ -38,13 +38,19 @@ final class TextDeliveryTests: XCTestCase {
         probe.observation = FocusObservation(focused: focused, bundleID: app, isChromiumHosted: chromium)
     }
 
+    private func deliver(_ transcript: String, trailingSpace: Bool,
+                         removeHesitations: Bool = false, language: String? = nil) -> DeliveryReport {
+        delivery.deliver(transcript, trailingSpace: trailingSpace,
+                         removeHesitations: removeHesitations, language: language)
+    }
+
     // MARK: - Outcomes
 
     func testEditableFieldIsPastedThenClipboardRestored() {
         var textAtPaste: String?
         keys.onPaste = { [unowned self] in textAtPaste = self.pasteboard.read() }
 
-        let report = delivery.deliver(" Hello world. ", trailingSpace: false)
+        let report = deliver(" Hello world. ", trailingSpace: false)
 
         XCTAssertEqual(report, .pasted("Hello world."))
         XCTAssertEqual(keys.pastes, 1)
@@ -55,14 +61,14 @@ final class TextDeliveryTests: XCTestCase {
 
     func testUnknownFocusIsPastedAnyway() {
         focus(.none)
-        XCTAssertEqual(delivery.deliver("hi", trailingSpace: false), .pasted("hi"))
+        XCTAssertEqual(deliver("hi", trailingSpace: false), .pasted("hi"))
         XCTAssertEqual(keys.pastes, 1)
     }
 
     func testNotEditableIsCopiedWithoutPasteOrRestore() {
         focus(.element(role: "AXButton", valueSettable: false))
 
-        let report = delivery.deliver("hi", trailingSpace: false)
+        let report = deliver("hi", trailingSpace: false)
 
         XCTAssertEqual(report, .copied("hi"))
         XCTAssertEqual(keys.pastes, 0)
@@ -72,10 +78,10 @@ final class TextDeliveryTests: XCTestCase {
     }
 
     func testCopyCancelsPendingRestoreOfEarlierPaste() {
-        _ = delivery.deliver("first", trailingSpace: false)
+        _ = deliver("first", trailingSpace: false)
         focus(.element(role: "AXGroup", valueSettable: false))
 
-        XCTAssertEqual(delivery.deliver("second", trailingSpace: false), .copied("second"))
+        XCTAssertEqual(deliver("second", trailingSpace: false), .copied("second"))
 
         clock.advance(by: Timing.slowApp.cap * 2)
         XCTAssertEqual(pasteboard.restores, [])
@@ -84,7 +90,7 @@ final class TextDeliveryTests: XCTestCase {
 
     func testEmptyTextIsDroppedWithoutTouchingAnything() {
         for raw in ["", "  \n ", "[BLANK_AUDIO]", " (music) ", "[Music] [Applause]", "[Music]\n(laughs)", "♪"] {
-            XCTAssertEqual(delivery.deliver(raw, trailingSpace: true), .droppedEmpty, raw)
+            XCTAssertEqual(deliver(raw, trailingSpace: true), .droppedEmpty, raw)
         }
         XCTAssertEqual(probe.observations, 0, "No AX round-trip for nothing")
         XCTAssertEqual(keys.pastes, 0)
@@ -94,21 +100,21 @@ final class TextDeliveryTests: XCTestCase {
     // MARK: - Cleanup
 
     func testTagsStrippedAnywhere() {
-        let report = delivery.deliver("[Music] Hello [MUSIC] world (laughs). ♪", trailingSpace: false)
+        let report = deliver("[Music] Hello [MUSIC] world (laughs). ♪", trailingSpace: false)
         XCTAssertEqual(report, .pasted("Hello world."))
         XCTAssertEqual(pasteboard.text, "Hello world.")
     }
 
     func testSpokenParenthesesKept() {
-        XCTAssertEqual(delivery.deliver("Call me (maybe)", trailingSpace: false), .pasted("Call me (maybe)"))
-        XCTAssertEqual(delivery.deliver("[unclosed", trailingSpace: false), .pasted("[unclosed"))
+        XCTAssertEqual(deliver("Call me (maybe)", trailingSpace: false), .pasted("Call me (maybe)"))
+        XCTAssertEqual(deliver("[unclosed", trailingSpace: false), .pasted("[unclosed"))
     }
 
     func testTrailingSpaceAppendedWhenAsked() {
-        XCTAssertEqual(delivery.deliver(" Hi there.", trailingSpace: true), .pasted("Hi there. "))
+        XCTAssertEqual(deliver(" Hi there.", trailingSpace: true), .pasted("Hi there. "))
         XCTAssertEqual(pasteboard.text, "Hi there. ")
-        XCTAssertEqual(delivery.deliver("  Hi there. \n", trailingSpace: false), .pasted("Hi there."))
-        XCTAssertEqual(delivery.deliver("[Music] hello [Music]", trailingSpace: true), .pasted("hello "))
+        XCTAssertEqual(deliver("  Hi there. \n", trailingSpace: false), .pasted("Hi there."))
+        XCTAssertEqual(deliver("[Music] hello [Music]", trailingSpace: true), .pasted("hello "))
     }
 
     func testHesitationsRemovedWhenEnabledAndKeptVerbatimWhenOff() {
@@ -147,7 +153,7 @@ final class TextDeliveryTests: XCTestCase {
     func testChromiumAppGetsTheSlowRestore() {
         focus(.element(role: "AXTextArea", valueSettable: true), app: "com.microsoft.VSCode", chromium: true)
 
-        XCTAssertEqual(delivery.deliver("hi", trailingSpace: false), .pasted("hi"))
+        XCTAssertEqual(deliver("hi", trailingSpace: false), .pasted("hi"))
 
         clock.advance(by: Timing.native.base)
         XCTAssertEqual(pasteboard.text, "hi", "Electron may still be reading the pasteboard")
@@ -159,7 +165,7 @@ final class TextDeliveryTests: XCTestCase {
         focus(.timedOut)
 
         keys.onPaste = nil   // hung: doesn't read while handling ⌘V
-        XCTAssertEqual(delivery.deliver("hi", trailingSpace: false), .pasted("hi"))
+        XCTAssertEqual(deliver("hi", trailingSpace: false), .pasted("hi"))
 
         clock.advance(by: Timing.native.cap)
         XCTAssertEqual(pasteboard.restores, [], "An unread slow paste waits the slow cap")
@@ -169,10 +175,10 @@ final class TextDeliveryTests: XCTestCase {
 
     func testBurstRestoresOnceAfterTheLastPaste() {
         focus(.element(role: "AXTextArea", valueSettable: true), chromium: true)
-        _ = delivery.deliver("one", trailingSpace: false)
+        _ = deliver("one", trailingSpace: false)
         clock.advance(by: 0.5)
         focus(.element(role: "AXTextField", valueSettable: true))
-        _ = delivery.deliver("two", trailingSpace: false)
+        _ = deliver("two", trailingSpace: false)
 
         clock.advance(by: Timing.native.base)
         XCTAssertEqual(pasteboard.restores, [], "The Electron paste is still within its window")
@@ -184,13 +190,13 @@ final class TextDeliveryTests: XCTestCase {
 
     func testFinderDesktopCopies() {
         focus(.none, app: FocusRules.finderBundleID)
-        XCTAssertEqual(delivery.deliver("hi", trailingSpace: false), .copied("hi"))
+        XCTAssertEqual(deliver("hi", trailingSpace: false), .copied("hi"))
         XCTAssertEqual(keys.pastes, 0)
     }
 
     func testFinderRenameFieldPastes() {
         focus(.element(role: "AXTextField", valueSettable: true), app: FocusRules.finderBundleID)
-        XCTAssertEqual(delivery.deliver("hi", trailingSpace: false), .pasted("hi"))
+        XCTAssertEqual(deliver("hi", trailingSpace: false), .pasted("hi"))
     }
 
     // MARK: - Late reader
@@ -199,7 +205,7 @@ final class TextDeliveryTests: XCTestCase {
         focus(.element(role: "AXTextArea", valueSettable: true), app: "com.microsoft.VSCode", chromium: true)
         keys.onPaste = nil
 
-        _ = delivery.deliver("hi", trailingSpace: false)
+        _ = deliver("hi", trailingSpace: false)
         clock.advance(by: 1.5)   // past the old fixed 1 s
         XCTAssertEqual(pasteboard.read(), "hi")
         clock.advance(by: Timing.readGrace + 0.01)

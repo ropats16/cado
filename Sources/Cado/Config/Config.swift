@@ -156,7 +156,7 @@ struct Config: Codable {
          openRouterConsent: Bool = false, openRouterModel: String = "",
          meetingHotkey: KeyBinding = .controlOptionM, meetingDetection: Bool = true,
          maxMeetingMinutes: Double = MeetingLimit.defaultMinutes, meetingConsentShown: Bool = false,
-         nameMeetingsFromCalendar: Bool = false, removeHesitations: Bool = true) {
+         nameMeetingsFromCalendar: Bool = false, removeHesitations: Bool) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath

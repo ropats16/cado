@@ -334,7 +334,7 @@ final class MeetingSession {
          systemAudioPermission: @escaping () -> SystemAudioPermission,
          keepAudio: @escaping () -> Bool = { false },
          meetingLanguage: @escaping () -> String? = { nil },
-         removeHesitations: @escaping () -> Bool = { true },
+         removeHesitations: @escaping () -> Bool,
          maxSeconds: @escaping () -> TimeInterval? = { MeetingSession.defaultMaxSeconds },
          locale: Locale = .current, timeZone: TimeZone = .current,
          calendarNaming: MeetingCalendarNaming = .off,

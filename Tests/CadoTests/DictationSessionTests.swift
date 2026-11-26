@@ -59,7 +59,7 @@ final class DictationSessionTests: XCTestCase {
         private(set) var received: [String] = []
         /// The texts that reached the user.
         private(set) var delivered: [String] = []
-        func deliver(_ transcript: String, trailingSpace: Bool) -> DeliveryReport {
+        func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport {
             received.append(transcript)
             guard let method else { return .droppedEmpty }
             let text = trailingSpace ? transcript + " " : transcript
@@ -124,7 +124,8 @@ final class DictationSessionTests: XCTestCase {
         feedback = FakeFeedback()
         history = FakeHistory()
         settings = DictationSettings(minSeconds: 0.3, maxSeconds: 600,
-                                     ceilingSeconds: AudioCapture.ceilingSeconds, trailingSpace: false)
+                                     ceilingSeconds: AudioCapture.ceilingSeconds, trailingSpace: false,
+                                     removeHesitations: true)
         status = .ready
         session = DictationSession(
             capture: capture, engine: engine, delivery: delivery, feedback: feedback,
@@ -338,7 +339,7 @@ final class DictationSessionTests: XCTestCase {
         final class OrderingDelivery: DictationDelivery {
             var feedback: FakeFeedback!
             var eventsAtDelivery: [FakeFeedback.Event] = []
-            func deliver(_ transcript: String, trailingSpace: Bool) -> DeliveryReport {
+            func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport {
                 eventsAtDelivery = feedback.events
                 return .pasted(transcript)
             }
@@ -508,7 +509,7 @@ final class DictationSessionTests: XCTestCase {
         final class ReentrantDelivery: DictationDelivery {
             weak var session: DictationSession?
             var phaseSeen: DictationSession.Phase?
-            func deliver(_ transcript: String, trailingSpace: Bool) -> DeliveryReport {
+            func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport {
                 phaseSeen = session?.phase
                 session?.handle(.toggle)
                 return .pasted(transcript)

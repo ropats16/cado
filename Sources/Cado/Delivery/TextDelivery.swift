@@ -32,10 +32,6 @@ final class TextDelivery: DictationDelivery {
                   probe: AXFocusProbe())
     }
 
-    func deliver(_ transcript: String, trailingSpace: Bool) -> DeliveryReport {
-        deliver(transcript, trailingSpace: trailingSpace, removeHesitations: false, language: nil)
-    }
-
     func deliver(_ transcript: String, trailingSpace: Bool, removeHesitations: Bool, language: String?) -> DeliveryReport {
         let text = Self.clean(transcript, trailingSpace: trailingSpace,
                               removeHesitations: removeHesitations, language: language)
@@ -59,7 +55,7 @@ final class TextDelivery: DictationDelivery {
     /// already filters each segment; this repeats it on the whole transcript so
     /// every engine gets the same rule.
     static func clean(_ raw: String, trailingSpace: Bool,
-                      removeHesitations: Bool = false, language: String? = nil) -> String {
+                      removeHesitations: Bool, language: String? = nil) -> String {
         var text = NonSpeechFilter.clean(raw)
         if removeHesitations {
             text = HesitationFilter.clean(text, language: language)

@@ -169,6 +169,7 @@ final class MeetingBleedReplayTests: XCTestCase {
             archive: FolderMeetingArchive(root: dir.appendingPathComponent("archive", isDirectory: true)),
             spool: FolderMeetingSpool(root: spoolDir), feedback: notices, activity: notices, clock: ManualClock(),
             date: { Date(timeIntervalSince1970: 1_794_839_520) }, systemAudioPermission: { .unconfirmed },
+            removeHesitations: { true },
             locale: Locale(identifier: "en_GB"), timeZone: TimeZone(identifier: "UTC")!)
         return Run(session: session, recorder: recorder, notices: notices, engine: engine)
     }
