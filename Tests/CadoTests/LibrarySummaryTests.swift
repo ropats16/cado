@@ -53,13 +53,82 @@ final class LibrarySummaryTests: XCTestCase {
 
     func testAnExistingSummaryShowsEvenWhereSummariesCantRun() throws {
         let note = try saveMeeting()
-        let body = SummarySection.applying(SummarySection.markdown(SummaryOutcome(summary: MeetingSummary(keyPoints: ["a"])),
+        let body = SummarySection.applying(SummarySection.markdown(SummaryOutcome(summary: MeetingSummary(discussion: ["a"])),
                                                                    provider: .onDevice), to: note.body)
         let summarized = Note(summary: note.summary, body: body)
         let panel = SummaryPanel.make(reading(summarized), state: nil, availability: .unavailable(.needsNewerMacOS))
-        XCTAssertEqual(panel?.blocks?.first, .heading(level: 3, text: "Key points"))
+        XCTAssertEqual(panel?.blocks?.first, .heading(level: 3, text: "Discussion"))
         XCTAssertEqual(panel?.canSummarize, false)
         XCTAssertEqual(SummaryPanel.make(reading(summarized), state: nil, availability: .available)?.buttonTitle, "Regenerate Summary")
+    }
+
+    func testNewFormatSummarySectionYieldsOverviewParagraphFourHeadingsAndActionItemsHeading() throws {
+        let note = try saveMeeting()
+        let outcome = SummaryOutcome(summary: MeetingSummary(
+            overview: "CSV export ships Dec 10 while PDF moves to v2.",
+            decisions: ["Ship CSV export for Dec 10"],
+            actionItems: ["Me: Share a test build by Thursday"],
+            discussion: ["**Export format:** CSV takes 2 days vs. 8 days for PDF"],
+            openQuestions: ["Should exports over 200 receipts warn or split?"]
+        ))
+        let body = SummarySection.applying(SummarySection.markdown(outcome, provider: .onDevice), to: note.body)
+        let summarized = Note(summary: note.summary, body: body)
+        let panel = try XCTUnwrap(SummaryPanel.make(reading(summarized), state: nil, availability: .available))
+        let blocks = try XCTUnwrap(panel.blocks)
+        XCTAssertEqual(blocks, [
+            .paragraph("CSV export ships Dec 10 while PDF moves to v2."),
+            .heading(level: 3, text: "Decisions"),
+            .bullet("Ship CSV export for Dec 10", depth: 0),
+            .heading(level: 3, text: "Action items"),
+            .bullet("Me: Share a test build by Thursday", depth: 0),
+            .heading(level: 3, text: "Discussion"),
+            .bullet("**Export format:** CSV takes 2 days vs. 8 days for PDF", depth: 0),
+            .heading(level: 3, text: "Open questions"),
+            .bullet("Should exports over 200 receipts warn or split?", depth: 0),
+            .paragraph("_\(SummaryProvider.onDevice.attribution)_"),
+        ])
+        XCTAssertNil(SummaryCard.aside(blocks[0]), "Overview renders as body text, not a caption aside")
+        XCTAssertNotNil(SummaryCard.aside(try XCTUnwrap(blocks.last)), "Attribution stays a caption aside")
+        let actionIndex = try XCTUnwrap(blocks.firstIndex(of: .bullet("Me: Share a test build by Thursday", depth: 0)))
+        let actionSectionHeading = blocks.prefix(actionIndex).reversed().compactMap { block -> String? in
+            if case .heading(_, let title) = block { return title }; return nil
+        }.first
+        XCTAssertEqual(actionSectionHeading?.lowercased(), "action items", "Action items keep checkbox styling")
+    }
+
+    func testOldThreeListSummarySectionReadsUnchanged() throws {
+        let note = try saveMeeting()
+        let legacySection = """
+            <!-- cado:summary -->
+            ## Summary
+
+            ### Key points
+            - Budget is unchanged
+
+            ### Decisions
+            - Keep Q3 scope
+
+            ### Action items
+            - Sam sends the deck
+
+            _\(SummaryProvider.onDevice.attribution)_
+
+            ## Transcript
+            <!-- /cado:summary -->
+
+            """
+        let body = SummarySection.applying(legacySection, to: note.body)
+        let summarized = Note(summary: note.summary, body: body)
+        let panel = try XCTUnwrap(SummaryPanel.make(reading(summarized), state: nil, availability: .available))
+        XCTAssertEqual(panel.blocks, [
+            .heading(level: 3, text: "Key points"),
+            .bullet("Budget is unchanged", depth: 0),
+            .heading(level: 3, text: "Decisions"),
+            .bullet("Keep Q3 scope", depth: 0),
+            .heading(level: 3, text: "Action items"),
+            .bullet("Sam sends the deck", depth: 0),
+            .paragraph("_\(SummaryProvider.onDevice.attribution)_"),
+        ])
     }
 
     func testWorkingHidesTheButtonAndAFailureSaysWhy() throws {
