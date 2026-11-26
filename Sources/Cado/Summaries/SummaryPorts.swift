@@ -17,7 +17,8 @@ struct MeetingSummary: Equatable, Sendable {
     /// An overview with no items is not a summary (#64).
     var isEmpty: Bool { decisions.isEmpty && actionItems.isEmpty && discussion.isEmpty && openQuestions.isEmpty }
 
-    /// A summary with no items has no overview (#64).
+    /// A summary with no items has no overview; one with items has its overview
+    /// as plain prose of at most two sentences (`SummaryText.clippedOverview`) (#64).
     func normalized() -> MeetingSummary {
         var copy = self
         copy.overview = isEmpty ? "" : SummaryText.clippedOverview(overview)

@@ -289,6 +289,12 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertEqual(inline.summary.openQuestions, ["One blocker"])
     }
 
+    func testALeadInBeforeTheListsIsNotTheOverview() {
+        let reading = SummaryText.read("Sure, here is the summary:\nDecisions:\n- Ship CSV export first")
+        XCTAssertEqual(reading.summary.overview, "")
+        XCTAssertEqual(reading.summary.decisions, ["Ship CSV export first"])
+    }
+
     func testProseBeforeFirstHeadingBecomesOverviewWhenNoOverviewHeadingSuppliesOne() {
         let text = """
             The team agreed to ship CSV export first.

@@ -74,7 +74,10 @@ enum SummaryText {
                 guard !line.isEmpty else { continue }
             }
             guard let field else {
-                if !isListItem(line), let text = overviewItem(line) { leadingOverviewLines.append(text) }
+                // A lead-in ("Here is the summary:") introduces the answer; it isn't the overview.
+                if !isListItem(line), !line.hasSuffix(":"), let text = overviewItem(line) {
+                    leadingOverviewLines.append(text)
+                }
                 continue
             }
             switch field {
@@ -91,9 +94,8 @@ enum SummaryText {
                 }
             }
         }
-        let chosenOverview = !overviewLines.isEmpty
-            ? overviewLines
-            : (!summaryOverviewLines.isEmpty ? summaryOverviewLines : leadingOverviewLines)
+        // An "Overview" heading wins, then prose under "Summary", then prose before any heading.
+        let chosenOverview = [overviewLines, summaryOverviewLines, leadingOverviewLines].first { !$0.isEmpty } ?? []
         reading.summary.overview = clippedOverview(chosenOverview.joined(separator: " "))
         return reading
     }
