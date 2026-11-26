@@ -66,7 +66,11 @@ struct SummaryPipeline {
         guard !all.parts.isEmpty else {
             throw SummaryPipelineError.noPassageSummarized(all.lastError ?? .failed("nothing summarized"))
         }
-        return SummaryOutcome(summary: try await reduce(all.parts), skippedPassages: all.skipped, passages: passages.count)
+        var summary = try await reduce(all.parts)
+        if !summary.isEmpty, summary.overview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            summary.overview = try await synthesizeOverview(for: summary)
+        }
+        return SummaryOutcome(summary: summary, skippedPassages: all.skipped, passages: passages.count)
     }
 
     /// Partial summaries so far, and what was left out.
@@ -145,9 +149,24 @@ struct SummaryPipeline {
         return out
     }
 
+    /// Synthesizes an overview when a non-empty summary ended without one
+    /// (e.g. only one part of a multi-part meeting survived, a merge answer
+    /// omitted Overview, or a failed merge fell back to joining parts).
+    /// Non-stopping errors keep the extracted items without an overview.
+    private func synthesizeOverview(for summary: MeetingSummary) async throws -> String {
+        do {
+            return try await call { try await summarizer.overview(for: summary) }
+        } catch let error as SummarizerError where error.stopsMerging {
+            throw error
+        } catch let error as SummarizerError {
+            Log.error("Summary: synthesizing fallback overview failed (\(error)); keeping items without overview.")
+            return ""
+        }
+    }
+
     /// One call, retried while `busy` and `busyRetryDelays` last. Throws a
     /// `SummarizerError` (anything else as `failed`) or `CancellationError`.
-    private func call(_ body: () async throws -> MeetingSummary) async throws -> MeetingSummary {
+    private func call<T>(_ body: () async throws -> T) async throws -> T {
         var delays = busyRetryDelays[...]
         while true {
             do {

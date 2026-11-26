@@ -1,39 +1,61 @@
 import Foundation
 
-/// Bounds the on-device relevance pass and preserves whole items. This
-/// removes trivial or incoherent output; it is not a factuality guarantee.
-/// An uncertain classifier or oversized answer rejects this result. A
-/// passage failure preserves the saved summary; a failed merge may join
-/// the checked passage summaries without silently dropping their content.
+/// Deterministic cleanup and bounds for summaries, plus transcript relevance-gate
+/// parsing (#64).
 ///
-/// The item and word caps are provisional for the four-list format (#64);
-/// part 2 tunes them against live fixtures.
+/// Replaces the earlier per-bullet LLM relevance loop (which made up to 20 extra
+/// on-device calls per pass, rejected valid short action items, and failed whole
+/// summaries when the model answered in a sentence instead of bare YES/NO).
+/// Keeps whole items, removes exact/normalized duplicates within and across
+/// sections (preferring Action items > Decisions > Open questions > Discussion
+/// so tasks echoed in both Decisions and Action items stay actionable), drops
+/// speaker-prefixed "None" or bare acknowledgment placeholders, and bounds
+/// oversized answers without aborting a whole meeting. Pure.
 enum SummaryQualityFilter {
     static let maximumItems = 20
     static let maximumWords = 280
+    static let maximumPerSection = 5
 
-    static func filtered(_ summary: MeetingSummary,
-                         classify: (String) async throws -> Bool) async throws -> MeetingSummary {
-        try Task.checkCancellation()
-        let summary = MeetingSummary.combined([summary])
-        let items = summary.decisions + summary.actionItems + summary.discussion + summary.openQuestions
-        guard items.count <= maximumItems,
-              items.joined(separator: " ").split(whereSeparator: \.isWhitespace).count <= maximumWords else {
-            throw SummarizerError.failed("The summary was too long. Try again.")
+    /// Deterministic post-filter: deduplicates within and across sections,
+    /// caps each section at `maxPerSection` (and total items/words at
+    /// `maximumItems`/`maximumWords`), and clears `overview` if no items remain.
+    static func cleaned(_ summary: MeetingSummary, maxPerSection: Int = maximumPerSection) -> MeetingSummary {
+        var seen = Set<String>()
+        var totalItems = 0
+        var totalWords = 0
+
+        func keep(_ items: [String]) -> [String] {
+            var out: [String] = []
+            for raw in items {
+                let item = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+                guard !item.isEmpty, !isPlaceholder(item) else { continue }
+                let key = normalizedKey(item)
+                guard !key.isEmpty, seen.insert(key).inserted else { continue }
+                let words = item.split(separator: " ").count
+                guard out.count < maxPerSection,
+                      totalItems + 1 <= maximumItems,
+                      totalWords + words <= maximumWords else { continue }
+                out.append(item)
+                totalItems += 1
+                totalWords += words
+            }
+            return out
         }
-        var accepted = Set<String>()
-        for item in Set(items).sorted() {
-            try Task.checkCancellation()
-            if try await classify(item) { accepted.insert(item) }
-        }
-        try Task.checkCancellation()
-        let kept = MeetingSummary(overview: summary.overview,
-                                  decisions: summary.decisions.filter { accepted.contains($0) },
-                                  actionItems: summary.actionItems.filter { accepted.contains($0) },
-                                  discussion: summary.discussion.filter { accepted.contains($0) },
-                                  openQuestions: summary.openQuestions.filter { accepted.contains($0) })
-        // The overview is not sent to `classify`; keep it only when at least one item survived (#64).
-        return kept.normalized()
+
+        // Priority order: action items > decisions > open questions > discussion.
+        // Small models frequently echo a concrete task in both Decisions and
+        // Action items; keeping it in Action items preserves checkboxes.
+        let actionItems = keep(summary.actionItems)
+        let decisions = keep(summary.decisions)
+        let openQuestions = keep(summary.openQuestions)
+        let discussion = keep(summary.discussion)
+        return MeetingSummary(
+            overview: summary.overview,
+            decisions: decisions,
+            actionItems: actionItems,
+            discussion: discussion,
+            openQuestions: openQuestions
+        ).normalized()
     }
 
     static func relevance(from answer: String) throws -> Bool {
@@ -42,5 +64,29 @@ enum SummaryQualityFilter {
         case "NO": return false
         default: throw SummarizerError.failed("The summary could not be checked. Try again.")
         }
+    }
+
+    private static func isPlaceholder(_ item: String) -> Bool {
+        var body = item.lowercased().trimmingCharacters(in: .whitespaces)
+        for prefix in ["me:/others:", "me:", "others:", "them:"] where body.hasPrefix(prefix) {
+            body = String(body.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+            break
+        }
+        let bare = body.trimmingCharacters(in: CharacterSet(charactersIn: ".!?:;-•_* "))
+        return bare.isEmpty || placeholders.contains(bare)
+    }
+
+    private static let placeholders: Set<String> = [
+        "none", "n/a", "na", "nothing", "not specified", "none specified", "not mentioned",
+        "no decisions", "no action items", "no open questions", "no discussion",
+        "none noted", "none mentioned",
+        "ok", "okay", "yes", "no", "thanks", "thank you", "perfect", "great", "cool", "got it", "sounds good", "agreed",
+    ]
+
+    private static func normalizedKey(_ item: String) -> String {
+        item.lowercased()
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".!?:;-•* "))
     }
 }
