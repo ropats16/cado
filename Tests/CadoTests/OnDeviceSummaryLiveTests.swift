@@ -108,9 +108,11 @@ final class OnDeviceSummaryLiveTests: XCTestCase {
         }
         #if canImport(FoundationModels)
         if #available(macOS 26, *), !SystemLanguageModel.default.supportsLocale(Locale(identifier: "hi")) {
-            // Keep the real limitation visible, not silently skipped or
-            // relabeled as a passing Hindi-quality test. Tracked in #58.
-            XCTExpectFailure("Installed Apple model does not support Hindi; romanized Hindi can evade detection (#58).") {
+            // Keep the real limitation visible without failing when a prompt
+            // happens to extract the romanized Hindi cleanly (#58, #64).
+            let options = XCTExpectedFailure.Options()
+            options.isStrict = false
+            XCTExpectFailure("Installed Apple model does not support Hindi; romanized Hindi can evade detection (#58).", options: options) {
                 verify()
             }
             return
@@ -164,6 +166,63 @@ final class OnDeviceSummaryLiveTests: XCTestCase {
         XCTAssertFalse(outcome.summary.isEmpty)
     }
 
+    /// Runs the 8 synthetic quality fixtures (#64) against Apple Intelligence
+    /// and prints timings, call counts, raw answers, rendered summaries, and
+    /// deterministic check violations for rubric scoring.
+    func testQualityFixtureSuite() async throws {
+        #if canImport(FoundationModels)
+        guard #available(macOS 26, *) else { throw XCTSkip("needs macOS 26") }
+        final class Recorder: @unchecked Sendable {
+            private let lock = NSLock()
+            private var calls: [(stage: String, answer: String, elapsed: TimeInterval)] = []
+            func record(_ stage: String, _ answer: String, _ elapsed: TimeInterval) {
+                lock.withLock { calls.append((stage, answer, elapsed)) }
+            }
+            func drain() -> [(stage: String, answer: String, elapsed: TimeInterval)] {
+                lock.withLock { let copy = calls; calls = []; return copy }
+            }
+        }
+        let recorder = Recorder()
+        let summarizer = FoundationModelsSummarizer(onCall: { stage, answer, elapsed in
+            recorder.record(stage, answer, elapsed)
+        })
+        for fixture in SummaryQualityFixtures.all {
+            let started = Date()
+            do {
+                let outcome = try await SummaryPipeline(summarizer: summarizer).run(fixture.turns)
+                let elapsed = Date().timeIntervalSince(started)
+                let calls = recorder.drain()
+                let violations = SummaryQualityChecks.violations(for: outcome, fixture: fixture)
+                let stageSummary = Dictionary(grouping: calls, by: { $0.stage.split(separator: "(").first.map(String.init) ?? $0.stage })
+                    .map { "\($0.key)=\($0.value.count)(\(String(format: "%.2f", $0.value.reduce(0) { $0 + $1.elapsed }))s)" }
+                    .sorted().joined(separator: ", ")
+                print("""
+                    ============================================================
+                    FIXTURE: \(fixture.id) (\(fixture.title))
+                    TIME: \(String(format: "%.2f", elapsed)) s | PASSAGES: \(outcome.passages) (skipped \(outcome.skippedPassages)) | CALLS: \(calls.count) [\(stageSummary)]
+                    VIOLATIONS: \(violations.isEmpty ? "NONE" : violations.joined(separator: " ; "))
+                    --- RAW NON-FILTER ANSWERS ---
+                    \(calls.filter { $0.stage != "filter" }.map { "[\($0.stage) \(String(format: "%.2f", $0.elapsed))s]\n\($0.answer)" }.joined(separator: "\n---\n"))
+                    --- FINAL MARKDOWN ---
+                    \(SummarySection.markdown(outcome, provider: .onDevice))
+                    """)
+                XCTAssertEqual(violations, [], "Fixture \(fixture.id) failed structural/bounds/noise checks")
+            } catch {
+                let elapsed = Date().timeIntervalSince(started)
+                let calls = recorder.drain()
+                print("""
+                    ============================================================
+                    FIXTURE: \(fixture.id) (\(fixture.title))
+                    ERROR after \(String(format: "%.2f", elapsed)) s | CALLS: \(calls.count): \(error)
+                    --- RAW ANSWERS ---
+                    \(calls.map { "[\($0.stage) \(String(format: "%.2f", $0.elapsed))s]\n\($0.answer)" }.joined(separator: "\n---\n"))
+                    """)
+                XCTFail("Fixture \(fixture.id) failed with error: \(error)")
+            }
+        }
+        #endif
+    }
+
     /// A summarizer with other limits.
     private struct Limited: MeetingSummarizer {
         let base: MeetingSummarizer
@@ -175,6 +234,10 @@ final class OnDeviceSummaryLiveTests: XCTestCase {
 
         func merge(_ parts: [MeetingSummary]) async throws -> MeetingSummary {
             try await base.merge(parts)
+        }
+
+        func overview(for summary: MeetingSummary) async throws -> String {
+            try await base.overview(for: summary)
         }
     }
 }
