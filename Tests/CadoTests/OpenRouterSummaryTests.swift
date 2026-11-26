@@ -39,7 +39,7 @@ final class FakeOpenRouterTransport: OpenRouterTransport, @unchecked Sendable {
         }
     }
 
-    static let goodAnswer = "Decisions:\n- Ship it\n\nAction items:\n- Sam sends the plan\n\nKey points:\n- Budget is unchanged"
+    static let goodAnswer = "Decisions:\n- Ship it\n\nAction items:\n- Sam sends the plan\n\nOpen questions:\n- None\n\nDiscussion:\n- Budget is unchanged\n\nOverview:\nShipping with budget unchanged."
 
     static func completion(_ content: String, finish: String = "stop") -> String {
         let data = try! JSONSerialization.data(withJSONObject: [
@@ -115,7 +115,7 @@ final class OpenRouterSummaryTests: XCTestCase {
         let summary = try await summarizer(transport).summarize("Me: hello\nOthers: hi", part: 1, of: 1)
         XCTAssertEqual(summary.decisions, ["Ship it"])
         XCTAssertEqual(summary.actionItems, ["Sam sends the plan"])
-        XCTAssertEqual(summary.keyPoints, ["Budget is unchanged"])
+        XCTAssertEqual(summary.discussion, ["Budget is unchanged"])
 
         let request = try XCTUnwrap(transport.requests.first)
         XCTAssertEqual(request.url?.absoluteString, "https://openrouter.ai/api/v1/chat/completions")
@@ -143,7 +143,7 @@ final class OpenRouterSummaryTests: XCTestCase {
 
     func testMergeUsesTheSharedPrompt() async throws {
         let transport = FakeOpenRouterTransport()
-        let parts = [MeetingSummary(keyPoints: ["a"]), MeetingSummary(keyPoints: ["b"])]
+        let parts = [MeetingSummary(discussion: ["a"]), MeetingSummary(discussion: ["b"])]
         _ = try await summarizer(transport).merge(parts)
         let body = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(transport.requests.first?.httpBody)) as? [String: Any])
         let messages = try XCTUnwrap(body["messages"] as? [[String: String]])
@@ -337,7 +337,7 @@ final class OpenRouterSummaryTests: XCTestCase {
         on.value = false
         let off = SummarizerError.unavailable(.notSetUp("OpenRouter was turned off, so nothing more was sent."))
         do { _ = try await s.summarize("Me: more", part: 2, of: 2); XCTFail() } catch { XCTAssertEqual(error as? SummarizerError, off) }
-        do { _ = try await s.merge([MeetingSummary(keyPoints: ["a"])]); XCTFail() } catch { XCTAssertEqual(error as? SummarizerError, off) }
+        do { _ = try await s.merge([MeetingSummary(discussion: ["a"])]); XCTFail() } catch { XCTAssertEqual(error as? SummarizerError, off) }
         XCTAssertEqual(transport.requests.count, 1, "Neither the passage nor the merge was sent")
         XCTAssertEqual(s.model, "a/b")
     }
