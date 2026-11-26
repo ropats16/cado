@@ -98,8 +98,13 @@ extension SettingsView {
                 }
                 .pickerWidth()
             }
-            if let warning = viewModel.dictationLanguageWarning {   // #47
-                StatusLine(text: warning, tone: .problem).padding(.bottom, 8)
+            if let guidance = viewModel.dictationLanguageGuidance {   // #47, #61
+                StatusLine(text: guidance.text, tone: guidance.isProblem ? .problem : .note)
+                    .padding(.bottom, guidance.download == nil ? 8 : 4)
+                if let model = guidance.download {
+                    ModelDownloadRow(model: model, viewModel: viewModel)
+                        .padding(.bottom, 4)
+                }
             }
 
             // Apple Speech: the OS-managed model for the language.
