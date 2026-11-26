@@ -98,6 +98,9 @@ struct Config: Codable {
     /// the user switches it on (Settings, onboarding); that is also what asks
     /// macOS for Calendar access. Missing in older configs = off.
     var nameMeetingsFromCalendar: Bool
+    /// Remove spoken hesitation sounds ("um", "uh", …) from dictated text and
+    /// meeting transcripts (#62). On by default; off keeps speech verbatim.
+    var removeHesitations: Bool
 
     static var defaults: Config {
         Config(
@@ -133,7 +136,8 @@ struct Config: Codable {
             meetingDetection: true,
             maxMeetingMinutes: MeetingLimit.defaultMinutes,
             meetingConsentShown: false,
-            nameMeetingsFromCalendar: false
+            nameMeetingsFromCalendar: false,
+            removeHesitations: true
         )
     }
 
@@ -152,7 +156,7 @@ struct Config: Codable {
          openRouterConsent: Bool = false, openRouterModel: String = "",
          meetingHotkey: KeyBinding = .controlOptionM, meetingDetection: Bool = true,
          maxMeetingMinutes: Double = MeetingLimit.defaultMinutes, meetingConsentShown: Bool = false,
-         nameMeetingsFromCalendar: Bool = false) {
+         nameMeetingsFromCalendar: Bool = false, removeHesitations: Bool = true) {
         self.engine = engine
         self.model = model
         self.modelPath = modelPath
@@ -188,6 +192,7 @@ struct Config: Codable {
         self.maxMeetingMinutes = maxMeetingMinutes
         self.meetingConsentShown = meetingConsentShown
         self.nameMeetingsFromCalendar = nameMeetingsFromCalendar
+        self.removeHesitations = removeHesitations
     }
 
     init(from decoder: Decoder) throws {
@@ -234,6 +239,8 @@ struct Config: Codable {
         meetingConsentShown = try c.decodeIfPresent(Bool.self, forKey: .meetingConsentShown) ?? d.meetingConsentShown
         nameMeetingsFromCalendar = try c.decodeIfPresent(Bool.self, forKey: .nameMeetingsFromCalendar)
             ?? d.nameMeetingsFromCalendar
+        removeHesitations = try c.decodeIfPresent(Bool.self, forKey: .removeHesitations)
+            ?? d.removeHesitations
     }
 
     /// `engine` parsed: Automatic, a known engine, or nil for an id this

@@ -117,6 +117,25 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertFalse(vm.soundCues)
     }
 
+    // MARK: - Remove hesitation sounds (#62)
+
+    func testRemoveHesitationsDefaultsOnAndPersists() {
+        let vm = makeVM()
+        XCTAssertTrue(vm.removeHesitations)
+        vm.setRemoveHesitations(false)
+        XCTAssertFalse(configStore.config.removeHesitations)
+        XCTAssertFalse(vm.removeHesitations)
+        vm.setRemoveHesitations(true)
+        XCTAssertTrue(configStore.config.removeHesitations)
+        XCTAssertTrue(vm.removeHesitations)
+    }
+
+    func testRemoveHesitationsLoadsFalseFromConfig() {
+        configStore.update { $0.removeHesitations = false }
+        let vm = makeVM()
+        XCTAssertFalse(vm.removeHesitations)
+    }
+
     // MARK: - Mascot (#20)
 
     func testMascotTogglesDefaultOff() {

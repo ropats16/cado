@@ -92,6 +92,7 @@ final class SettingsViewModel: ObservableObject {
     @Published private(set) var notesFolderPath: String
     @Published private(set) var dictationHistory: Bool
     @Published private(set) var keepMeetingAudio: Bool
+    @Published private(set) var removeHesitations: Bool
 
     // MARK: - Model display state
 
@@ -216,6 +217,7 @@ final class SettingsViewModel: ObservableObject {
         self.notesFolderPath = Self.displayPath(NotesFolder.resolve(cfg))
         self.dictationHistory = cfg.dictationHistory
         self.keepMeetingAudio = cfg.keepMeetingAudio
+        self.removeHesitations = cfg.removeHesitations
         let selected = ModelSelection.select(cfg, environment: self.environment, engines: engines,
                                              modelsDir: modelsDir, presentFilenames: presentModelFilenames(), facts: engineFacts())
         let engine = selected.spec.engine
@@ -291,6 +293,13 @@ final class SettingsViewModel: ObservableObject {
     func setKeepMeetingAudio(_ on: Bool) {
         configStore.update { $0.keepMeetingAudio = on }
         keepMeetingAudio = on
+    }
+
+    /// Persists whether hesitation sounds are removed from dictated text and
+    /// meeting transcripts (#62). Read live on the next dictation or meeting.
+    func setRemoveHesitations(_ on: Bool) {
+        configStore.update { $0.removeHesitations = on }
+        removeHesitations = on
     }
 
     /// Lets the user pick the notes folder; cancelling changes nothing.
