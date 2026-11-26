@@ -287,6 +287,8 @@ final class MeetingSession {
     private let keepAudio: () -> Bool
     /// The language a meeting started now is decoded in (#47), recorded in its spool.
     private let meetingLanguage: () -> String?
+    /// Whether a meeting started now removes spoken hesitations (#62), recorded in its spool.
+    private let removeHesitations: () -> Bool
     private let later: (@escaping () -> Void) -> Void
     private let background: (@escaping () -> Void, @escaping () -> Void) -> Void
     private let locale: Locale
@@ -332,6 +334,7 @@ final class MeetingSession {
          systemAudioPermission: @escaping () -> SystemAudioPermission,
          keepAudio: @escaping () -> Bool = { false },
          meetingLanguage: @escaping () -> String? = { nil },
+         removeHesitations: @escaping () -> Bool = { true },
          maxSeconds: @escaping () -> TimeInterval? = { MeetingSession.defaultMaxSeconds },
          locale: Locale = .current, timeZone: TimeZone = .current,
          calendarNaming: MeetingCalendarNaming = .off,
@@ -354,6 +357,7 @@ final class MeetingSession {
         self.systemAudioPermission = systemAudioPermission
         self.keepAudio = keepAudio
         self.meetingLanguage = meetingLanguage
+        self.removeHesitations = removeHesitations
         self.maxSeconds = maxSeconds
         self.locale = locale
         self.timeZone = timeZone
@@ -384,7 +388,8 @@ final class MeetingSession {
         let id = meetingCount
         let startDate = date()
         let spool = makeSpool(SpooledMeeting(id: UUID(), appName: app.name, appBundleID: app.bundleID,
-                                             startDate: startDate, language: meetingLanguage()))
+                                             startDate: startDate, language: meetingLanguage(),
+                                             removeHesitations: removeHesitations()))
         let cap = MeetingLimit.cap(seconds: maxSeconds())
         let streams = recorder.streams(for: app, maxSeconds: cap)
         let meeting = Meeting(id: id, appName: app.name, startedAt: clock.now, startDate: startDate, spool: spool,
@@ -770,7 +775,12 @@ final class MeetingSession {
         meeting.done += 1
         switch result {
         case .success(let transcript):
-            let segments = NonSpeechFilter.filter(transcript.segments)
+            var segments = NonSpeechFilter.filter(transcript.segments)
+            if meeting.spool.meeting.removeHesitations ?? false {
+                let language = Self.effectiveLanguage(transcriptLanguage: transcript.language,
+                                                      meetingLanguage: meeting.spool.meeting.language)
+                segments = HesitationFilter.filter(segments, language: language)
+            }
             for segment in segments {
                 meeting.pieces.append(.init(speaker: job.speaker, start: job.offset + segment.start, text: segment.text,
                                             end: job.offset + segment.end))
@@ -786,6 +796,15 @@ final class MeetingSession {
         journalSettled(meeting.side(job.speaker), meeting, force: true)
         if !meeting.isRecovery { checkSpool(meeting) }
         report()
+    }
+
+    /// Concrete language for hesitation filtering (#62): the passage's detected
+    /// language first (Whisper/WhisperKit), else the meeting's fixed language
+    /// (Turbo/Apple Speech), else nil (auto-detected from the text).
+    private static func effectiveLanguage(transcriptLanguage: String?, meetingLanguage: String?) -> String? {
+        if let detected = transcriptLanguage, !detected.isEmpty, detected != ModelSpec.autoDetect { return detected }
+        if let configured = meetingLanguage, !configured.isEmpty, configured != ModelSpec.autoDetect { return configured }
+        return nil
     }
 
     /// Transcribing, nothing left to run, and (recovery) the silence scan in.

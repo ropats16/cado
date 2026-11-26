@@ -91,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         systemAudio: { [permissions] in permissions.systemAudio },
         keepAudio: { [configStore] in configStore.config.keepMeetingAudio },
         meetingLanguage: { [configStore] in configStore.config.resolvedMeetingLanguage },
+        removeHesitations: { [configStore] in configStore.config.removeHesitations },
         meetingModel: { [weak self] language in self?.meetingModel(for: language) ?? .dictation },
         options: EngineOptions(threads: configStore.config.threads),
         maxSeconds: { [configStore] in MeetingLimit.seconds(minutes: configStore.config.maxMeetingMinutes) },

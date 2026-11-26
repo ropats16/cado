@@ -51,6 +51,7 @@ final class MeetingController: MeetingActivity, MeetingRecording {
     convenience init(engine: TranscriptionEngine, activity: MeetingActivity, microphoneUID: @escaping () -> String?,
                      notes: MeetingNoteStore, systemAudio: @escaping () -> SystemAudioPermission,
                      keepAudio: @escaping () -> Bool, meetingLanguage: @escaping () -> String? = { nil },
+                     removeHesitations: @escaping () -> Bool = { true },
                      meetingModel: @escaping (String?) -> MeetingModel.Choice = { _ in .dictation },
                      options: EngineOptions = EngineOptions(),
                      maxSeconds: @escaping () -> TimeInterval?, consent: MeetingConsent,
@@ -62,7 +63,8 @@ final class MeetingController: MeetingActivity, MeetingRecording {
             MeetingSession(recorder: recorder, engine: router, notes: notes, archive: FolderMeetingArchive(),
                            spool: FolderMeetingSpool(), feedback: NotifierMeetingFeedback(), activity: controller,
                            clock: clock, systemAudioPermission: systemAudio, keepAudio: keepAudio,
-                           meetingLanguage: meetingLanguage, maxSeconds: maxSeconds, calendarNaming: calendarNaming)
+                           meetingLanguage: meetingLanguage, removeHesitations: removeHesitations,
+                           maxSeconds: maxSeconds, calendarNaming: calendarNaming)
         }
     }
 
