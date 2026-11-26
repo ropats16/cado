@@ -395,4 +395,114 @@ final class HesitationFilterTests: XCTestCase {
             "Let's check the schedule before Friday.",
         ])
     }
+
+    // MARK: - Quoted hesitations, ellipses, colon-period, uh-huh comma, and output invariants
+
+    func testQuotedHesitationsEllipsesColonsAndCommaUhHuh() {
+        // a. Hesitation run that is the entire content of a quoted span stays untouched.
+        XCTAssertEqual(HesitationFilter.clean("\"Um,\" she said.", language: "en"),
+                       "\"Um,\" she said.")
+        XCTAssertEqual(HesitationFilter.clean("“Um,” she said.", language: "en"),
+                       "“Um,” she said.")
+        XCTAssertEqual(HesitationFilter.clean("He said, \"Um.\"", language: "en"),
+                       "He said, \"Um.\"")
+
+        // b. Ellipsis before and after hesitation keeps one ellipsis.
+        XCTAssertEqual(HesitationFilter.clean("I think... um... maybe we wait.", language: "en"),
+                       "I think... maybe we wait.")
+
+        // c. Colon before hesitation that ends the sentence does not leave ":.".
+        XCTAssertEqual(HesitationFilter.clean("Item three: um. Next we review the budget.", language: "en"),
+                       "Item three. Next we review the budget.")
+
+        // d. "Uh, huh" across comma and/or spaces is the acknowledgement "uh-huh".
+        XCTAssertEqual(HesitationFilter.clean("Uh, huh.", language: "en"),
+                       "Uh, huh.")
+        XCTAssertEqual(HesitationFilter.clean("Uh, huh, that works for me.", language: "en"),
+                       "Uh, huh, that works for me.")
+    }
+
+    func testCleanedOutputNeverContainsBrokenPunctuationOrIntroducedDoubleSpaces() {
+        let inputs = [
+            // Hesitation-only
+            "Um", "Um.", "Um,", "Um...", "Um…", "Um?", "Uh", "Uh.", "Uhm", "Umm.", "Erm.",
+            "Um, uh.", "Um, uh, um...", "  Um.  ", " Uh, erm, umm.", "(Um.)", "Um—uh.",
+            // Sentence-initial
+            "Um, we should ship on Friday.", "Uh, I think so.", "Um we should ship on Friday.",
+            "Um... we should ship on Friday.", "Um… we should ship on Friday.",
+            "Um — we should ship on Friday.", "Um—we should ship on Friday.",
+            "Um - we should ship on Friday.", "Um. We should ship on Friday.",
+            "Um, uh, we should ship on Friday.", "Um, uh, um, we should ship on Friday.",
+            " Um, we should ship on Friday.", "um, we should ship on Friday.",
+            "Um, iOS 26 is out.", "Um, a quick note.",
+            "Um, über cool, I think we should ship it.",
+            "“Um, we should go.”", "\"Um, we should go.\"",
+            // Mid-sentence
+            "I think, um, we should go.", "We should, uh, ship it on Friday.",
+            "We should, um, uh, ship it.", "We should, um ship it.", "We should um, ship it.",
+            "We should um ship it.", "We should — um — ship it.", "We should—um—ship it.",
+            "We should, um—ship it.", "We should—um, ship it.", "I think, um... we should go.",
+            "I think, umm, uhh, uhm, erm, yes.", "Um, I think, uh, we should, um, ship it.",
+            // Structural punctuation
+            "Here is the plan: um, we ship Friday.", "We tried that; um, it failed.",
+            "She said, \"Um, we should go.\"", "It works (um, mostly).",
+            "It works (mostly), um, I think.", "It works (um) well.",
+            "It works (um), right?", "It works (um). Next.", "It works (um).",
+            "She said \"yes\" um, and left.",
+            // Sentence boundaries & trailing
+            "That makes sense. Um, let's do it.", "Really? Uh, I didn't know that.",
+            "Great! Um, next topic.", "That makes sense. Um. Let's do it.",
+            "That makes sense. Um, uh. Next topic.", "Wait, um. Next topic.",
+            "Wait, um? Really?", "First line.\nUm, second line.",
+            "We should go, um.", "Should we, uh?", "Watch out, uh!", "We should go, um",
+            "We should go. Um.", "We should go. Um, uh.", "We should go — um.",
+            "We should go, um,", "We should go um", "He said, \"Done, um.\"",
+            "She said, \"Done. Um.\"",
+            // Meaning-carrying & real words
+            "Uh-huh, sounds good.", "Uh huh, sounds good.", "Uh-oh, something broke.",
+            "Uh oh, something broke.", "Uh-uh, no way.", "Uh uh, no way.",
+            "Mm-hmm, I see.", "Mhm, got it.", "Hmm, let me think.",
+            "I was like, you know, really surprised.", "Oh, I see.", "Ah, right!",
+            "Huh, interesting.", "Eh, maybe later.", "To err is human.", "He went to the ER.",
+            "Bring an umbrella to the museum summary forum.",
+            "The minimum and maximum column sum is in the album.",
+            "Determine the thermal permission in Vermont.",
+            "The ERM team met at UH and UM.",
+            "The particle is 5 um wide and 10 mm long.",
+            "Open file_um.txt or foo-um and um-bar and foo/um/bar.",
+            "Check U.M. and U.H. records.",
+            "  Two  spaces stay when there are no hesitations.",
+            "",
+            // Multilingual & Fix 1
+            "Wir treffen uns um 14 Uhr.", "Er kommt, um zu helfen.",
+            "Ähm, wir treffen uns, äh, um 14 Uhr.", "Preciso de um minuto.",
+            "Um, dois, três.", "Um.", "J'ai eu un problème.", "Euh, je pense que oui.",
+            "Er is een probleem.", "Det er godt.", "Tack till er alla.",
+            "Zdrav um je važan.", "To je velký um.", "Við tölum um þetta.",
+            "Un momento, ¿eh?", "Wir treffen uns um 14 Uhr im Büro.",
+            "Preciso de um minuto para ver o orçamento.",
+            "Um zehn Uhr treffen wir uns.", "Er ist um acht Uhr gekommen.",
+            "Eu quero um café com leite.", "Um, I think we should ship it on Friday.",
+            "Um, okay.", "Um carro.", "Uh, eu quero um café com leite.",
+            "Ähm, I think we should ship it on Friday.", "Euh, I think we should ship it on Friday.",
+            // Extra edge cases & Fix 2
+            "Um, uh huh, I agree.", "At 5, um, we should leave.", "UM is a university.",
+            "Ähm, über das Projekt.", "Euh, être prêt.",
+            "\"Um,\" she said.", "“Um,” she said.", "He said, \"Um.\"",
+            "I think... um... maybe we wait.",
+            "Item three: um. Next we review the budget.",
+            "Uh, huh.", "Uh, huh, that works for me.",
+            "Item three: um.", "Item three; um. Next.", "It works, (um).",
+        ]
+        for input in inputs {
+            let output = HesitationFilter.clean(input, language: "en")
+            XCTAssertFalse(output.contains(",,"), "Doubled comma in \(output.debugDescription) from \(input.debugDescription)")
+            XCTAssertFalse(output.contains(", ,"), "Spaced doubled comma in \(output.debugDescription) from \(input.debugDescription)")
+            XCTAssertFalse(output.contains(":."), "Colon-period in \(output.debugDescription) from \(input.debugDescription)")
+            XCTAssertFalse(output.contains(",."), "Comma-period in \(output.debugDescription) from \(input.debugDescription)")
+            if !input.contains("  ") {
+                XCTAssertFalse(output.contains("  "), "Introduced double space in \(output.debugDescription) from \(input.debugDescription)")
+            }
+        }
+    }
 }

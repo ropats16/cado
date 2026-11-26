@@ -255,10 +255,14 @@ enum HesitationFilter {
             if let prevChar = seps[i].last, "/\\@._".contains(prevChar) { continue }
             if let nextChar = seps[i + 1].first, "/\\@_".contains(nextChar) { continue }
 
-            // Two-word meaning-carrying expressions: "uh huh", "uh oh", "uh uh".
-            if isUhSound(lower), i + 1 < tokens.count, isPlainSpace(seps[i + 1]) {
+            // Two-word meaning-carrying expressions: "uh huh" (including "uh, huh"),
+            // "uh oh", "uh uh".
+            if isUhSound(lower), i + 1 < tokens.count {
                 let nextLower = tokens[i + 1].lowercased()
-                if nextLower == "huh" || nextLower == "oh" || isUhSound(nextLower) {
+                let sep = seps[i + 1]
+                let isProtectedPair = (nextLower == "huh" && isSpaceOrComma(sep))
+                    || ((nextLower == "oh" || isUhSound(nextLower)) && isPlainSpace(sep))
+                if isProtectedPair {
                     protected[i] = true
                     protected[i + 1] = true
                     continue
@@ -274,7 +278,46 @@ enum HesitationFilter {
                 marked[i] = true
             }
         }
+
+        // Leave alone any hesitation run that is the entire content of a quoted
+        // span (e.g. `"Um," she said.`): the hesitation itself is being quoted.
+        var idx = 0
+        while idx < tokens.count {
+            guard marked[idx] else { idx += 1; continue }
+            let lo = idx
+            while idx < tokens.count && marked[idx] { idx += 1 }
+            let hi = idx - 1
+            if isEntireQuotedSpan(lo: lo, hi: hi, seps: seps) {
+                for k in lo...hi { marked[k] = false }
+            }
+        }
         return marked
+    }
+
+    private static func isEntireQuotedSpan(lo: Int, hi: Int, seps: [String]) -> Bool {
+        let before = seps[lo]
+        guard let open = before.last else { return false }
+        let close: Character
+        let isSymmetric: Bool
+        switch open {
+        case "\"": close = "\""; isSymmetric = true
+        case "“": close = "”"; isSymmetric = false
+        case "'": close = "'"; isSymmetric = true
+        case "‘": close = "’"; isSymmetric = false
+        default: return false
+        }
+        if isSymmetric {
+            var priorCount = 0
+            for s in seps[0..<lo] { priorCount += s.filter { $0 == open }.count }
+            priorCount += before.dropLast().filter { $0 == open }.count
+            guard priorCount.isMultiple(of: 2) else { return false }
+        }
+        if lo < hi {
+            for s in seps[(lo + 1)...hi] where s.contains(close) { return false }
+        }
+        let after = seps[hi + 1]
+        let remainder = after.drop { ",.!?;:…—–-".contains($0) }
+        return remainder.first == close
     }
 
     private static func isPureNonAcronymWord(_ word: String) -> Bool {
@@ -359,6 +402,20 @@ enum HesitationFilter {
         !sep.isEmpty && sep.allSatisfy { $0 == " " || $0 == "\t" }
     }
 
+    private static func isSpaceOrComma(_ sep: String) -> Bool {
+        guard !sep.isEmpty else { return false }
+        var commas = 0
+        for c in sep {
+            if c == "," {
+                commas += 1
+                if commas > 1 { return false }
+            } else if c != " " && c != "\t" {
+                return false
+            }
+        }
+        return true
+    }
+
     // MARK: - Separator merging
 
     private static let openingDelimiters = Set<Character>(["\"", "'", "“", "‘", "(", "["])
@@ -413,8 +470,11 @@ enum HesitationFilter {
         let trimmedAfter = after.trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
         if let open = trimmedBefore.last, let close = trimmedAfter.first,
            (open == "(" && close == ")") || (open == "[" && close == "]") {
-            let b = String(trimmedBefore.dropLast()).trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
+            var b = String(trimmedBefore.dropLast()).trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
             let a = String(trimmedAfter.dropFirst()).trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
+            if let first = a.first, ",.;:!?".contains(first) {
+                while let last = b.last, ",:; \t".contains(last) { b.removeLast() }
+            }
             return b + a
         }
         // Strip commas/dashes/spaces introducing the hesitation from `before`,
@@ -426,6 +486,12 @@ enum HesitationFilter {
         var cleanAfter = after
         while let first = cleanAfter.first, ",—–- \t".contains(first) { cleanAfter.removeFirst() }
         while let last = cleanAfter.last, ",—–- \t".contains(last) { cleanAfter.removeLast() }
+
+        if let first = cleanAfter.first, ".?!".contains(first) {
+            while let last = cleanBefore.last, ",:;—–-… \t".contains(last) || (first == "." && last == "." && cleanBefore.hasSuffix("..")) {
+                cleanBefore.removeLast()
+            }
+        }
 
         return cleanBefore + cleanAfter
     }
@@ -440,11 +506,14 @@ enum HesitationFilter {
         // ("It works (um) well.", "It works (um), right?", "It works (um). Next.").
         if let open = trimmedBefore.last, let close = trimmedAfter.first,
            (open == "(" && close == ")") || (open == "[" && close == "]") {
-            let b = String(trimmedBefore.dropLast()).trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
+            var b = String(trimmedBefore.dropLast()).trimmingCharacters(in: CharacterSet(charactersIn: " \t"))
             let afterClose = String(after.drop { $0 == " " || $0 == "\t" }.dropFirst())
             let a = collapseHorizontalSpaces(afterClose)
             if a.isEmpty { return (b + " ", false) }
             let startsPunct = a.first.map { ",.;:!?".contains($0) } ?? false
+            if startsPunct {
+                while let last = b.last, ",:; \t".contains(last) { b.removeLast() }
+            }
             let joined = startsPunct ? b + a : b + (b.hasSuffix(" ") || a.hasPrefix(" ") ? "" : " ") + a
             return (joined, hasSentenceEnd(a))
         }
@@ -456,19 +525,28 @@ enum HesitationFilter {
             return (sep + openers, firstWasUpper)
         }
 
-        // Subcase 4c: sentence ended right after (or inside) the hesitation ("Wait, um. Next.").
+        // Subcase 4c: sentence ended right after (or inside) the hesitation
+        // ("Wait, um. Next.", "Item three: um. Next.").
         if hasSentenceEnd(after) {
-            var cleanBefore = before
-            while let last = cleanBefore.last, hesitationPunctuation.contains(last) { cleanBefore.removeLast() }
             var cleanAfter = after
             while let first = cleanAfter.first, ",—–- \t".contains(first) { cleanAfter.removeFirst() }
+            var cleanBefore = before
+            while let last = cleanBefore.last,
+                  hesitationPunctuation.contains(last) || ":;".contains(last)
+                      || (cleanAfter.first == "." && last == "." && cleanBefore.hasSuffix("..")) {
+                cleanBefore.removeLast()
+            }
             return (cleanBefore + collapseHorizontalSpaces(cleanAfter), true)
         }
         if let ended = internalSeps.last(where: hasSentenceEnd) {
-            var cleanBefore = before
-            while let last = cleanBefore.last, hesitationPunctuation.contains(last) { cleanBefore.removeLast() }
             var cleanEnded = ended
             while let first = cleanEnded.first, ",—–- \t".contains(first) { cleanEnded.removeFirst() }
+            var cleanBefore = before
+            while let last = cleanBefore.last,
+                  hesitationPunctuation.contains(last) || ":;".contains(last)
+                      || (cleanEnded.first == "." && last == "." && cleanBefore.hasSuffix("..")) {
+                cleanBefore.removeLast()
+            }
             return (cleanBefore + collapseHorizontalSpaces(cleanEnded) + openers, true)
         }
 
@@ -481,6 +559,12 @@ enum HesitationFilter {
         }
 
         // Subcase 4e: mid-clause hesitation (", um, ", " — um — ", " um ", ", um... ").
+        // Preserve a trailing-off ellipsis before the hesitation ("I think... um... maybe").
+        if trimmedBefore.hasSuffix("...") || trimmedBefore.hasSuffix("…") {
+            let normalized = collapseHorizontalSpaces(before)
+            let joiner = normalized.hasSuffix(" ") || openers.hasPrefix(" ") ? "" : " "
+            return (normalized + joiner + openers, false)
+        }
         var cleanBefore = before
         while let last = cleanBefore.last, hesitationPunctuation.contains(last) || last == "." {
             // Only strip trailing ellipsis dots, not a single sentence period (already handled in 4b).
