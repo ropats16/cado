@@ -96,9 +96,7 @@ enum SummaryPrompts {
     static func passageSummary(from answer: String) throws -> MeetingSummary {
         let reading = SummaryText.read(answer)
         guard !reading.sections.isEmpty else { throw SummarizerError.refused }
-        var summary = reading.summary
-        if summary.isEmpty { summary.overview = "" }
-        return summary
+        return reading.summary.normalized()
     }
 
     /// A merge's answer: as a passage's, and `incomplete` when any of the four
@@ -109,8 +107,6 @@ enum SummaryPrompts {
         let reading = SummaryText.read(answer)
         guard !reading.sections.isEmpty else { throw SummarizerError.refused }
         guard reading.sections.count == SummaryText.answerOrder.count else { throw SummarizerError.incomplete }
-        var summary = reading.summary
-        if summary.isEmpty { summary.overview = "" }
-        return summary
+        return reading.summary.normalized()
     }
 }

@@ -204,6 +204,22 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertFalse(MeetingSummary(discussion: ["Export cap is 200 receipts"]).isEmpty)
     }
 
+    func testNormalizedClearsOverviewWhenSummaryHasNoItems() {
+        let overviewOnly = MeetingSummary(overview: "They chatted about the weather.")
+        XCTAssertEqual(overviewOnly.normalized(), MeetingSummary())
+    }
+
+    func testNormalizedClipsAndCleansOverviewWhenSummaryHasItems() {
+        let messy = MeetingSummary(
+            overview: "## Dr. Rao approved the budget. The launch moves to March 10. Marketing will follow up.",
+            decisions: ["Approve budget"]
+        )
+        XCTAssertEqual(messy.normalized(), MeetingSummary(
+            overview: "Dr. Rao approved the budget. The launch moves to March 10.",
+            decisions: ["Approve budget"]
+        ))
+    }
+
     func testReadsNewFivePartShapeAndOldThreeListShape() {
         let newText = """
             Decisions:
@@ -230,7 +246,6 @@ final class MeetingSummaryTests: XCTestCase {
             openQuestions: ["Should exports over 200 receipts warn or split?"]
         ))
         XCTAssertEqual(newReading.sections, [.decisions, .actionItems, .openQuestions, .discussion])
-        XCTAssertTrue(newReading.hasOverview)
 
         let oldText = """
             Key points:
@@ -252,14 +267,13 @@ final class MeetingSummaryTests: XCTestCase {
             openQuestions: []
         ))
         XCTAssertEqual(oldReading.sections, [.discussion, .decisions, .actionItems])
-        XCTAssertFalse(oldReading.hasOverview)
     }
 
     func testReadsAliasesForNewHeadingsAndInlineOverview() {
         let text = """
             Unresolved questions:
             - Is the 15 MB timeout client-side or storage API?
-            Notes:
+            Discussion points:
             - Timeout affects 3% of accounts
             TL;DR:
             - Timeout root cause is still open.
@@ -269,12 +283,96 @@ final class MeetingSummaryTests: XCTestCase {
         XCTAssertEqual(reading.summary.openQuestions, ["Is the 15 MB timeout client-side or storage API?"])
         XCTAssertEqual(reading.summary.discussion, ["Timeout affects 3% of accounts"])
         XCTAssertEqual(reading.summary.overview, "Timeout root cause is still open. Checking logs before Friday.")
-        XCTAssertTrue(reading.hasOverview)
 
         let inline = SummaryText.read("Bottom line: None\nOpen issues: One blocker")
         XCTAssertEqual(inline.summary.overview, "")
-        XCTAssertTrue(inline.hasOverview)
         XCTAssertEqual(inline.summary.openQuestions, ["One blocker"])
+    }
+
+    func testALeadInBeforeTheListsIsNotTheOverview() {
+        let reading = SummaryText.read("Sure, here is the summary:\nDecisions:\n- Ship CSV export first")
+        XCTAssertEqual(reading.summary.overview, "")
+        XCTAssertEqual(reading.summary.decisions, ["Ship CSV export first"])
+    }
+
+    func testProseBeforeFirstHeadingBecomesOverviewWhenNoOverviewHeadingSuppliesOne() {
+        let text = """
+            The team agreed to ship CSV export first.
+
+            Decisions:
+            - Ship CSV export first
+            Action items:
+            - None
+            Open questions:
+            - None
+            Discussion:
+            - None
+            """
+        let reading = SummaryText.read(text)
+        XCTAssertEqual(reading.summary.overview, "The team agreed to ship CSV export first.")
+        XCTAssertEqual(reading.summary.decisions, ["Ship CSV export first"])
+
+        let withExplicitOverview = """
+            Here are the notes.
+
+            Decisions:
+            - Ship CSV export first
+
+            Overview:
+            CSV export ships first.
+            """
+        XCTAssertEqual(SummaryText.read(withExplicitOverview).summary.overview, "CSV export ships first.")
+
+        let bulletBeforeHeading = """
+            - Stray bullet
+            1. Stray numbered item
+
+            Decisions:
+            - Ship CSV export first
+            """
+        let bulletReading = SummaryText.read(bulletBeforeHeading)
+        XCTAssertEqual(bulletReading.summary.overview, "")
+        XCTAssertEqual(bulletReading.summary.decisions, ["Ship CSV export first"])
+    }
+
+    func testSummaryHeadingTreatsProseAsOverviewAndBulletsAsDiscussion() {
+        let proseSummary = """
+            Summary:
+            The launch moves to March 10.
+            Decisions:
+            - Launch on March 10
+            """
+        let proseReading = SummaryText.read(proseSummary)
+        XCTAssertEqual(proseReading.summary.overview, "The launch moves to March 10.")
+        XCTAssertEqual(proseReading.summary.discussion, [])
+        XCTAssertEqual(proseReading.summary.decisions, ["Launch on March 10"])
+        XCTAssertEqual(proseReading.sections, [.decisions])
+
+        let bulletSummary = """
+            Summary:
+            - Budget is fifteen thousand
+            Decisions:
+            - None
+            """
+        let bulletReading = SummaryText.read(bulletSummary)
+        XCTAssertEqual(bulletReading.summary.discussion, ["Budget is fifteen thousand"])
+        XCTAssertEqual(bulletReading.summary.overview, "")
+        XCTAssertEqual(bulletReading.sections, [.discussion, .decisions])
+    }
+
+    func testNotesAndQuestionsAreNotHeadingSynonyms() {
+        let text = """
+            Discussion:
+            Questions: who owns the rollout?
+            Notes: follow up after beta
+            """
+        let reading = SummaryText.read(text)
+        XCTAssertEqual(reading.summary.discussion, [
+            "Questions: who owns the rollout?",
+            "Notes: follow up after beta",
+        ])
+        XCTAssertEqual(reading.summary.openQuestions, [])
+        XCTAssertEqual(reading.sections, [.discussion])
     }
 
     func testRenderAndReadRoundTripsAllFiveFields() {
@@ -304,7 +402,6 @@ final class MeetingSummaryTests: XCTestCase {
             """)
         let reading = SummaryText.read(rendered)
         XCTAssertEqual(reading.summary, full)
-        XCTAssertTrue(reading.hasOverview)
     }
 
     func testClippedOverviewLimitsSentencesAndWordCount() {
@@ -317,6 +414,70 @@ final class MeetingSummaryTests: XCTestCase {
         let seventyWords = (1...70).map { "word\($0)" }.joined(separator: " ") + "."
         let expectedSixty = (1...60).map { "word\($0)" }.joined(separator: " ") + "…"
         XCTAssertEqual(SummaryText.clippedOverview(seventyWords), expectedSixty)
+    }
+
+    func testOverviewNothingValuesKeepValidSentences() {
+        let valid = """
+            Discussion:
+            - Reviewed Q2 roadmap options
+
+            Overview:
+            No decisions were made.
+            """
+        XCTAssertEqual(SummaryText.read(valid).summary.overview, "No decisions were made.")
+
+        for empty in ["None.", "N/A", "na!", "Nothing."] {
+            let text = """
+                Discussion:
+                - Reviewed Q2 roadmap options
+
+                Overview:
+                \(empty)
+                """
+            XCTAssertEqual(SummaryText.read(text).summary.overview, "", empty)
+        }
+    }
+
+    func testClippedOverviewStripsMarkdownProtectsSpeakerLabelsAndKeepsLeadingNumbers() {
+        XCTAssertEqual(SummaryText.clippedOverview("## The plan is approved."), "The plan is approved.")
+        XCTAssertEqual(SummaryText.clippedOverview("_The plan is approved._"), "The plan is approved.")
+
+        let speakerOverview = SummaryText.clippedOverview("**Me:** will send the deck.")
+        XCTAssertFalse(SummarySection.isTurnLine(speakerOverview))
+        XCTAssertTrue(speakerOverview.contains("will send the deck."))
+        XCTAssertEqual(speakerOverview, "Me: will send the deck.")
+
+        let othersOverview = SummaryText.clippedOverview("**Others:** approved the schedule.")
+        XCTAssertFalse(SummarySection.isTurnLine(othersOverview))
+        XCTAssertEqual(othersOverview, "Others: approved the schedule.")
+
+        let themOverview = SummaryText.clippedOverview("**Them:** will send notes.")
+        XCTAssertFalse(SummarySection.isTurnLine(themOverview))
+        XCTAssertEqual(themOverview, "Them: will send notes.")
+
+        let decimalUnderHeading = """
+            Decisions:
+            - Approve budget
+
+            Overview:
+            2.5 million was approved.
+            """
+        XCTAssertEqual(SummaryText.read(decimalUnderHeading).summary.overview, "2.5 million was approved.")
+
+        let decimalBeforeHeading = """
+            2.5 million was approved.
+
+            Decisions:
+            - Approve budget
+            """
+        XCTAssertEqual(SummaryText.read(decimalBeforeHeading).summary.overview, "2.5 million was approved.")
+    }
+
+    func testClippedOverviewUsesFoundationSentenceBoundaries() {
+        XCTAssertEqual(
+            SummaryText.clippedOverview("Dr. Rao approved the budget. The launch moves to March 10. Marketing will follow up."),
+            "Dr. Rao approved the budget. The launch moves to March 10."
+        )
     }
 
     func testCombinedKeepsSingleOverviewAndDropsMultiPartOverviews() {
