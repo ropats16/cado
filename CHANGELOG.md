@@ -2,6 +2,11 @@
 
 User-facing changes per release, newest first. Versioning rules: `docs/RELEASING.md`.
 
+## Unreleased
+
+### Changed
+- Auto-detect and non-English languages now pick `large-v3-turbo-q5_0` on Apple Silicon Macs with 16 GB or more (while keeping `small-q5_1` on 8–15 GB Apple Silicon and 16 GB+ Intel Macs, and keeping existing larger downloaded models like `medium-q8_0` when `large-v3-turbo-q5_0` isn't downloaded). English dictation is unchanged, and an English-only Whisper model is no longer used for Auto-detect or other languages when a multilingual model is installed.
+
 ## 0.6.0 - 2026-11-18
 
 ### Changed
