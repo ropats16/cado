@@ -51,7 +51,8 @@ off (see [Privacy](#privacy)).
   recording by itself); ⌃⌥M or the mascot start and stop it too. See
   [Meeting notes](#meeting-notes).
 - **Meeting summaries** (macOS 26 with Apple Intelligence): each meeting note
-  gets a summary (key points, decisions, action items) written on your Mac.
+  gets a summary (a short overview, decisions, action items, discussion and
+  open questions) written on your Mac.
   Optionally, and only if you turn it on, OpenRouter's cloud models can write
   them instead (the meeting's text is then sent to OpenRouter). See
   [Summaries](#summaries).
@@ -524,7 +525,8 @@ Meetings says why and nothing changes.
 
 - **After a meeting:** once its note is saved, Cado asks Apple Intelligence's
   on-device model for a summary and adds it to the note: a **Summary** section
-  with **Key points**, **Decisions** and **Action items**, between the note's
+  with a short overview, **Decisions**, **Action items**, **Discussion** and
+  **Open questions**, between the note's
   opening lines and the transcript (which then gets a **Transcript** heading).
   It runs on your Mac; nothing is sent anywhere. The note is saved first and
   is complete without a summary: summarizing never delays or risks it, and if
